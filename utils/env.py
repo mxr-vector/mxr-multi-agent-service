@@ -93,6 +93,10 @@ class ENV:
         return self.require("BASE_URL")
 
     @property
+    def embeddings_model(self)-> str:
+        return self.require("EMBEDDING_MODEL")
+
+    @property
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 
