@@ -6,6 +6,9 @@
 
 # 使用说明
 
-```
+```shell
+# cuda
 uv pip install vllm --torch-backend=auto
+# rocm
+uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ```
