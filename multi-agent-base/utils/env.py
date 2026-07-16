@@ -5,6 +5,7 @@ env.py - 环境配置加载工具类
     print(config.db_host)
 """
 
+from enum import Enum
 import os
 from pathlib import Path
 from typing import Optional
@@ -49,7 +50,7 @@ class ENV:
             load_dotenv(dotenv_path=common_file)
 
         load_dotenv(dotenv_path=env_file, override=True)
-        print(f"[Config] 当前环境: {self.env} | 已加载: {env_file.name}")
+        print(f"[ENV] 当前环境: {self.env} | 已加载: {env_file.name}")
 
     # ---------- 通用取值方法 ----------
     @staticmethod
@@ -93,16 +94,20 @@ class ENV:
         return self.require("BASE_URL")
 
     @property
-    def embeddings_model(self)-> str:
-        return self.require("EMBEDDING_MODEL")
-
-    @property
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 
     def __repr__(self):
-        return f"<Config env={self.env}>"
+        return f"<ENV env={self.env}>"
 
+class ModelConfig(str, Enum):
+    """模型配置项枚举类"""
+    CLOUD_EMBEDDING_API_KEY = ENV.get("CLOUD_EMBEDDING_API_KEY"),
+    CLOUD_EMBEDDING_API_URL = ENV.get("CLOUD_EMBEDDING_API_URL"),
+
+    LOCAL_EMBEDDING_API_KEY = ENV.get("LOCAL_EMBEDDING_API_KEY"),
+    LOCAL_EMBEDDING_API_URL = ENV.get("LOCAL_EMBEDDING_API_URL"),
 
 # 全局单例，其他模块直接 import config 使用
 ENV = ENV()
+ModelConfig = ModelConfig()
