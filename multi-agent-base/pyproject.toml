@@ -32,8 +32,3 @@ url = "https://mirrors.aliyun.com/pypi/simple/"
 [[tool.uv.index]]
 name = "huawei"
 url = "https://mirrors.huaweicloud.com/repository/pypi/simple"
-
-[tool.uv.workspace]
-members = [
-    "vllm_env",
-]
