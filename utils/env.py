@@ -12,7 +12,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 
-class ENV:
+class ENV_CONFIG:
     """
     环境配置管理类（单例模式）
     根据 APP_ENV 自动加载 env/.env.{env} 文件
@@ -27,11 +27,11 @@ class ENV:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, env: str = "dev", env_dir: str = "env", base_path: Path = None):
+    def __init__(self, env_dir: str = "env", base_path: Path = None):
         if self._initialized:
             return  # 避免重复初始化
 
-        self.env = env or os.getenv("APP_ENV", "dev") or os.getenv("APP_ENV", "development")
+        self.env = os.getenv("APP_ENV", "development")
         self.base_path = base_path or Path(__file__).resolve().parent.parent
         self.env_dir = self.base_path / env_dir
 
@@ -94,20 +94,19 @@ class ENV:
         return self.require("BASE_URL")
 
     @property
+    def embedding_api_key(self) -> str:
+        return self.require("EMBEDDING_API_KEY")
+    
+    @property
+    def embedding_api_url(self) -> str:
+        return self.require("EMBEDDING_API_URL")
+
+    @property
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 
     def __repr__(self):
         return f"<ENV env={self.env}>"
 
-class ModelConfig(str, Enum):
-    """模型配置项枚举类"""
-    CLOUD_EMBEDDING_API_KEY = ENV.get("CLOUD_EMBEDDING_API_KEY"),
-    CLOUD_EMBEDDING_API_URL = ENV.get("CLOUD_EMBEDDING_API_URL"),
-
-    LOCAL_EMBEDDING_API_KEY = ENV.get("LOCAL_EMBEDDING_API_KEY"),
-    LOCAL_EMBEDDING_API_URL = ENV.get("LOCAL_EMBEDDING_API_URL"),
-
 # 全局单例，其他模块直接 import config 使用
-ENV = ENV()
-ModelConfig = ModelConfig()
+ENV = ENV_CONFIG()
