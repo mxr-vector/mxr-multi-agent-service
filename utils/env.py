@@ -18,7 +18,7 @@ class ENV:
     根据 APP_ENV 自动加载 env/.env.{env} 文件
     """
 
-    _instance: Optional["Config"] = None
+    _instance: Optional["ENV"] = None
     _initialized: bool = False
 
     def __new__(cls, *args, **kwargs):
