@@ -1,59 +1,73 @@
-from embeddings.model import EmbeddingDashScopeModels
+from clients.dashscope import DashScopeClient
 from embeddings.similarity_utils import SimilarityUtils
 import numpy as np
+
+
 class EmbeddingSearch:
     def semantic_search(query: str, documents: Union[str, List[str]], top_k=5):
         """语义搜索"""
         # 生成查询向量
-        query_resp = EmbeddingDashScopeModels.getTextModel(query, text_type="query")
-        query_embedding = query_resp['embeddings'][0]['embedding']
+        query_resp = DashScopeClient.embed_documents(query, text_type="query")
+        query_embedding = query_resp["embeddings"][0]["embedding"]
         # 生成文档向量
-        doc_embedding = EmbeddingDashScopeModels.getTextModel(documents)['embeddings']
+        doc_embedding = DashScopeClient.embed_documents(documents)["embeddings"]
         # 计算相似度
         similaritys = SimilarityUtils.batch_similarity(query_embedding, doc_embedding)
 
         sorted_similaritys = sorted(similaritys, key=lambda x: x[1], reverse=True)
         return [(documents[i], sim) for i, sim in sorted_similaritys[:top_k]]
 
-    def recommend_items(user_history: Union[str,List[str]], all_items: Union[str,List[str]],top_k=10):
+    def recommend_items(
+        user_history: Union[str, List[str]], all_items: Union[str, List[str]], top_k=10
+    ):
         """构建推荐系统"""
         # 生成用户历史向量
-        history_resp = EmbeddingDashScopeModels.getTextModel(user_history)['embeddings']
+        history_resp = DashScopeClient.embed_documents(user_history)["embeddings"]
 
-        user_embedding = np.mean([emb['embedding'] for emb in history_resp], axis=0)
+        user_embedding = np.mean([emb["embedding"] for emb in history_resp], axis=0)
         # 生成所有物品向量
-        items_resp  = EmbeddingDashScopeModels.getTextModel(all_items)['embeddings']
+        items_resp = DashScopeClient.embed_documents(all_items)["embeddings"]
         # 计算相似度
         similaritys = SimilarityUtils.batch_similarity(user_embedding, items_resp)
         sorted_similaritys = sorted(similaritys, key=lambda x: x[1], reverse=True)
         return [(all_items[i], sim) for i, sim in sorted_similaritys[:top_k]]
 
-    def text_cluster(texts: str,n_clusters=2):
+    def text_cluster(texts: str, n_clusters=2):
         """将一组文本进行聚类"""
-        text_resp = EmbeddingDashScopeModels.getTextModel(texts)['embeddings']
-        embeddings = np.array([item['embedding'] for item in text_resp])
+        text_resp = DashScopeClient.embed_documents(texts)["embeddings"]
+        embeddings = np.array([item["embedding"] for item in text_resp])
         # 2. 使用KMeans算法进行聚类
         from sklearn.cluster import KMeans
-        kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init='auto').fit(embeddings)
-         # 3. 整理并返回结果
+
+        kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init="auto").fit(
+            embeddings
+        )
+        # 3. 整理并返回结果
         clusters = {i: [] for i in range(n_clusters)}
         for i, label in enumerate(kmeans.labels_):
             clusters[label].append(texts[i])
         return clusters
 
-    def text_classify(text,labels):
+    def text_classify(text, labels):
         """零样本文本分类"""
-        text_embedding = EmbeddingDashScopeModels.getTextModel(text)['embeddings'][0]['embedding']
-        labels_resp = EmbeddingDashScopeModels.getTextModel(labels)['embeddings']
+        text_embedding = DashScopeClient.embed_documents(text)["embeddings"][0][
+            "embedding"
+        ]
+        labels_resp = DashScopeClient.embed_documents(labels)["embeddings"]
         similaritys = SimilarityUtils.batch_similarity(text_embedding, labels_resp)
 
         best_match_index = np.argmax(similaritys)
         return labels[best_match_index], similaritys[best_match_index]
 
+
 if __name__ == "__main__":
     # 语义搜索 使用示例
-    query = "如何使用Python进行数据处理?"  
-    documents = ["Python是一种流行的编程语言", "Python可以用于数据处理", "数据处理是Python的一个重要应用"]
+    query = "如何使用Python进行数据处理?"
+    documents = [
+        "Python是一种流行的编程语言",
+        "Python可以用于数据处理",
+        "数据处理是Python的一个重要应用",
+    ]
     results = EmbeddingSearch.semantic_search(query, documents)
     print(results)
 
@@ -71,7 +85,7 @@ if __name__ == "__main__":
         "世界杯决赛阿根廷对阵法国",
         "奥运会中国队再添一金",
         "某公司发布最新AI芯片",
-        "欧洲杯赛事报道"
+        "欧洲杯赛事报道",
     ]
     clusters = cluster_texts(documents_to_cluster, n_clusters=2)
     for cluster_id, docs in clusters.items():
