@@ -1,15 +1,20 @@
+from warnings import deprecated
 from utils.env import ENV
 from langchain_cohere import CohereEmbeddings
 from functools import lru_cache
-from typing import Union,List, Optional
+from typing import Union, List, Optional
 
-'''
-TODO 该SDK可能不兼容新版Cohere API
-'''
+"""
+该SDK不兼容新版Cohere API
+"""
+
+
+@deprecated
 class CohereClientCfg:
     @staticmethod
     @lru_cache(maxsize=8)
-    def get_client(model_name: str,
+    def get_client(
+        model_name: str,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> CohereEmbeddings:
@@ -49,4 +54,5 @@ class CohereClientCfg:
 
         return client.embed_query(query)
 
-CohereClient=CohereClientCfg()
+
+CohereClient = CohereClientCfg()

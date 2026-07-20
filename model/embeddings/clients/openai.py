@@ -1,14 +1,15 @@
 from utils.env import ENV
 from langchain_openai import OpenAIEmbeddings
 from functools import lru_cache
-from typing import Union,List, Optional
+from typing import Union, List, Optional
 
 
 class OpenAIClientCfg:
 
     @staticmethod
     @lru_cache(maxsize=8)
-    def get_client(model_name:str,        
+    def get_client(
+        model_name: str,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> OpenAIEmbeddings:
@@ -26,7 +27,7 @@ class OpenAIClientCfg:
     def embed_documents(
         cls,
         model_name: str,
-       docs: Union[str, list[str]],
+        docs: Union[str, list[str]],
     ) -> List[List[float]]:
         """
         批量文档向量
