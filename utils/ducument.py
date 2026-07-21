@@ -18,6 +18,7 @@ def preprocess_web_docs(urls: list[str]) -> list[Document]:
     Preprocess web documents from a list of URLs.
     '''
     return [__load_web_page(url) for url in urls]
+    
 
 def doc_splits(docs: list[Document]) -> list[Document]:
     '''
@@ -33,8 +34,14 @@ def doc_splits(docs: list[Document]) -> list[Document]:
     )
     return text_splitter.split_documents(docs_list)
 
-urls = [
-    "https://lilianweng.github.io/posts/2024-11-28-reward-hacking/",
-    "https://lilianweng.github.io/posts/2024-07-07-hallucination/",
-    "https://lilianweng.github.io/posts/2024-04-12-diffusion-video/",
-]
+
+
+if __name__ == "__main__":
+    urls = [
+        "https://lilianweng.github.io/posts/2024-11-28-reward-hacking/",
+        "https://lilianweng.github.io/posts/2024-07-07-hallucination/",
+        "https://lilianweng.github.io/posts/2024-04-12-diffusion-video/",
+    ]
+    docs = preprocess_web_docs(urls)
+    split_docs = doc_splits(docs)
+    print(split_docs)
