@@ -77,10 +77,14 @@ class ENV_CONFIG:
         return val
 
     # ---------- 针对你项目的常用属性（可按需增删） ----------
+    """
+    基础相关配置
+    """
+
     @property
-    def server_host(self)-> str:
+    def server_host(self) -> str:
         return self.require("SERVER_HOST")
-        
+
     @property
     def server_port(self) -> int:
         return int(self.require("SERVER_PORT"))
@@ -88,18 +92,10 @@ class ENV_CONFIG:
     @property
     def api_secret_key(self) -> str:
         return self.require("API_SECRET_KEY")
-    
-    @property
-    def base_url(self)-> str:
-        return self.require("BASE_URL")
 
     @property
-    def embedding_api_key(self) -> str:
-        return self.require("EMBEDDING_API_KEY")
-    
-    @property
-    def embedding_api_url(self) -> str:
-        return self.require("EMBEDDING_API_URL")
+    def base_url(self) -> str:
+        return self.require("BASE_URL")
 
     @property
     def is_prod(self) -> bool:
@@ -107,6 +103,43 @@ class ENV_CONFIG:
 
     def __repr__(self):
         return f"<ENV env={self.env}>"
+
+    """
+    向量模型相关配置
+    """
+
+    @property
+    def embedding_api_key(self) -> str:
+        return self.require("EMBEDDING_API_KEY")
+
+    @property
+    def embedding_api_url(self) -> str:
+        return self.require("EMBEDDING_API_URL")
+
+    """
+    数据库相关配置
+    """
+
+    @property
+    def postgres_host(self) -> str:
+        return self.require("POSTGRES_HOST") or "localhost"
+
+    @property
+    def postgres_port(self) -> int:
+        return int(self.require("POSTGRES_PORT")) or 5432
+
+    @property
+    def postgres_db(self) -> str:
+        return self.require("POSTGRES_DB") or "multi_agent_db"
+
+    @property
+    def postgres_user(self) -> str:
+        return self.require("POSTGRES_USER") or "postgres"
+
+    @property
+    def postgres_password(self) -> str:
+        return self.require("POSTGRES_PASSWORD") or "postgres"
+
 
 # 全局单例，其他模块直接 import config 使用
 ENV = ENV_CONFIG()

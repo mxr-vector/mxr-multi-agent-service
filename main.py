@@ -1,20 +1,14 @@
-def main():
-    print("Hello from multi-agent-service!")
+from model.embeddings.client import Embeddings
 
-    #--------openai-------
 
-    # from model.embeddings.clients.openai import OpenAIClient
-    # embed_docs = OpenAIClient.embed_documents("Qwen3-Embedding-0.6B", "Hello, world!")
-    # print(embed_docs)
-
-    #--------cohere-------
-    from model.embeddings.clients.cohere import CohereClient 
-    embed_docs = CohereClient.embed_documents("Qwen3-Embedding-0.6B", "Hello, world!")
-
-    import json
-    print(embed_docs)
-
-   
+def main() -> None:
+    embeddings = Embeddings.from_env()
+    document_vectors = embeddings.embed_documents(
+        ["Hello, world!", "Provider-neutral embeddings."],
+    )
+    query_vector = embeddings.embed_query("Hello")
+    print(document_vectors)
+    print(query_vector)
 
 
 if __name__ == "__main__":
