@@ -1,41 +1,48 @@
-from clients.dashscope import DashScopeClient
-from embeddings.similarity_utils import SimilarityUtils
+from typing import List, Union
+
 import numpy as np
+
+from model.embeddings.factory import EmbeddingFactory
+from model.embeddings.similarity_utils import SimilarityUtils
 
 
 class EmbeddingSearch:
+    @staticmethod
     def semantic_search(query: str, documents: Union[str, List[str]], top_k=5):
         """语义搜索"""
+        client = EmbeddingFactory.get_client()
         # 生成查询向量
-        query_resp = DashScopeClient.embed_documents(query, text_type="query")
-        query_embedding = query_resp["embeddings"][0]["embedding"]
+        query_embedding = client.embed_query(query)
         # 生成文档向量
-        doc_embedding = DashScopeClient.embed_documents(documents)["embeddings"]
+        doc_embeddings = client.embed_documents(documents)
         # 计算相似度
-        similaritys = SimilarityUtils.batch_similarity(query_embedding, doc_embedding)
+        similaritys = SimilarityUtils.batch_similarity(query_embedding, doc_embeddings)
 
         sorted_similaritys = sorted(similaritys, key=lambda x: x[1], reverse=True)
         return [(documents[i], sim) for i, sim in sorted_similaritys[:top_k]]
 
+    @staticmethod
     def recommend_items(
         user_history: Union[str, List[str]], all_items: Union[str, List[str]], top_k=10
     ):
         """构建推荐系统"""
+        client = EmbeddingFactory.get_client()
         # 生成用户历史向量
-        history_resp = DashScopeClient.embed_documents(user_history)["embeddings"]
-
-        user_embedding = np.mean([emb["embedding"] for emb in history_resp], axis=0)
+        history_embeddings = client.embed_documents(user_history)
+        user_embedding = np.mean(history_embeddings, axis=0)
         # 生成所有物品向量
-        items_resp = DashScopeClient.embed_documents(all_items)["embeddings"]
+        items_embeddings = client.embed_documents(all_items)
         # 计算相似度
-        similaritys = SimilarityUtils.batch_similarity(user_embedding, items_resp)
+        similaritys = SimilarityUtils.batch_similarity(user_embedding, items_embeddings)
         sorted_similaritys = sorted(similaritys, key=lambda x: x[1], reverse=True)
         return [(all_items[i], sim) for i, sim in sorted_similaritys[:top_k]]
 
-    def text_cluster(texts: str, n_clusters=2):
+    @staticmethod
+    def text_cluster(texts: List[str], n_clusters=2):
         """将一组文本进行聚类"""
-        text_resp = DashScopeClient.embed_documents(texts)["embeddings"]
-        embeddings = np.array([item["embedding"] for item in text_resp])
+        client = EmbeddingFactory.get_client()
+        text_embeddings = client.embed_documents(texts)
+        embeddings = np.array(text_embeddings)
         # 2. 使用KMeans算法进行聚类
         from sklearn.cluster import KMeans
 
@@ -48,16 +55,16 @@ class EmbeddingSearch:
             clusters[label].append(texts[i])
         return clusters
 
-    def text_classify(text, labels):
+    @staticmethod
+    def text_classify(text: str, labels: List[str]):
         """零样本文本分类"""
-        text_embedding = DashScopeClient.embed_documents(text)["embeddings"][0][
-            "embedding"
-        ]
-        labels_resp = DashScopeClient.embed_documents(labels)["embeddings"]
-        similaritys = SimilarityUtils.batch_similarity(text_embedding, labels_resp)
+        client = EmbeddingFactory.get_client()
+        text_embedding = client.embed_query(text)
+        labels_embeddings = client.embed_documents(labels)
+        similaritys = SimilarityUtils.batch_similarity(text_embedding, labels_embeddings)
 
-        best_match_index = np.argmax(similaritys)
-        return labels[best_match_index], similaritys[best_match_index]
+        best_match_index = max(range(len(similaritys)), key=lambda i: similaritys[i][1])
+        return labels[best_match_index], similaritys[best_match_index][1]
 
 
 if __name__ == "__main__":
@@ -74,7 +81,7 @@ if __name__ == "__main__":
     # 构建推荐系统 使用示例
     user_history = ["科幻类", "动作类", "悬疑类"]
     all_movies = ["未来世界", "太空探险", "古代战争", "浪漫之旅", "超级英雄"]
-    recommendations = build_recommendation_system(user_history, all_movies)
+    recommendations = EmbeddingSearch.recommend_items(user_history, all_movies)
     for movie, score in recommendations:
         print(f"推荐分数: {score:.3f}, 电影: {movie}")
 
@@ -87,7 +94,7 @@ if __name__ == "__main__":
         "某公司发布最新AI芯片",
         "欧洲杯赛事报道",
     ]
-    clusters = cluster_texts(documents_to_cluster, n_clusters=2)
+    clusters = EmbeddingSearch.text_cluster(documents_to_cluster, n_clusters=2)
     for cluster_id, docs in clusters.items():
         print(f"--- 类别 {cluster_id} ---")
         for doc in docs:
@@ -97,6 +104,6 @@ if __name__ == "__main__":
     text_to_classify = "这件衣服的料子很舒服，款式也好看"
     possible_labels = ["数码产品", "服装配饰", "食品饮料", "家居生活"]
 
-    label, score = classify_text_zero_shot(text_to_classify, possible_labels)
+    label, score = EmbeddingSearch.text_classify(text_to_classify, possible_labels)
     print(f"输入文本: '{text_to_classify}'")
     print(f"最匹配的分类是: '{label}' (相似度: {score:.3f})")

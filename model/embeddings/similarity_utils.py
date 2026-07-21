@@ -1,3 +1,5 @@
+from typing import List, Tuple
+
 import numpy as np
 
 
@@ -30,17 +32,16 @@ class SimilarityUtils:
 
 
     @staticmethod
-    def batch_similarity(query_embedding: np.ndarray, embeddings: List[Dict[str, np.ndarray]]) -> List[Tuple[int, float]]:
+    def batch_similarity(query_embedding: np.ndarray, embeddings: List[List[float]]) -> List[Tuple[int, float]]:
         """
         批量计算 query 与文档向量相似度
 
         参数:
             query_embedding: 查询向量
-            embeddings:
+            embeddings: 标准化后的纯向量列表
                 [
-                    {
-                        "embedding": [...]
-                    }
+                    [...],
+                    [...]
                 ]
 
         返回:
@@ -51,10 +52,10 @@ class SimilarityUtils:
 
         similarities = []
 
-        for i, item in enumerate(embeddings):
+        for i, vector in enumerate(embeddings):
             similarity = SimilarityUtils.cosine_similarity(
                 query_embedding,
-                item["embedding"]
+                vector
             )
 
             similarities.append(

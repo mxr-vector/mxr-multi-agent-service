@@ -116,6 +116,15 @@ class ENV_CONFIG:
     def embedding_api_url(self) -> str:
         return self.require("EMBEDDING_API_URL")
 
+    @property
+    def embedding_provider(self) -> str:
+        """原始 EMBEDDING_PROVIDER 字符串；合法性由 embedding 模块的 EmbeddingProvider 负责校验"""
+        return self.require("EMBEDDING_PROVIDER")
+
+    @property
+    def embedding_model_name(self) -> str:
+        return self.require("EMBEDDING_MODEL_NAME")
+
     """
     数据库相关配置
     """
