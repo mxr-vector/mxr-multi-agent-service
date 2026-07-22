@@ -33,6 +33,12 @@ CREATE TABLE rag_documents (
     content_hash    CHAR(64),                   -- sha256(content), 用于判断源文件是否变更, 避免重复切块
     metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,  -- 作者、部门、标签、权限范围等, 用于检索后过滤
 
+    -- 有效期管理: 用于识别过期内容, 避免检索到已失效的信息
+    source_updated_at  TIMESTAMPTZ,              -- 源系统里内容的最后更新时间, 用于判断是否需要重新拉取/重新切块
+    valid_from          TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 该版本内容的生效起始时间
+    valid_until          TIMESTAMPTZ,             -- 过期时间, NULL 表示长期有效; 检索时按 valid_until IS NULL OR valid_until > now() 过滤
+    last_verified_at     TIMESTAMPTZ,             -- 最近一次(人工或定时任务)确认内容仍然有效的时间, 用于安排复核
+
     status          VARCHAR(20) NOT NULL DEFAULT 'active',  -- 取值 'active'/'reindexing'/'deleted', 由业务层校验(不用 CHECK, 便于跨库迁移)
     version         INT NOT NULL DEFAULT 1,     -- 每次重新切块/更新 +1, 配合下面 chunks.document_version 做灰度重建索引
 
@@ -43,6 +49,7 @@ CREATE TABLE rag_documents (
 CREATE INDEX idx_rag_documents_source_hash ON rag_documents (source_uri, content_hash);
 CREATE INDEX idx_rag_documents_metadata_gin ON rag_documents USING GIN (metadata);
 CREATE INDEX idx_rag_documents_status ON rag_documents (status) WHERE status != 'deleted';
+CREATE INDEX idx_rag_documents_valid_until ON rag_documents (valid_until) WHERE valid_until IS NOT NULL;
 
 -- ------------------------------------------------------------
 -- 2. 父子块表 rag_chunks
@@ -94,10 +101,16 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 --
 -- 1) 先插入 rag_documents, 拿到 document_id / version
 -- 2) 按 level=0 批量插入子块, parent_chunk_id 留空 (表示父级就是 rag_documents 本身),
---    同时把生成的 rag_chunks.id 作为 point id 写入 Qdrant, payload 里带上 document_id/chapter_title/page 等
+--    同时把生成的 rag_chunks.id 作为 point id 写入 Qdrant, payload 里带上
+--    document_id/chapter_title/page/valid_until 等字段
 --    (embedding 向量本身只存 Qdrant, 不落 PG)
 -- 3) 如果需要中间层 (例如"章节"级父块), 先插入 level=1 的章节块,
 --    再插入 level=0 子块时把 parent_chunk_id 指向对应的章节块 id
+--
+-- 有效期同步注意: valid_until 必须同时写进 Qdrant payload, 并在检索时作为预过滤条件
+-- (payload 里 valid_until 为空或 > 当前时间), 而不是等 PG 命中结果出来后再过滤 ——
+-- 否则 Qdrant 召回的 top-K 里混有过期内容, PG 一过滤命中数就不够了
+-- 文档过期或者 last_verified_at 长期未更新时, 建议由定时任务把对应 chunk 从 Qdrant 中移除或标记不可检索
 --
 -- 增量同步建议 (对应你在 Oracle CDC 里已经很熟悉的思路):
 -- - 用 content_hash 判断源文档是否变化, 未变化的文档跳过重新切块和向量化
