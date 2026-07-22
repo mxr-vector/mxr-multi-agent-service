@@ -149,6 +149,27 @@ class ENV_CONFIG:
     def postgres_password(self) -> str:
         return self.require("POSTGRES_PASSWORD") or "postgres"
 
+    """
+    向量数据库(Qdrant)相关配置
+    """
+
+    @property
+    def qdrant_host(self) -> str:
+        return self.require("QDRANT_HOST") or "127.0.0.1"
+
+    @property
+    def qdrant_port(self) -> int:
+        return int(self.require("QDRANT_PORT")) or 6333
+
+    @property
+    def qdrant_api_key(self) -> str:
+        return self.require("QDRANT_API_KEY")
+
+    @property
+    def qdrant_https(self) -> bool:
+        """是否使用 https 连接 Qdrant，默认 False"""
+        return self.get_bool("QDRANT_HTTPS", False)
+
 
 # 全局单例，其他模块直接 import config 使用
 ENV = ENV_CONFIG()

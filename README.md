@@ -20,6 +20,8 @@
 [向量数据库选型参考](https://zhuanlan.zhihu.com/p/1983908007046846433)
 [向量数据库对比 2026: Qdrant vs ChromaDB vs pgvector 选型指南](https://jangwook.net/zh/blog/zh/vector-db-comparison-2026-qdrant-chroma-pgvector/)
 
+[Qdrant使用手册](https://qdrant.org.cn/documentation/quickstart/)
+
 # 二.本地推理框架部署
 
 本部署内容和当前项目无关。为了解耦使用web服务协议，避免引入离线llm服务增加项目负担。

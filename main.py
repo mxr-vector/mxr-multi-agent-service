@@ -1,8 +1,7 @@
-from model.embeddings.factory import get_embedding_client
-
+from model.embeddings.langchain_adapter import get_langchain_embeddings
 
 def main() -> None:
-    embedding_client = get_embedding_client()
+    embedding_client = get_langchain_embeddings()
     document_vectors = embedding_client.embed_documents(
         ["Hello, world!", "Provider-neutral embeddings."],
     )
