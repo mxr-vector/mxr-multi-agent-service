@@ -106,5 +106,9 @@ vllm serve Qwen/Qwen3-8B \
 
 
 # 其他问题
-1. cohere运行报错?
+
+## 1. cohere运行报错?
 本地vllm兼容cohere，但对其做了简化，对部分参数有变化。详见 model\embeddings\clients\cohere.py 说明。当然本项目默认对接本地vllm兼容接口。
+
+## 2. RAG效果差?
+注意 rerank和 embedding 模型类型一致，即多模态都是多模态，纯文本都是纯文本.

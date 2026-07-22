@@ -16,7 +16,7 @@ dependencies = [
     "loguru>=0.7.3",
     "numpy>=2.5.1",
     "python-dotenv>=1.2.2",
-    "qdrant-client>=1.18.0",
+    "qdrant-client[fastembed]>=1.18.0",
     "requests>=2.34.2",
     "tqdm>=4.68.4",
 ]

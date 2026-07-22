@@ -23,9 +23,14 @@ from agent.constants.enums.rag import GradeScore, MessageRole, RagNode, RagRoute
 from agent.prompts.rag import GENERATE_PROMPT, GRADE_PROMPT, REWRITE_PROMPT
 from agent.tools.document import retrieve_documents
 from model.chat.factory import build_chat_model
+from model.compression.factory import build_compression_model
 
+# 对话生成模型
 response_model = build_chat_model()
+# LLM 二值仲裁评分模型（用于判断检索内容是否相关）
 grader_model = build_chat_model()
+# 改写/压缩类辅助任务使用独立模型，与对话模型各司其职。
+rewrite_model = build_compression_model()
 
 # 允许的最大问题改写次数，超过后直接结束，避免检索始终不相关时无限改写循环。
 MAX_REWRITES = 1
@@ -76,7 +81,7 @@ def rewrite_question(state: RagState):
     """检索结果不相关时，改写原始问题后重试，并累加改写次数。"""
     question = state["messages"][0].content
     prompt = REWRITE_PROMPT.format(question=question)
-    response = response_model.invoke(
+    response = rewrite_model.invoke(
         [{"role": MessageRole.USER.value, "content": prompt}]
     )
     return {

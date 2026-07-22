@@ -126,6 +126,27 @@ class ENV_CONFIG:
         return self.require("EMBEDDING_MODEL_NAME")
 
     """
+    重排序(Rerank)模型相关配置（vLLM cohere 兼容接口）
+    """
+
+    @property
+    def rerank_api_key(self) -> str:
+        return self.require("RERANK_API_KEY")
+
+    @property
+    def rerank_api_url(self) -> str:
+        return self.require("RERANK_API_URL")
+
+    @property
+    def rerank_provider(self) -> str:
+        """原始 RERANK_PROVIDER 字符串；合法性由 rerank 模块的 RerankProvider 负责校验"""
+        return self.require("RERANK_PROVIDER")
+
+    @property
+    def rerank_model_name(self) -> str:
+        return self.require("RERANK_MODEL_NAME")
+
+    """
     Chat 模型相关配置（vLLM OpenAI 兼容接口）
     """
 
@@ -140,6 +161,23 @@ class ENV_CONFIG:
     @property
     def chat_model_name(self) -> str:
         return self.require("CHAT_MODEL_NAME")
+
+    """
+    Rewrite / Compression 模型相关配置（vLLM OpenAI 兼容接口）
+    与 chat 模型区分：专用于问题改写、上下文压缩等辅助任务，便于各司其职。
+    """
+
+    @property
+    def rewrite_api_key(self) -> str:
+        return self.require("REWRITE_API_KEY")
+
+    @property
+    def rewrite_api_url(self) -> str:
+        return self.require("REWRITE_API_URL")
+
+    @property
+    def rewrite_model_name(self) -> str:
+        return self.require("REWRITE_MODEL_NAME")
 
     """
     数据库相关配置

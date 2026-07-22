@@ -1,13 +1,25 @@
 def main() -> None:
-    from model.embeddings.langchain_adapter import get_langchain_embeddings
+    # from model.embeddings.langchain_adapter import get_langchain_embeddings
 
-    embedding_client = get_langchain_embeddings()
-    document_vectors = embedding_client.embed_documents(
-        ["Hello, world!", "Provider-neutral embeddings."],
-    )
-    query_vector = embedding_client.embed_query("Hello")
-    print(document_vectors)
-    print(query_vector)
+    # embedding_client = get_langchain_embeddings()
+    # document_vectors = embedding_client.embed_documents(
+    #     ["Hello, world!", "Provider-neutral embeddings."],
+    # )
+    # query_vector = embedding_client.embed_query("Hello")
+    # print(document_vectors)
+    # print(query_vector)
+
+    from model.rerank.langchain_adapter import get_langchain_reranker
+    query = "What is the capital of the United States?"
+    docs = [
+        "Carson City is the capital city of the American state of Nevada. At the 2010 United States Census, Carson City had a population of 55,274.",
+        "The Commonwealth of the Northern Mariana Islands is a group of islands in the Pacific Ocean that are a political division controlled by the United States. Its capital is Saipan.",
+        "Charlotte Amalie is the capital and largest city of the United States Virgin Islands. It has about 20,000 people. The city is on the island of Saint Thomas.",
+        "Washington, D.C. (also known as simply Washington or D.C., and officially as the District of Columbia) is the capital of the United States. It is a federal district. The President of the USA and many major national government offices are in the territory. This makes it the political center of the United States of America.",
+        "Capital punishment has existed in the United States since before the United States was a country. As of 2017, capital punishment is legal in 30 of the 50 states. The federal government (including the United States military) also uses capital punishment.",
+    ]
+    reranker = get_langchain_reranker()
+    print(reranker.compress_documents(query, docs))
 
 
 if __name__ == "__main__":
