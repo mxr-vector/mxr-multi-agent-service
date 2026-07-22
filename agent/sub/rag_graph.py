@@ -27,6 +27,15 @@ from model.chat.factory import build_chat_model
 response_model = build_chat_model()
 grader_model = build_chat_model()
 
+# 允许的最大问题改写次数，超过后直接结束，避免检索始终不相关时无限改写循环。
+MAX_REWRITES = 1
+
+
+class RagState(MessagesState):
+    """在消息状态基础上追加改写计数，用于限制改写次数。"""
+
+    rewrite_count: int
+
 
 class GradeDocuments(BaseModel):
     """用二值分数标记检索文档是否相关。"""
@@ -46,7 +55,7 @@ def generate_query_or_respond(state: MessagesState):
     return {"messages": [response]}
 
 
-def grade_documents(state: MessagesState) -> str:
+def grade_documents(state: RagState) -> str:
     """判断检索到的文档是否与问题相关，决定下一步走向。"""
     question = state["messages"][0].content
     context = state["messages"][-1].content
@@ -57,20 +66,26 @@ def grade_documents(state: MessagesState) -> str:
     )
     if response.binary_score == GradeScore.YES.value:
         return RagNode.GENERATE_ANSWER.value
+    # 改写已达上限仍不相关，直接结束，防止无限改写。
+    if state.get("rewrite_count", 0) >= MAX_REWRITES:
+        return END
     return RagNode.REWRITE_QUESTION.value
 
 
-def rewrite_question(state: MessagesState):
-    """检索结果不相关时，改写原始问题后重试。"""
+def rewrite_question(state: RagState):
+    """检索结果不相关时，改写原始问题后重试，并累加改写次数。"""
     question = state["messages"][0].content
     prompt = REWRITE_PROMPT.format(question=question)
     response = response_model.invoke(
         [{"role": MessageRole.USER.value, "content": prompt}]
     )
-    return {"messages": [HumanMessage(content=response.content)]}
+    return {
+        "messages": [HumanMessage(content=response.content)],
+        "rewrite_count": state.get("rewrite_count", 0) + 1,
+    }
 
 
-def generate_answer(state: MessagesState):
+def generate_answer(state: RagState):
     """基于原始问题与检索上下文生成最终答案。"""
     question = state["messages"][0].content
     context = state["messages"][-1].content
@@ -81,7 +96,7 @@ def generate_answer(state: MessagesState):
     return {"messages": [response]}
 
 
-def route_on_tool_calls(state: MessagesState):
+def route_on_tool_calls(state: RagState):
     """根据模型是否发起 tool call 决定去检索还是结束。"""
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
@@ -91,7 +106,7 @@ def route_on_tool_calls(state: MessagesState):
 
 # ---------- 组装图 ----------
 def build_graph():
-    workflow = StateGraph(MessagesState)
+    workflow = StateGraph(RagState)
 
     workflow.add_node(
         RagNode.GENERATE_QUERY_OR_RESPOND.value, generate_query_or_respond
@@ -106,7 +121,15 @@ def build_graph():
         route_on_tool_calls,
         {RagRoute.TOOLS.value: RagNode.RETRIEVE.value, END: END},
     )
-    workflow.add_conditional_edges(RagNode.RETRIEVE.value, grade_documents)
+    workflow.add_conditional_edges(
+        RagNode.RETRIEVE.value,
+        grade_documents,
+        {
+            RagNode.GENERATE_ANSWER.value: RagNode.GENERATE_ANSWER.value,
+            RagNode.REWRITE_QUESTION.value: RagNode.REWRITE_QUESTION.value,
+            END: END,
+        },
+    )
     workflow.add_edge(RagNode.GENERATE_ANSWER.value, END)
     workflow.add_edge(
         RagNode.REWRITE_QUESTION.value, RagNode.GENERATE_QUERY_OR_RESPOND.value
@@ -129,4 +152,7 @@ if __name__ == "__main__":
             ]
         }
     )
+    from IPython.display import Image, display
+
+    display(Image(graph.get_graph().draw_mermaid_png()))
     result["messages"][-1].pretty_print()
