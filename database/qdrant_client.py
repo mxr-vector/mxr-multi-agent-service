@@ -1,4 +1,4 @@
-from database.source.qdrant import get_qdrant_client
+from core.source.qdrant import get_qdrant_client
 from qdrant_client.models import Distance, PointStruct, VectorParams
 from typing import Any, List, Optional, Sequence
 from uuid import uuid4

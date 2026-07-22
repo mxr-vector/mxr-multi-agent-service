@@ -8,8 +8,32 @@
 
 ## 1.1 项目结构
 
-```shell
-
+```text
+project
+|-- env # 开发生产环境目录 (需要.env.sample 复制到 .env.development,.env.production下)
+|
+|-- core # 核心配置目录(数据库连接，自动导包等)
+|
+|-- database # 数据库的crud操作 
+|
+|-- exception # 全局异常/自定义异常
+|
+|-- middleware # web访问层中间件
+|
+|-- routers # web路由入口
+|
+|-- static # 服务门户页面
+|
+|-- model # 存放各类模型客户端，提供抽象层方法
+|       
+|-- utils # 常规辅助工具类
+|     |-- chat # 文本类模块
+|     |-- embeddings # 嵌入向量模型
+|     |-- rerank # 重排序模型
+|-- agent # 智能体代理模块
+|     |-- prompts # 提示词维护模块
+|     |-- tools # 智能体调用工具模块
+|     |-- sub # 子智能体模块 （不同场景）
 ```
 
 ## 1.2 RAG 系统
@@ -43,7 +67,7 @@ uv pip install vllm --extra-index-url https://download.pytorch.org/whl/cu128
 uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ```
 
-## 2.2 快速开始
+## 2.2 运行vllm服务
 ```shell
 # pool model  vllm 0.25.1+
 vllm serve ./models/Qwen3-Embedding-0.6B \
