@@ -77,7 +77,7 @@ uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ## 2.2 运行vllm服务
 ```shell
 # pool model  vllm 0.25.1+
-vllm serve ./models/Qwen3-Embedding-0.6B \
+vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --host 0.0.0.0 \
     --port 8001 \
     --served-model-name Qwen3-Embedding-0.6B \
@@ -91,7 +91,7 @@ vllm serve ./models/Qwen3-Embedding-0.6B \
     --api-key 95279527
 
 # chat model
-vllm serve Qwen/Qwen3.5-2B \
+vllm serve /models/chat/Qwen3.5-2B \
     --host 0.0.0.0 \
     --port 8001 \
     --served-model-name Qwen3.5-2B \
