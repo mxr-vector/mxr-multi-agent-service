@@ -11,20 +11,14 @@ from enum import Enum
 class RagNode(str, Enum):
     """RAG 图节点名（同时用于节点注册与边的引用，必须保持一致）。"""
 
-    GENERATE_QUERY_OR_RESPOND = "generate_query_or_respond"
     RETRIEVE = "retrieve"
-    REWRITE_QUESTION = "rewrite_question"
+    REFLECT = "reflect"
+    RERANK = "rerank"
     GENERATE_ANSWER = "generate_answer"
 
 
-class RagRoute(str, Enum):
-    """条件边路由标签。"""
-
-    TOOLS = "tools"
-
-
 class GradeScore(str, Enum):
-    """文档相关性二值打分。"""
+    """二值判断分数（用于反思节点判断上下文是否充分）。"""
 
     YES = "yes"
     NO = "no"

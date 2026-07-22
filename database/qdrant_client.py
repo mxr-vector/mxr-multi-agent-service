@@ -1,8 +1,13 @@
 from core.source.qdrant import get_qdrant_client
+from qdrant_client import models
 from qdrant_client.models import Distance, PointStruct, VectorParams
 from typing import Any, List, Optional, Sequence
 from uuid import uuid4
 from utils.logger import logger
+
+# 混合检索命名向量：dense 走语义（COSINE），sparse 走 BM25 关键词（IDF 由服务端计算）
+DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
 
 
 class QdrantManager:
@@ -45,6 +50,43 @@ class QdrantManager:
             )
             logger.info(
                 f"[Qdrant] 已创建集合: {self.collection} (dim={vector_size}, distance={distance})"
+            )
+
+    def ensure_hybrid_collection(
+        self,
+        dense_size: int,
+        distance: Distance = Distance.COSINE,
+        recreate: bool = False,
+    ) -> None:
+        """
+        幂等地确保混合检索集合存在（命名向量：dense + sparse）。
+
+        - dense：语义稠密向量，按 dense_size 维、指定 distance 创建；
+        - sparse：BM25 关键词稀疏向量，以 Modifier.IDF 创建，IDF 由服务端计算；
+        - recreate=True 时先删除同名集合再重建（用于 schema 变更 / 重置）。
+        已存在且无需重建时直接返回。
+        """
+        exists = self.client.collection_exists(self.collection)
+        if exists and recreate:
+            self.client.delete_collection(self.collection)
+            logger.info(f"[Qdrant] 已删除旧集合: {self.collection}")
+            exists = False
+
+        if not exists:
+            self.client.create_collection(
+                collection_name=self.collection,
+                vectors_config={
+                    DENSE_VECTOR_NAME: VectorParams(size=dense_size, distance=distance),
+                },
+                sparse_vectors_config={
+                    SPARSE_VECTOR_NAME: models.SparseVectorParams(
+                        modifier=models.Modifier.IDF,
+                    ),
+                },
+            )
+            logger.info(
+                f"[Qdrant] 已创建混合集合: {self.collection} "
+                f"(dense_dim={dense_size}, distance={distance}, sparse=BM25/IDF)"
             )
 
     def delete_collection(self) -> None:
@@ -113,6 +155,57 @@ class QdrantManager:
 
         return self.upsert_points(vectors, payloads=merged_payloads, ids=ids)
 
+    def upsert_hybrid(
+        self,
+        texts: Sequence[str],
+        payloads: Optional[Sequence[dict]] = None,
+        ids: Optional[Sequence[Any]] = None,
+        recreate: bool = False,
+    ) -> List[Any]:
+        """
+        高层写入（混合）：对文本同时生成 dense + sparse 向量并以命名向量写入。
+
+        - dense 由 embedding 工厂生成，sparse 由 BM25 词法编码器生成；
+        - 按首个 dense 向量维度确保混合集合存在（recreate 时重建 schema）；
+        - 原文默认存入 payload["text"]，便于检索后回显。
+        返回实际写入的 point id 列表。
+        """
+        if not texts:
+            return []
+
+        from model.embeddings.factory import get_embedding_client
+        from model.sparse.bm25 import embed_documents as sparse_embed_documents
+
+        text_list = list(texts)
+        dense_vectors = get_embedding_client().embed_documents(text_list)
+        sparse_vectors = sparse_embed_documents(text_list)
+
+        self.ensure_hybrid_collection(len(dense_vectors[0]), recreate=recreate)
+
+        point_ids = (
+            list(ids) if ids is not None else [uuid4().hex for _ in text_list]
+        )
+        points = []
+        for i, text in enumerate(text_list):
+            base = dict(payloads[i]) if payloads is not None else {}
+            base.setdefault("text", text)
+            points.append(
+                PointStruct(
+                    id=point_ids[i],
+                    vector={
+                        DENSE_VECTOR_NAME: list(dense_vectors[i]),
+                        SPARSE_VECTOR_NAME: sparse_vectors[i],
+                    },
+                    payload=base,
+                )
+            )
+
+        self.client.upsert(collection_name=self.collection, points=points)
+        logger.info(
+            f"[Qdrant] 写入 {len(points)} 条混合向量到集合: {self.collection}"
+        )
+        return point_ids
+
     # ---------- 检索 ----------
     def search(
         self,
@@ -137,3 +230,61 @@ class QdrantManager:
             with_payload=with_payload,
         )
         return response.points
+
+    def hybrid_search(
+        self,
+        query: str,
+        limit: int = 5,
+        prefetch_limit: Optional[int] = None,
+        with_payload: bool = True,
+    ):
+        """
+        高层混合检索：一次 Query API 调用同时发起 dense 与 sparse 预取，
+        由服务端 RRF 融合排序，并按 point id 去重后返回。
+
+        - dense 向量由 embedding 工厂生成，sparse 向量由 BM25 词法编码器生成；
+        - prefetch_limit 控制单通道召回广度，缺省与 limit 一致；
+        - limit 为融合后保留的候选上限。
+        返回去重后的 ScoredPoint 列表（含 id / score / payload）。
+        """
+        from model.embeddings.factory import get_embedding_client
+        from model.sparse.bm25 import embed_query as sparse_embed_query
+
+        dense_vector = get_embedding_client().embed_query(query)
+        sparse_vector = sparse_embed_query(query)
+        prefetch_limit = prefetch_limit if prefetch_limit is not None else limit
+
+        response = self.client.query_points(
+            collection_name=self.collection,
+            prefetch=[
+                models.Prefetch(
+                    query=dense_vector,
+                    using=DENSE_VECTOR_NAME,
+                    limit=prefetch_limit,
+                ),
+                models.Prefetch(
+                    query=sparse_vector,
+                    using=SPARSE_VECTOR_NAME,
+                    limit=prefetch_limit,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=limit,
+            with_payload=with_payload,
+        )
+        return self._dedup_by_id(response.points)
+
+    @staticmethod
+    def _dedup_by_id(points):
+        """按 point id 去重，保留首次出现（即融合后排名最靠前）的候选。
+
+        同一分片可能同时被 dense 与 sparse 通道召回，去重后只出现一次。
+        """
+        seen = set()
+        unique = []
+        for point in points:
+            if point.id in seen:
+                continue
+            seen.add(point.id)
+            unique.append(point)
+        return unique

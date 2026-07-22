@@ -45,18 +45,26 @@ def doc_splits(docs: list[Document]) -> list[Document]:
     return text_splitter.split_documents(docs_list)
 
 
-def ingest_web_pages(urls: list[str], collection: str = RAG_COLLECTION) -> list:
+def ingest_web_pages(
+    urls: list[str],
+    collection: str = RAG_COLLECTION,
+    recreate: bool = False,
+) -> list:
     """
-    抓取网页 → 切分 → 写入 Qdrant。
+    抓取网页 → 切分 → 写入 Qdrant（混合命名向量：dense + sparse）。
 
-    原文由 QdrantManager.upsert_texts 自动存入 payload["text"]，便于检索后回显；
+    每个分片同时生成语义稠密向量与 BM25 稀疏向量，以命名向量写入；
+    原文由 QdrantManager.upsert_hybrid 自动存入 payload["text"]，便于检索后回显。
+    recreate=True 时先重建命名向量 schema 再写入（用于从旧的稠密-only 集合迁移）。
     返回实际写入的 point id 列表。
     """
     splits = doc_splits(preprocess_web_docs(urls))
     texts = [doc.page_content for doc in splits]
     payloads = [dict(doc.metadata) for doc in splits]
 
-    point_ids = QdrantManager(collection).upsert_texts(texts, payloads=payloads)
+    point_ids = QdrantManager(collection).upsert_hybrid(
+        texts, payloads=payloads, recreate=recreate
+    )
     logger.info(f"[RAG] 已摄取 {len(point_ids)} 个文档分片到集合: {collection}")
     return point_ids
 
@@ -67,6 +75,6 @@ if __name__ == "__main__":
         "https://lilianweng.github.io/posts/2024-07-07-hallucination/",
         "https://lilianweng.github.io/posts/2024-04-12-diffusion-video/",
     ]
-    docs = preprocess_web_docs(urls)
-    split_docs = doc_splits(docs)
-    print(split_docs)
+    # 以命名向量 schema 重建集合并重新摄取演示数据（dense + sparse）
+    ids = ingest_web_pages(urls, recreate=True)
+    print(f"ingested {len(ids)} chunks into {RAG_COLLECTION}")

@@ -224,6 +224,25 @@ class ENV_CONFIG:
         """是否使用 https 连接 Qdrant，默认 False"""
         return self.get_bool("QDRANT_HTTPS", False)
 
+    """
+    RAG 混合检索相关配置
+    """
+
+    @property
+    def rag_candidate_pool_size(self) -> int:
+        """混合召回融合后的候选池大小（召回广度）。"""
+        return int(self.require("RAG_CANDIDATE_POOL_SIZE"))
+
+    @property
+    def rag_final_top_k(self) -> int:
+        """重排序后保留的最终候选数量（top-k）。"""
+        return int(self.require("RAG_FINAL_TOP_K"))
+
+    @property
+    def rag_reflect_round_cap(self) -> int:
+        """反思循环最大检索轮数上限（默认建议 3）。"""
+        return int(self.require("RAG_REFLECT_ROUND_CAP"))
+
 
 # 全局单例，其他模块直接 import config 使用
 ENV = ENV_CONFIG()
