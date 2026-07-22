@@ -1,8 +1,9 @@
-from source.qdrant import get_qdrant_client
+from database.source.qdrant import get_qdrant_client
 from qdrant_client.models import Distance, PointStruct, VectorParams
 from typing import Any, List, Optional, Sequence
 from uuid import uuid4
 from utils.logger import logger
+
 
 class QdrantManager:
     """
@@ -14,9 +15,9 @@ class QdrantManager:
       embedding 依赖延迟导入，避免仅用低层能力时引入 SDK 加载开销。
     """
 
-    def __init__(self, collection: str, client: Optional[QdrantClient] = None) -> None:
+    def __init__(self, collection: str) -> None:
         self.collection = collection
-        self.client = client or get_qdrant_client()
+        self.client = get_qdrant_client()
 
     # ---------- 集合管理 ----------
     def ensure_collection(

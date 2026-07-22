@@ -126,6 +126,22 @@ class ENV_CONFIG:
         return self.require("EMBEDDING_MODEL_NAME")
 
     """
+    Chat 模型相关配置（vLLM OpenAI 兼容接口）
+    """
+
+    @property
+    def chat_api_key(self) -> str:
+        return self.require("CHAT_API_KEY")
+
+    @property
+    def chat_api_url(self) -> str:
+        return self.require("CHAT_API_URL")
+
+    @property
+    def chat_model_name(self) -> str:
+        return self.require("CHAT_MODEL_NAME")
+
+    """
     数据库相关配置
     """
 
