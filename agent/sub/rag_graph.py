@@ -14,13 +14,12 @@ Agentic RAG 图（LangGraph）。
 入口：模块级 `graph`（已 compile），可直接 graph.invoke(...) / graph.stream(...)。
 """
 
-from typing import Literal
-
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 
+from agent.constants.enums.rag import GradeScore, MessageRole, RagNode, RagRoute
 from agent.prompts.rag import GENERATE_PROMPT, GRADE_PROMPT, REWRITE_PROMPT
 from agent.tools.document import retrieve_documents
 from model.chat.factory import build_chat_model
@@ -33,7 +32,10 @@ class GradeDocuments(BaseModel):
     """用二值分数标记检索文档是否相关。"""
 
     binary_score: str = Field(
-        description="Relevance score: 'yes' if relevant, or 'no' if not relevant"
+        description=(
+            f"Relevance score: '{GradeScore.YES.value}' if relevant, "
+            f"or '{GradeScore.NO.value}' if not relevant"
+        )
     )
 
 
@@ -44,27 +46,27 @@ def generate_query_or_respond(state: MessagesState):
     return {"messages": [response]}
 
 
-def grade_documents(
-    state: MessagesState,
-) -> Literal["generate_answer", "rewrite_question"]:
+def grade_documents(state: MessagesState) -> str:
     """判断检索到的文档是否与问题相关，决定下一步走向。"""
     question = state["messages"][0].content
     context = state["messages"][-1].content
 
     prompt = GRADE_PROMPT.format(question=question, context=context)
     response = grader_model.with_structured_output(GradeDocuments).invoke(
-        [{"role": "user", "content": prompt}]
+        [{"role": MessageRole.USER.value, "content": prompt}]
     )
-    if response.binary_score == "yes":
-        return "generate_answer"
-    return "rewrite_question"
+    if response.binary_score == GradeScore.YES.value:
+        return RagNode.GENERATE_ANSWER.value
+    return RagNode.REWRITE_QUESTION.value
 
 
 def rewrite_question(state: MessagesState):
     """检索结果不相关时，改写原始问题后重试。"""
     question = state["messages"][0].content
     prompt = REWRITE_PROMPT.format(question=question)
-    response = response_model.invoke([{"role": "user", "content": prompt}])
+    response = response_model.invoke(
+        [{"role": MessageRole.USER.value, "content": prompt}]
+    )
     return {"messages": [HumanMessage(content=response.content)]}
 
 
@@ -73,7 +75,9 @@ def generate_answer(state: MessagesState):
     question = state["messages"][0].content
     context = state["messages"][-1].content
     prompt = GENERATE_PROMPT.format(question=question, context=context)
-    response = response_model.invoke([{"role": "user", "content": prompt}])
+    response = response_model.invoke(
+        [{"role": MessageRole.USER.value, "content": prompt}]
+    )
     return {"messages": [response]}
 
 
@@ -81,7 +85,7 @@ def route_on_tool_calls(state: MessagesState):
     """根据模型是否发起 tool call 决定去检索还是结束。"""
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
-        return "tools"
+        return RagRoute.TOOLS.value
     return END
 
 
@@ -89,20 +93,24 @@ def route_on_tool_calls(state: MessagesState):
 def build_graph():
     workflow = StateGraph(MessagesState)
 
-    workflow.add_node(generate_query_or_respond)
-    workflow.add_node("retrieve", ToolNode([retrieve_documents]))
-    workflow.add_node(rewrite_question)
-    workflow.add_node(generate_answer)
-
-    workflow.add_edge(START, "generate_query_or_respond")
-    workflow.add_conditional_edges(
-        "generate_query_or_respond",
-        route_on_tool_calls,
-        {"tools": "retrieve", END: END},
+    workflow.add_node(
+        RagNode.GENERATE_QUERY_OR_RESPOND.value, generate_query_or_respond
     )
-    workflow.add_conditional_edges("retrieve", grade_documents)
-    workflow.add_edge("generate_answer", END)
-    workflow.add_edge("rewrite_question", "generate_query_or_respond")
+    workflow.add_node(RagNode.RETRIEVE.value, ToolNode([retrieve_documents]))
+    workflow.add_node(RagNode.REWRITE_QUESTION.value, rewrite_question)
+    workflow.add_node(RagNode.GENERATE_ANSWER.value, generate_answer)
+
+    workflow.add_edge(START, RagNode.GENERATE_QUERY_OR_RESPOND.value)
+    workflow.add_conditional_edges(
+        RagNode.GENERATE_QUERY_OR_RESPOND.value,
+        route_on_tool_calls,
+        {RagRoute.TOOLS.value: RagNode.RETRIEVE.value, END: END},
+    )
+    workflow.add_conditional_edges(RagNode.RETRIEVE.value, grade_documents)
+    workflow.add_edge(RagNode.GENERATE_ANSWER.value, END)
+    workflow.add_edge(
+        RagNode.REWRITE_QUESTION.value, RagNode.GENERATE_QUERY_OR_RESPOND.value
+    )
 
     return workflow.compile()
 
