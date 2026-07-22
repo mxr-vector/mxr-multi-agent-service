@@ -9,6 +9,8 @@ from model.embeddings.clients.base import BaseEmbeddingClient
 cohere SDK v2. langchain_cohere 不兼容新版，因此使用官方SDK.    
 """
 
+# cohere 内部默认向量维度（不暴露为 env 配置）
+_DEFAULT_DIMENSION = 1024
 class CohereEmbeddingClient(BaseEmbeddingClient):
     def __init__(self) -> None:
         super().__init__()
@@ -24,7 +26,7 @@ class CohereEmbeddingClient(BaseEmbeddingClient):
             texts=docs,
             model=self.model_name,
             input_type="search_document",
-            output_dimension=1024,
+            output_dimension=_DEFAULT_DIMENSION,
             embedding_types=["float"],
         )
 
@@ -33,6 +35,6 @@ class CohereEmbeddingClient(BaseEmbeddingClient):
             texts=query,
             model=self.model_name,
             input_type="search_query",
-            output_dimension=1024,
+            output_dimension=_DEFAULT_DIMENSION,
             embedding_types=["float"],
         )
