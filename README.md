@@ -1,5 +1,4 @@
-# 多智能体服务模块
-
+# 一.说明
 
 本项目只涉及推理服务，不涉及模型加载等优化方案。目的是解耦，之间使用http协议。不支持离线服务
 - 本地推理框架使用vllm: https://docs.vllm.com.cn/en/latest/getting_started/installation/gpu/#create-a-new-python-environment
@@ -7,9 +6,11 @@
 
 # 二.本地推理框架部署
 
+本部署内容和当前项目无关。为了解耦使用web服务协议，避免引入离线llm服务增加项目负担。
+
 先决条件: linux系统
 
-环境部署
+## 2.1 环境部署
 ```shell
 uv venv --python 3.12 --seed --managed-python
 source .venv/bin/activate
@@ -21,7 +22,7 @@ uv pip install vllm --extra-index-url https://download.pytorch.org/whl/cu128
 uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ```
 
-快速开始
+## 2.2 快速开始
 ```shell
 # pool model  vllm 0.25.1+
 vllm serve ./models/Qwen3-Embedding-0.6B \
@@ -51,4 +52,8 @@ vllm serve Qwen/Qwen3-8B \
     --api-key 123456
 ```
 
-# 该项目使用
+# 三.池化模型说明
+
+## 2.1 嵌入模型
+
+嵌入模型经过考虑，为避免维护负担，多处模型引用不一致，造成量化不一致问题，不支持方法层指定模型，改为在环境文件EMBEDDING_MODEL_NAME 统一指定 .

@@ -1,4 +1,5 @@
 from enum import Enum
+from functools import cache
 from typing import Dict, Type
 
 from utils.env import ENV
@@ -22,9 +23,7 @@ class EmbeddingProvider(str, Enum):
             return cls(raw.strip().lower())
         except ValueError:
             valid = ", ".join(p.value for p in cls)
-            raise ValueError(
-                f"无效的 EMBEDDING_PROVIDER: {raw!r}，合法值为: {valid}"
-            )
+            raise ValueError(f"无效的 EMBEDDING_PROVIDER: {raw!r}，合法值为: {valid}")
 
 
 class EmbeddingFactory:
@@ -45,6 +44,17 @@ class EmbeddingFactory:
     @classmethod
     def get_client(cls) -> BaseEmbeddingClient:
         provider = EmbeddingProvider.from_value(ENV.embedding_provider)
+        return cls._build_client(provider)
+
+    @classmethod
+    @cache
+    def _build_client(cls, provider: EmbeddingProvider) -> BaseEmbeddingClient:
+        """
+        按 provider 构造并缓存 client。
+
+        provider 与模型名由配置决定、进程内固定不变，client 无状态且可复用，
+        因此用 functools.cache 按 provider 缓存单例，避免每次重复构造与重复读取 ENV。
+        """
         impl = cls._registry.get(provider)
         if impl is None:
             valid = ", ".join(p.value for p in cls._registry)
@@ -52,3 +62,5 @@ class EmbeddingFactory:
                 f"不支持的 embedding provider: {provider.value}，已注册: {valid}"
             )
         return impl()
+
+get_embedding_client = EmbeddingFactory.get_client
