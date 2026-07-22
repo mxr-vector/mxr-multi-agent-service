@@ -1,29 +1,38 @@
 from typing import List, Union
 from warnings import deprecated
 
-from langchain_cohere import CohereEmbeddings
+import cohere
 
 from model.embeddings.clients.base import BaseEmbeddingClient
 
 """
-该 SDK 不兼容新版 Cohere API，暂保留但不测试，待 SDK 升级后再启用。
+cohere SDK v2. langchain_cohere 不兼容新版，因此使用官方SDK.    
 """
 
-
-@deprecated("SDK 不兼容新版 Cohere API，等待升级后再启用")
 class CohereEmbeddingClient(BaseEmbeddingClient):
     def __init__(self) -> None:
         super().__init__()
-        self._client = CohereEmbeddings(
-            model=self.model_name,
-            cohere_api_key=self.api_key,
+        self._client = cohere.ClientV2(
+            api_key=self.api_key,
             base_url=self.api_url,
         )
 
     def embed_documents(self, docs: Union[str, List[str]]) -> List[List[float]]:
         if isinstance(docs, str):
             docs = [docs]
-        return self._client.embed_documents(docs)
+        return self._client.embed(
+            texts=docs,
+            model=self.model_name,
+            input_type="search_document",
+            output_dimension=1024,
+            embedding_types=["float"],
+        )
 
     def embed_query(self, query: str) -> List[float]:
-        return self._client.embed_query(query)
+        return self._client.embed(
+            texts=query,
+            model=self.model_name,
+            input_type="search_query",
+            output_dimension=1024,
+            embedding_types=["float"],
+        )

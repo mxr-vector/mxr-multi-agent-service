@@ -2,6 +2,9 @@ import bs4
 import requests
 from langchain_core.documents import Document
 
+'''
+文档处理工具
+'''
 # Below is a minimal helper for demonstration purposes.
 def __load_web_page(url: str, bs_kwargs: dict | None = None) -> list[Document]:
     '''
