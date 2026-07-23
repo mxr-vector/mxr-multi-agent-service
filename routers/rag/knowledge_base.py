@@ -14,10 +14,9 @@ _service = KnowledgeBaseService()
 
 
 class KnowledgeBaseCreate(BaseModel):
-    """创建知识库请求体（仅元数据，不创建 Qdrant collection）。"""
+    """创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入）。"""
 
     name: str
-    code: str
     qdrant_collection: str
     description: Optional[str] = None
     category_id: Optional[uuid.UUID] = None
@@ -30,7 +29,7 @@ class KnowledgeBaseCreate(BaseModel):
 
 
 class KnowledgeBaseUpdate(BaseModel):
-    """更新知识库请求体（仅可编辑元数据；code/qdrant_collection/embedding_* 不可变）。"""
+    """更新知识库请求体（仅可编辑元数据；tenant_id/qdrant_collection/embedding_* 不可变）。"""
 
     name: Optional[str] = None
     description: Optional[str] = None
@@ -43,10 +42,9 @@ class KnowledgeBaseUpdate(BaseModel):
 
 @router.post("")
 async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
-    """创建知识库。code 重复时返回失败而非 500。"""
+    """创建知识库（仅元数据，tenant_id 服务端默认注入）。"""
     kb = await _service.create(
         name=payload.name,
-        code=payload.code,
         qdrant_collection=payload.qdrant_collection,
         description=payload.description,
         category_id=payload.category_id,

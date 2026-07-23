@@ -10,7 +10,7 @@ from entity.rag.knowledge_base import KnowledgeBase
 # 建库后不可变、不允许通过更新修改的字段
 _IMMUTABLE_FIELDS = frozenset(
     {
-        "code",
+        "tenant_id",
         "qdrant_collection",
         "embedding_provider",
         "embedding_model",
@@ -28,7 +28,7 @@ class KnowledgeBaseRepository:
     知识库持久层（DAO）。
 
     只负责纯粹的数据访问：创建（仅元数据）、排除软删除的列表、按 id 获取、
-    元数据更新（显式 updated_at）与软删除。不做 code 重复判定等业务规则。
+    元数据更新（显式 updated_at）与软删除。不做业务规则判定。
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -37,8 +37,8 @@ class KnowledgeBaseRepository:
     async def create(
         self,
         name: str,
-        code: str,
         qdrant_collection: str,
+        tenant_id: str = "default",
         description: str | None = None,
         category_id: uuid.UUID | None = None,
         icon: str | None = None,
@@ -51,8 +51,8 @@ class KnowledgeBaseRepository:
         """插入知识库（仅元数据，不创建任何 Qdrant collection）。"""
         kb = KnowledgeBase(
             name=name,
-            code=code,
             qdrant_collection=qdrant_collection,
+            tenant_id=tenant_id,
             description=description,
             category_id=category_id,
             icon=icon,

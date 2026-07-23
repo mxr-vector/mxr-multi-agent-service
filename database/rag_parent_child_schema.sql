@@ -27,6 +27,7 @@ CREATE SCHEMA IF NOT EXISTS rag;
 -- ------------------------------------------------------------
 CREATE TABLE rag.rag_categories (
     id          UUID PRIMARY KEY DEFAULT uuidv7(),
+    tenant_id   VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
     parent_id   UUID,                    -- 逻辑关联 rag.rag_categories.id, NULL 表示根分类
     name        TEXT NOT NULL,
     sort_order  INT NOT NULL DEFAULT 0,  -- 同级排序, 前端展示用
@@ -35,6 +36,7 @@ CREATE TABLE rag.rag_categories (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX idx_rag_categories_tenant ON rag.rag_categories (tenant_id);
 CREATE INDEX idx_rag_categories_parent ON rag.rag_categories (parent_id);
 
 -- ------------------------------------------------------------
@@ -47,8 +49,9 @@ CREATE INDEX idx_rag_categories_parent ON rag.rag_categories (parent_id);
 CREATE TABLE rag.rag_knowledge_bases (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
 
+    tenant_id           VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
+
     name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
-    code                VARCHAR(100) NOT NULL UNIQUE, -- 业务侧引用的稳定标识, 如 'msgupcenter_docs'
     description         TEXT,
 
     category_id         UUID,                        -- 逻辑关联 rag.rag_categories.id, 业务层保证存在性
@@ -74,6 +77,7 @@ CREATE TABLE rag.rag_knowledge_bases (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX idx_rag_kb_tenant   ON rag.rag_knowledge_bases (tenant_id);
 CREATE INDEX idx_rag_kb_category ON rag.rag_knowledge_bases (category_id);
 CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE status != 'deleted';
 
@@ -84,6 +88,8 @@ CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE statu
 -- ------------------------------------------------------------
 CREATE TABLE rag.rag_documents (
     id              UUID PRIMARY KEY DEFAULT uuidv7(),
+
+    tenant_id       VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
 
     knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性
 
@@ -112,6 +118,7 @@ CREATE TABLE rag.rag_documents (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- 由业务层在 UPDATE 时显式赋值, 不再用触发器自动维护
 );
 
+CREATE INDEX idx_rag_documents_tenant       ON rag.rag_documents (tenant_id);
 CREATE INDEX idx_rag_documents_kb           ON rag.rag_documents (knowledge_base_id);
 CREATE INDEX idx_rag_documents_source_hash  ON rag.rag_documents (source_uri, content_hash);
 CREATE INDEX idx_rag_documents_metadata_gin ON rag.rag_documents USING GIN (metadata);
@@ -129,6 +136,8 @@ CREATE INDEX idx_rag_documents_valid_until  ON rag.rag_documents (valid_until) W
 -- ------------------------------------------------------------
 CREATE TABLE rag.rag_chunks (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),  -- 与 Qdrant point id 保持一致, 用于命中后回查
+
+    tenant_id           VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 冗余存储所属文档的 tenant_id, 由业务层注入(缺省 'default')
 
     document_id         UUID NOT NULL,          -- 逻辑关联 rag.rag_documents.id, 业务层保证存在性
     parent_chunk_id     UUID,                   -- 逻辑关联 rag.rag_chunks.id (自引用), 业务层保证存在性
@@ -157,6 +166,7 @@ CREATE TABLE rag.rag_chunks (
 );
 
 -- 常规查询索引 (无向量索引, 向量检索在 Qdrant 侧)
+CREATE INDEX idx_rag_chunks_tenant        ON rag.rag_chunks (tenant_id);
 CREATE INDEX idx_rag_chunks_document      ON rag.rag_chunks (document_id, document_version);
 CREATE INDEX idx_rag_chunks_parent        ON rag.rag_chunks (parent_chunk_id);
 CREATE INDEX idx_rag_chunks_level         ON rag.rag_chunks (level);

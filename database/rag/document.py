@@ -49,6 +49,7 @@ class DocumentRepository:
         metadata: dict | None = None,
         status: str = "pending",
         version: int = 1,
+        tenant_id: str = "default",
     ) -> Document:
         """插入一条文档（默认 status='pending'，尚未向量化）。"""
         doc = Document(
@@ -62,6 +63,7 @@ class DocumentRepository:
             doc_metadata=metadata if metadata is not None else {},
             status=status,
             version=version,
+            tenant_id=tenant_id,
         )
         self.session.add(doc)
         await self.session.flush()

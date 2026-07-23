@@ -1,0 +1,99 @@
+<script setup lang="ts">
+import { computed, reactive, ref, watch } from 'vue'
+import type { FormInstance, FormRules } from 'element-plus'
+import type { KnowledgeBase } from '@/api/rag/knowledgeBase'
+import type { Category } from '@/api/rag/categories'
+import type { KnowledgeBaseFormPayload } from '@/components/rag/types'
+
+const props = defineProps<{
+    visible: boolean
+    record: KnowledgeBase | null
+    categories: Category[]
+    submitting: boolean
+}>()
+
+const emit = defineEmits<{
+    (e: 'update:visible', value: boolean): void
+    (e: 'submit', payload: KnowledgeBaseFormPayload): void
+}>()
+
+const formRef = ref<FormInstance>()
+const form = reactive<KnowledgeBaseFormPayload>({
+    name: '',
+    qdrant_collection: '',
+    description: '',
+    category_id: null,
+    visibility: 'private',
+    status: 'active',
+})
+const isEdit = computed(() => Boolean(props.record))
+const rules: FormRules = {
+    name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }],
+    qdrant_collection: [{ required: true, message: '请输入 Qdrant collection', trigger: 'blur' }],
+}
+
+const dialogVisible = computed({
+    get: () => props.visible,
+    set: (v) => emit('update:visible', v),
+})
+
+// 弹窗打开时，依据 record 初始化表单
+watch(
+    () => props.visible,
+    (v) => {
+        if (!v) return
+        Object.assign(form, {
+            name: props.record?.name ?? '',
+            qdrant_collection: props.record?.qdrant_collection ?? '',
+            description: props.record?.description ?? '',
+            category_id: props.record?.category_id ?? null,
+            visibility: props.record?.visibility ?? 'private',
+            status: props.record?.status ?? 'active',
+        })
+        formRef.value?.clearValidate()
+    }
+)
+
+async function handleSubmit() {
+    const valid = await formRef.value?.validate().catch(() => false)
+    if (!valid) return
+    emit('submit', { ...form })
+}
+</script>
+
+<template>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑知识库' : '新建知识库'" width="560px">
+        <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
+            <el-form-item label="名称" prop="name">
+                <el-input v-model="form.name" placeholder="请输入知识库名称" maxlength="64" />
+            </el-form-item>
+            <el-form-item label="Qdrant 集合" prop="qdrant_collection">
+                <el-input v-model="form.qdrant_collection" :disabled="isEdit" placeholder="创建后不可修改" />
+            </el-form-item>
+            <el-form-item label="分类">
+                <el-select v-model="form.category_id" clearable placeholder="未分类" style="width: 100%">
+                    <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+                </el-select>
+            </el-form-item>
+            <el-form-item label="可见性">
+                <el-select v-model="form.visibility" style="width: 100%">
+                    <el-option label="私有" value="private" />
+                    <el-option label="公开" value="public" />
+                </el-select>
+            </el-form-item>
+            <el-form-item v-if="isEdit" label="状态">
+                <el-select v-model="form.status" style="width: 100%">
+                    <el-option label="已启用" value="active" />
+                    <el-option label="已归档" value="archived" />
+                </el-select>
+            </el-form-item>
+            <el-form-item label="描述">
+                <el-input v-model="form.description" type="textarea" :rows="3" placeholder="选填" maxlength="255" />
+            </el-form-item>
+        </el-form>
+        <template #footer>
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
+        </template>
+    </el-dialog>
+</template>

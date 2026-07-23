@@ -4,6 +4,8 @@ import { CATEGORY_URL } from "./index";
 /** 分类实体（对应后端 rag_categories.to_dict） */
 export interface Category {
   id: string;
+  /** 多租户隔离标识，由服务端注入（缺省 'default'），不可变 */
+  tenant_id: string;
   parent_id: string | null;
   name: string;
   sort_order: number;

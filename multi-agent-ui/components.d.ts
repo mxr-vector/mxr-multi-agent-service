@@ -11,7 +11,25 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    CategoryCard: typeof import('./src/components/rag/CategoryCard.vue')['default']
+    CategoryFormDialog: typeof import('./src/components/rag/CategoryFormDialog.vue')['default']
+    DocumentTable: typeof import('./src/components/rag/DocumentTable.vue')['default']
+    DocumentUploader: typeof import('./src/components/rag/DocumentUploader.vue')['default']
+    ElButton: typeof import('element-plus/es')['ElButton']
+    ElDialog: typeof import('element-plus/es')['ElDialog']
+    ElEmpty: typeof import('element-plus/es')['ElEmpty']
+    ElForm: typeof import('element-plus/es')['ElForm']
+    ElFormItem: typeof import('element-plus/es')['ElFormItem']
+    ElInput: typeof import('element-plus/es')['ElInput']
+    ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
+    ElOption: typeof import('element-plus/es')['ElOption']
+    ElSelect: typeof import('element-plus/es')['ElSelect']
+    KnowledgeBaseFormDialog: typeof import('./src/components/rag/KnowledgeBaseFormDialog.vue')['default']
+    KnowledgeBaseTable: typeof import('./src/components/rag/KnowledgeBaseTable.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+  }
+  export interface GlobalDirectives {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }

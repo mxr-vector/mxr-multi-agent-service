@@ -32,6 +32,7 @@ class DocumentService:
         source_system: str | None = None,
         title: str | None = None,
         metadata: dict | None = None,
+        tenant_id: str = "default",
     ) -> dict:
         """
         上传文件：解析 + 两级切块 + 持久化到 PG（不向量化）。
@@ -76,7 +77,9 @@ class DocumentService:
                 doc = await doc_repo.replace_content(
                     existing, content, content_hash, doc_type
                 )
-                await self._persist_chunk_tree(chunk_repo, doc.id, doc.version, parents)
+                await self._persist_chunk_tree(
+                    chunk_repo, doc.id, doc.version, parents, doc.tenant_id
+                )
                 await kb_repo.adjust_counts(
                     kb, doc_delta=0, chunk_delta=new_leaf_count - old_leaf_count
                 )
@@ -91,8 +94,11 @@ class DocumentService:
                     source_system=source_system,
                     title=title or filename,
                     metadata=metadata,
+                    tenant_id=tenant_id,
                 )
-                await self._persist_chunk_tree(chunk_repo, doc.id, doc.version, parents)
+                await self._persist_chunk_tree(
+                    chunk_repo, doc.id, doc.version, parents, doc.tenant_id
+                )
                 await kb_repo.adjust_counts(kb, doc_delta=1, chunk_delta=new_leaf_count)
 
             await session.commit()
@@ -104,6 +110,7 @@ class DocumentService:
         document_id: uuid.UUID,
         document_version: int,
         parents: list[dict[str, Any]],
+        tenant_id: str = "default",
     ) -> None:
         """先插 level 1 父块拿到 id，再插 level 0 叶块并回填 parent_chunk_id。"""
         parent_chunks = [
@@ -119,6 +126,7 @@ class DocumentService:
                 page_start=p["page_start"],
                 page_end=p["page_end"],
                 content_hash=p["content_hash"],
+                tenant_id=tenant_id,
             )
             for p in parents
         ]
@@ -141,6 +149,7 @@ class DocumentService:
                         page_start=c["page_start"],
                         page_end=c["page_end"],
                         content_hash=c["content_hash"],
+                        tenant_id=tenant_id,
                     )
                 )
         await chunk_repo.bulk_insert(leaf_chunks)

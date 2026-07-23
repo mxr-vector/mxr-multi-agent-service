@@ -13,9 +13,9 @@ class KnowledgeBase(Base):
     知识库 ORM 模型（映射 rag_knowledge_bases）。
 
     - id 由 PostgreSQL 18 的 uuidv7() 服务端默认生成；
-    - code 具有 UNIQUE 约束，重复由业务层转为友好失败；
+    - tenant_id 为多租户隔离标识，由业务层注入（缺省 'default'），建库后不可变；
     - category_id 逻辑关联 rag_categories.id，不加外键/relationship；
-    - code / qdrant_collection / embedding_* 建库后不可变，避免与未来 Qdrant collection 失配；
+    - qdrant_collection / embedding_* 建库后不可变，避免与未来 Qdrant collection 失配；
     - status 取值 'active'/'archived'/'deleted'，删除采用软删除（status='deleted'）；
     - document_count / total_chunk_count 为冗余计数，本轮保持默认。
     """
@@ -30,7 +30,9 @@ class KnowledgeBase(Base):
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    code: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("'default'")
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     category_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -70,8 +72,8 @@ class KnowledgeBase(Base):
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
             "id": str(self.id),
+            "tenant_id": self.tenant_id,
             "name": self.name,
-            "code": self.code,
             "description": self.description,
             "category_id": str(self.category_id) if self.category_id else None,
             "icon": self.icon,

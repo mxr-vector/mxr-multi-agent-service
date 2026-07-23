@@ -13,6 +13,7 @@ class Category(Base):
     分类树 ORM 模型（映射 rag_categories）。
 
     - id 由 PostgreSQL 18 的 uuidv7() 服务端默认生成（时间有序）；
+    - tenant_id 为多租户隔离标识，由业务层注入（缺省 'default'），建库后不可变；
     - parent_id 自引用，NULL 表示根分类，不加外键/relationship，存在性由业务层保证；
     - updated_at 由业务层在更新时显式赋值，不依赖数据库触发器。
     """
@@ -24,6 +25,9 @@ class Category(Base):
         UUID(as_uuid=True),
         primary_key=True,
         server_default=text("uuidv7()"),
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("'default'")
     )
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
@@ -44,6 +48,7 @@ class Category(Base):
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
             "id": str(self.id),
+            "tenant_id": self.tenant_id,
             "parent_id": str(self.parent_id) if self.parent_id else None,
             "name": self.name,
             "sort_order": self.sort_order,

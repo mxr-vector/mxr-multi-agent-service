@@ -18,12 +18,16 @@ class CategoryService:
         name: str,
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
+        tenant_id: str = "default",
     ) -> dict:
-        """创建分类并返回其数据（含数据库生成的 id）。"""
+        """创建分类并返回其数据（含数据库生成的 id；tenant_id 缺省 'default'）。"""
         async with get_session() as session:
             repo = CategoryRepository(session)
             category = await repo.create(
-                name=name, parent_id=parent_id, sort_order=sort_order
+                name=name,
+                parent_id=parent_id,
+                sort_order=sort_order,
+                tenant_id=tenant_id,
             )
             await session.commit()
             return category.to_dict()

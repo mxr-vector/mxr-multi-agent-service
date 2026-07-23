@@ -1,54 +1,146 @@
 <script setup lang="ts">
-const knowledgeBases = [
-    { name: '产品知识中心', description: '产品说明、操作手册与版本记录', documents: 128, updated: '今天 10:24', status: '已启用' },
-    { name: '客户支持资料', description: '常见问题、处理规范与服务案例', documents: 76, updated: '昨天 16:40', status: '已启用' },
-    { name: '研发技术文档', description: '架构设计、接口约定与排障指南', documents: 214, updated: '2026-07-21', status: '处理中' },
-]
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+    listKnowledgeBases,
+    createKnowledgeBase,
+    updateKnowledgeBase,
+    deleteKnowledgeBase,
+    type KnowledgeBase,
+} from '@/api/rag/knowledgeBase'
+import { listCategories, type Category } from '@/api/rag/categories'
+import KnowledgeBaseTable from '@/components/rag/KnowledgeBaseTable.vue'
+import KnowledgeBaseFormDialog from '@/components/rag/KnowledgeBaseFormDialog.vue'
+import type { KnowledgeBaseFormPayload } from '@/components/rag/types'
+
+const loading = ref(false)
+const knowledgeBases = ref<KnowledgeBase[]>([])
+const categories = ref<Category[]>([])
+const keyword = ref('')
+
+// 列表按关键词过滤（名称 / 描述 / Qdrant 集合）
+const filteredList = computed(() => {
+    const kw = keyword.value.trim().toLowerCase()
+    if (!kw) return knowledgeBases.value
+    return knowledgeBases.value.filter((b) =>
+        [b.name, b.qdrant_collection, b.description ?? ''].some((f) => f.toLowerCase().includes(kw))
+    )
+})
+
+// 汇总指标
+const totalDocuments = computed(() =>
+    knowledgeBases.value.reduce((sum, b) => sum + (b.document_count ?? 0), 0)
+)
+const totalChunks = computed(() =>
+    knowledgeBases.value.reduce((sum, b) => sum + (b.total_chunk_count ?? 0), 0)
+)
+
+async function loadKnowledgeBases() {
+    loading.value = true
+    try {
+        const res = await listKnowledgeBases()
+        knowledgeBases.value = res.data ?? []
+    } finally {
+        loading.value = false
+    }
+}
+
+async function loadCategories() {
+    const res = await listCategories()
+    categories.value = res.data ?? []
+}
+
+// 新建 / 编辑弹窗
+const dialogVisible = ref(false)
+const submitting = ref(false)
+const editing = ref<KnowledgeBase | null>(null)
+
+function openCreate() {
+    editing.value = null
+    dialogVisible.value = true
+}
+
+function openEdit(base: KnowledgeBase) {
+    editing.value = base
+    dialogVisible.value = true
+}
+
+async function handleSubmit(payload: KnowledgeBaseFormPayload) {
+    submitting.value = true
+    try {
+        if (editing.value) {
+            await updateKnowledgeBase(editing.value.id, {
+                name: payload.name,
+                description: payload.description || null,
+                category_id: payload.category_id,
+                visibility: payload.visibility,
+                status: payload.status,
+            })
+            ElMessage.success('知识库已更新')
+        } else {
+            await createKnowledgeBase({
+                name: payload.name,
+                qdrant_collection: payload.qdrant_collection,
+                description: payload.description || null,
+                category_id: payload.category_id,
+                visibility: payload.visibility,
+            })
+            ElMessage.success('知识库已创建')
+        }
+        dialogVisible.value = false
+        await loadKnowledgeBases()
+    } finally {
+        submitting.value = false
+    }
+}
+
+async function removeKnowledgeBase(base: KnowledgeBase) {
+    try {
+        await ElMessageBox.confirm(
+            `确定删除知识库「${base.name}」吗？删除后将不再出现在列表中。`,
+            '删除确认',
+            { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+        )
+    } catch {
+        return
+    }
+    await deleteKnowledgeBase(base.id)
+    ElMessage.success('知识库已删除')
+    await loadKnowledgeBases()
+}
+
+onMounted(() => {
+    loadKnowledgeBases()
+    loadCategories()
+})
 </script>
 
 <template>
-    <section class="rag-page">
+    <section class="rag-page" v-loading="loading">
         <header class="page-header">
             <div>
                 <p class="eyebrow">RAG SYSTEM / KNOWLEDGE BASE</p>
                 <h1>知识库管理</h1>
                 <p>创建并维护为智能体提供检索上下文的知识库。</p>
-            </div><button class="primary-button" type="button">＋ 新建知识库</button>
+            </div><button class="primary-button" type="button" @click="openCreate">＋ 新建知识库</button>
         </header>
         <section class="summary-grid">
-            <article><span>知识库总数</span><strong>03</strong><small>全部知识源</small></article>
-            <article><span>已收录文档</span><strong>418</strong><small>较上周 +24</small></article>
-            <article><span>向量化进度</span><strong>96%</strong><small>12 份文档处理中</small></article>
+            <article><span>知识库总数</span><strong>{{ knowledgeBases.length }}</strong><small>全部知识源</small></article>
+            <article><span>已收录文档</span><strong>{{ totalDocuments }}</strong><small>所有知识库合计</small></article>
+            <article><span>分块总数</span><strong>{{ totalChunks }}</strong><small>已入库块数</small></article>
         </section>
         <section class="content-card">
             <div class="toolbar">
                 <div>
-                    <h2>知识库列表</h2><span>按最近更新时间排序</span>
-                </div><input aria-label="搜索知识库" placeholder="搜索知识库" />
+                    <h2>知识库列表</h2><span>共 {{ filteredList.length }} 个知识库</span>
+                </div><input v-model="keyword" aria-label="搜索知识库" placeholder="搜索名称 / 描述 / 集合" />
             </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>知识库</th>
-                            <th>文档数量</th>
-                            <th>最近更新</th>
-                            <th>状态</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="base in knowledgeBases" :key="base.name">
-                            <td><strong>{{ base.name }}</strong><span>{{ base.description }}</span></td>
-                            <td>{{ base.documents }} 份</td>
-                            <td>{{ base.updated }}</td>
-                            <td><em :class="{ processing: base.status === '处理中' }">{{ base.status }}</em></td>
-                            <td><button class="text-button" type="button">管理</button></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+            <KnowledgeBaseTable :list="filteredList" :categories="categories" @edit="openEdit"
+                @remove="removeKnowledgeBase" />
         </section>
+
+        <KnowledgeBaseFormDialog v-model:visible="dialogVisible" :record="editing" :categories="categories"
+            :submitting="submitting" @submit="handleSubmit" />
     </section>
 </template>
 
@@ -129,8 +221,7 @@ h1 {
 
 .summary-grid span,
 .summary-grid small,
-.toolbar span,
-td span {
+.toolbar span {
     color: #7d879a;
     font-size: 12px
 }
@@ -167,69 +258,6 @@ input {
 input:focus {
     border-color: #8091e8;
     box-shadow: 0 0 0 3px rgb(128 145 232 / 12%)
-}
-
-.table-wrap {
-    overflow-x: auto
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left
-}
-
-th,
-td {
-    padding: 16px 20px;
-    border-bottom: 1px solid #f0f2f6;
-    font-size: 13px;
-    white-space: nowrap
-}
-
-th {
-    color: #8993a5;
-    font-size: 11px;
-    font-weight: 600
-}
-
-tbody tr:last-child td {
-    border-bottom: 0
-}
-
-td:first-child {
-    min-width: 270px
-}
-
-td strong,
-td span {
-    display: block
-}
-
-td span {
-    margin-top: 5px
-}
-
-em {
-    padding: 4px 8px;
-    border-radius: 99px;
-    color: #328161;
-    background: #eaf7f1;
-    font-size: 11px;
-    font-style: normal
-}
-
-em.processing {
-    color: #a86d19;
-    background: #fff4df
-}
-
-.text-button {
-    border: 0;
-    color: #526ae2;
-    background: transparent;
-    font-size: 12px;
-    font-weight: 600
 }
 
 @media(max-width:720px) {

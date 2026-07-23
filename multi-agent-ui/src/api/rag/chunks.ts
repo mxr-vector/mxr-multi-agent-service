@@ -4,6 +4,8 @@ import { CHUNK_URL } from "./index";
 /** 分块实体（对应后端 rag_chunks.to_dict） */
 export interface Chunk {
   id: string;
+  /** 多租户隔离标识，由服务端注入（缺省 'default'），不可变 */
+  tenant_id: string;
   document_id: string;
   parent_chunk_id: string | null;
   document_version: number;

@@ -24,9 +24,15 @@ class CategoryRepository:
         name: str,
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
+        tenant_id: str = "default",
     ) -> Category:
         """插入一条分类，id 由数据库 uuidv7() 生成。"""
-        category = Category(name=name, parent_id=parent_id, sort_order=sort_order)
+        category = Category(
+            name=name,
+            parent_id=parent_id,
+            sort_order=sort_order,
+            tenant_id=tenant_id,
+        )
         self.session.add(category)
         await self.session.flush()
         return category

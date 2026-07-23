@@ -4,6 +4,8 @@ import { DOCUMENT_URL } from "./index";
 /** 文档实体（对应后端 rag_documents.to_dict） */
 export interface RagDocument {
   id: string;
+  /** 多租户隔离标识，由服务端注入（缺省 'default'），不可变 */
+  tenant_id: string;
   knowledge_base_id: string;
   source_uri: string | null;
   source_system: string | null;
