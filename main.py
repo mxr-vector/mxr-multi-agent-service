@@ -1,4 +1,5 @@
 def main() -> None:
+    # 嵌入模型测试
     # from model.embeddings.langchain_adapter import get_langchain_embeddings
 
     # embedding_client = get_langchain_embeddings()
@@ -9,6 +10,7 @@ def main() -> None:
     # print(document_vectors)
     # print(query_vector)
 
+    # 重排序模型测试
     from model.rerank.factory import get_rerank_client
     query = "What is the capital of the United States?"
     docs = [
