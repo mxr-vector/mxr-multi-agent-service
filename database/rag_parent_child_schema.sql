@@ -1,9 +1,10 @@
 -- ============================================================
--- RAG 父子文档表结构 (Parent-Child / Small-to-Big Retrieval)
--- 向量检索由 Qdrant 负责, 本表不存 embedding
+-- RAG 知识库 + 父子文档表结构 (Parent-Child / Small-to-Big Retrieval)
+-- 向量检索由 Qdrant 负责, 本库不存 embedding
 -- PG 的职责:
---   1) 存储完整的子块/父块/父文档内容, 供 Qdrant 检索命中后回写给对话模型做上下文
---   2) 存储章节标题、页码等结构信息, 供前端展示"匹配到第几章/第几页"
+--   1) 知识库/分类维度组织文档, 供上传归属和前端浏览
+--   2) 存储完整的子块/父块/父文档内容, 供 Qdrant 检索命中后回写给对话模型做上下文
+--   3) 存储章节标题、页码等结构信息, 供前端展示"匹配到第几章/第几页"
 -- 关联方式: rag_chunks.id 与 Qdrant point id 保持一致(或在 Qdrant payload 中存 rag_chunks.id),
 --          Qdrant 检索命中后, 用命中的 id 回查本表拿完整内容和结构信息
 -- 约束说明: 保留 NOT NULL / UNIQUE 等基础完整性约束;
@@ -15,11 +16,71 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
+-- 0. 分类树 rag_categories
+--    支持多级分类(如 "技术文档" -> "数据同步" -> "Flink CDC"),
+--    parent_id 自引用, 不加外键, 业务层保证存在性和防止循环引用
+-- ------------------------------------------------------------
+CREATE TABLE rag_categories (
+    id          UUID PRIMARY KEY DEFAULT uuidv7(),
+    parent_id   UUID,                    -- 逻辑关联 rag_categories.id, NULL 表示根分类
+    name        TEXT NOT NULL,
+    sort_order  INT NOT NULL DEFAULT 0,  -- 同级排序, 前端展示用
+
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_rag_categories_parent ON rag_categories (parent_id);
+
+-- ------------------------------------------------------------
+-- 0.1 知识库表 rag_knowledge_bases
+--    组织文档的顶层容器, 对应前端"知识库列表"页面
+--    与 Qdrant collection 对应, 一个知识库固定绑定一套 embedding 配置
+--    (如果后续需要同一知识库内混用多个 embedding provider,
+--     再把 embedding_provider/embedding_dim 下放到 rag_documents 级别)
+-- ------------------------------------------------------------
+CREATE TABLE rag_knowledge_bases (
+    id                  UUID PRIMARY KEY DEFAULT uuidv7(),
+
+    name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
+    code                VARCHAR(100) NOT NULL UNIQUE, -- 业务侧引用的稳定标识, 如 'msgupcenter_docs'
+    description         TEXT,
+
+    category_id         UUID,                        -- 逻辑关联 rag_categories.id, 业务层保证存在性
+    icon                VARCHAR(100),                 -- 前端展示用图标/颜色标识
+
+    -- Qdrant 映射: 一个知识库对应一个 collection(不同知识库可用不同 embedding 模型/维度)
+    qdrant_collection   VARCHAR(200) NOT NULL,
+    embedding_provider  VARCHAR(50),                  -- 'vllm_qwen3' / 'dashscope' / 'cohere' 等, 便于检索时选对客户端
+    embedding_model     VARCHAR(100),                 -- 具体模型名, 如 'Qwen3-Embedding-0.6B'
+    embedding_dim       INT,
+
+    -- 权限范围, 具体校验逻辑放业务层, 这里只存配置
+    visibility          VARCHAR(20) NOT NULL DEFAULT 'private', -- 'private'/'department'/'public'
+    owner               VARCHAR(100),                -- 创建者/负责人
+
+    -- 统计信息(冗余字段, 由业务层在写入/删除文档时同步更新, 避免前端列表页每次都 COUNT)
+    document_count      INT NOT NULL DEFAULT 0,
+    total_chunk_count   INT NOT NULL DEFAULT 0,
+
+    status              VARCHAR(20) NOT NULL DEFAULT 'active', -- 'active'/'archived'/'deleted'
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_rag_kb_category ON rag_knowledge_bases (category_id);
+CREATE INDEX idx_rag_kb_status   ON rag_knowledge_bases (status) WHERE status != 'deleted';
+
+-- ------------------------------------------------------------
 -- 1. 父文档表 rag_documents
 --    存放原始文档级信息, 是整个层级结构的顶端 (相当于 level = 最大值)
+--    新增 knowledge_base_id, 归属到具体知识库, 供上传归类和浏览过滤
 -- ------------------------------------------------------------
 CREATE TABLE rag_documents (
     id              UUID PRIMARY KEY DEFAULT uuidv7(),
+
+    knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag_knowledge_bases.id, 业务层保证存在性
 
     -- 来源信息, 便于溯源和增量同步判断是否需要重新入库
     source_uri      TEXT,                       -- 原始文件路径 / URL / DB 表名等
@@ -46,10 +107,11 @@ CREATE TABLE rag_documents (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- 由业务层在 UPDATE 时显式赋值, 不再用触发器自动维护
 );
 
-CREATE INDEX idx_rag_documents_source_hash ON rag_documents (source_uri, content_hash);
+CREATE INDEX idx_rag_documents_kb           ON rag_documents (knowledge_base_id);
+CREATE INDEX idx_rag_documents_source_hash  ON rag_documents (source_uri, content_hash);
 CREATE INDEX idx_rag_documents_metadata_gin ON rag_documents USING GIN (metadata);
-CREATE INDEX idx_rag_documents_status ON rag_documents (status) WHERE status != 'deleted';
-CREATE INDEX idx_rag_documents_valid_until ON rag_documents (valid_until) WHERE valid_until IS NOT NULL;
+CREATE INDEX idx_rag_documents_status       ON rag_documents (status) WHERE status != 'deleted';
+CREATE INDEX idx_rag_documents_valid_until  ON rag_documents (valid_until) WHERE valid_until IS NOT NULL;
 
 -- ------------------------------------------------------------
 -- 2. 父子块表 rag_chunks
@@ -96,40 +158,76 @@ CREATE INDEX idx_rag_chunks_level         ON rag_chunks (level);
 CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 
 -- ============================================================
--- 3. 典型写入模式 (以 2 级结构为例: 子块 level=0, 父块直接是文档本身)
+-- 3. 典型写入模式
 -- ============================================================
 --
--- 1) 先插入 rag_documents, 拿到 document_id / version
+-- 0) 上传/建库时先确定 knowledge_base_id (前端选择已有知识库, 或创建新知识库拿到 id 和 qdrant_collection)
+-- 1) 插入 rag_documents 时带上 knowledge_base_id, 拿到 document_id / version
 -- 2) 按 level=0 批量插入子块, parent_chunk_id 留空 (表示父级就是 rag_documents 本身),
---    同时把生成的 rag_chunks.id 作为 point id 写入 Qdrant, payload 里带上
---    document_id/chapter_title/page/valid_until 等字段
+--    同时把生成的 rag_chunks.id 作为 point id 写入对应知识库的 Qdrant collection, payload 里带上
+--    document_id/knowledge_base_id/chapter_title/page/valid_until 等字段
 --    (embedding 向量本身只存 Qdrant, 不落 PG)
 -- 3) 如果需要中间层 (例如"章节"级父块), 先插入 level=1 的章节块,
 --    再插入 level=0 子块时把 parent_chunk_id 指向对应的章节块 id
+-- 4) 写入完成后, 业务层同步更新 rag_knowledge_bases.document_count / total_chunk_count
 --
 -- 有效期同步注意: valid_until 必须同时写进 Qdrant payload, 并在检索时作为预过滤条件
 -- (payload 里 valid_until 为空或 > 当前时间), 而不是等 PG 命中结果出来后再过滤 ——
 -- 否则 Qdrant 召回的 top-K 里混有过期内容, PG 一过滤命中数就不够了
 -- 文档过期或者 last_verified_at 长期未更新时, 建议由定时任务把对应 chunk 从 Qdrant 中移除或标记不可检索
 --
--- 增量同步建议 (对应你在 Oracle CDC 里已经很熟悉的思路):
+-- 增量同步建议 (对应 Oracle CDC 里的思路):
 -- - 用 content_hash 判断源文档是否变化, 未变化的文档跳过重新切块和向量化
 -- - 重新切块时不要直接 DELETE 旧 chunk, 而是新 document_version 写入新一批 chunk 和新的 Qdrant point,
 --   索引构建完成后再把旧版本 chunk 和旧 Qdrant point 批量删除, 避免检索服务读到"半新半旧"的状态
 
 -- ============================================================
--- 4. 典型检索流程: Qdrant 做向量检索 -> PG 回查完整上下文和章节/页码
+-- 4. 典型浏览流程 (知识库列表 -> 分类树 -> 文档列表)
 -- ============================================================
 
--- 4.1 第一阶段 (在 Qdrant 侧完成, 非 SQL): 用 query embedding 在 Qdrant 里做 ANN 检索,
---     拿到一批命中的 point id (即 rag_chunks.id)
+-- 4.1 分类树展开 (递归 CTE, 拿到某个根分类下所有子分类, 前端做级联菜单/侧边栏)
+-- WITH RECURSIVE cat_tree AS (
+--     SELECT id, parent_id, name, sort_order, 0 AS depth
+--     FROM rag_categories
+--     WHERE id = :root_category_id
+--
+--     UNION ALL
+--
+--     SELECT c.id, c.parent_id, c.name, c.sort_order, t.depth + 1
+--     FROM rag_categories c
+--     JOIN cat_tree t ON c.parent_id = t.id
+-- )
+-- SELECT * FROM cat_tree ORDER BY depth, sort_order;
 
--- 4.2 第二阶段: 用命中的 id 回查 PG, 拿完整内容 + 章节/页码 (给前端展示用)
+-- 4.2 某分类(含子分类)下的知识库列表
+-- SELECT kb.id, kb.name, kb.document_count, kb.total_chunk_count, kb.status
+-- FROM rag_knowledge_bases kb
+-- WHERE kb.category_id = ANY(:category_ids_in_subtree)   -- 4.1 查出的整棵子树 id 列表
+--   AND kb.status != 'deleted'
+-- ORDER BY kb.updated_at DESC;
+
+-- 4.3 某知识库下的文档列表 (分页浏览)
+-- SELECT id, title, doc_type, status, version, updated_at
+-- FROM rag_documents
+-- WHERE knowledge_base_id = :kb_id
+--   AND status != 'deleted'
+-- ORDER BY updated_at DESC
+-- LIMIT :page_size OFFSET :offset;
+
+-- ============================================================
+-- 5. 典型检索流程: Qdrant 做向量检索 -> PG 回查完整上下文和章节/页码
+-- ============================================================
+
+-- 5.1 第一阶段 (在 Qdrant 侧完成, 非 SQL): 根据知识库确定要查询的 collection
+--     (SELECT qdrant_collection FROM rag_knowledge_bases WHERE id = :kb_id),
+--     用 query embedding 在该 collection 里做 ANN 检索, 拿到一批命中的 point id (即 rag_chunks.id)
+
+-- 5.2 第二阶段: 用命中的 id 回查 PG, 拿完整内容 + 章节/页码 (给前端展示用)
 -- SELECT id, document_id, chapter_title, page_start, page_end, content
 -- FROM rag_chunks
 -- WHERE id = ANY(:matched_chunk_ids);
 
--- 4.3 第三阶段: 如需给对话模型更完整的上下文, 递归回溯到父级 (或直接 join rag_documents)
+-- 5.3 第三阶段: 如需给对话模型更完整的上下文, 递归回溯到父级 (或直接 join rag_documents)
 -- 多级场景用递归 CTE:
 --
 -- WITH RECURSIVE ancestor AS (
@@ -149,9 +247,10 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 -- WHERE parent_chunk_id IS NULL                      -- 回溯到顶层父块
 -- ORDER BY document_id, depth DESC;
 --
--- 简单两级场景 (子块的父级就是文档本身) 直接 join documents 即可, 不需要递归:
+-- 简单两级场景 (子块的父级就是文档本身) 直接 join documents + knowledge_bases 即可, 不需要递归:
 --
--- SELECT DISTINCT d.id, d.title, d.content
+-- SELECT DISTINCT d.id, d.title, d.content, kb.name AS knowledge_base_name
 -- FROM rag_chunks c
 -- JOIN rag_documents d ON d.id = c.document_id
+-- JOIN rag_knowledge_bases kb ON kb.id = d.knowledge_base_id
 -- WHERE c.id = ANY(:matched_chunk_ids);
