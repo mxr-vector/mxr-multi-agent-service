@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import MainLayout from '@/layout/MainLayout.vue'
-import WorkspaceView from '@/views/WorkspaceView.vue'
+import Workspace from '@/views/Workspace.vue'
 import { navigationItems } from './navigation'
 
 const ragViews = {
@@ -15,7 +15,7 @@ function createChildRoutes(items = navigationItems): RouteRecordRaw[] {
     return {
       path: item.path.slice(1),
       name: item.name,
-      component: ragViews[item.name as keyof typeof ragViews] ?? WorkspaceView,
+      component: ragViews[item.name as keyof typeof ragViews] ?? Workspace,
       meta: item,
       children: [],
     }
