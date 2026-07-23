@@ -2,8 +2,15 @@ import axios, { type InternalAxiosRequestConfig, type AxiosResponse } from "axio
 import { ElMessage, ElMessageBox } from "element-plus";
 import errorCode from "@/utils/errorCode";
 
+// 后端统一响应结构：所有接口经响应拦截器后返回 { code, msg, data }
+export interface ApiResult<T = unknown> {
+  code: number;
+  msg: string;
+  data: T;
+}
+
 // 是否显示重新登录提示，避免 401 时重复弹窗
-export const isRelogin: { show: boolean } = { show: false }
+export const isRelogin: { show: boolean } = { show: false };
 
 // 创建 axios 实例
 const service = axios.create({
