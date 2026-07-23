@@ -1,0 +1,107 @@
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from entity.rag.knowledge_base import KnowledgeBase
+
+# 建库后不可变、不允许通过更新修改的字段
+_IMMUTABLE_FIELDS = frozenset(
+    {
+        "code",
+        "qdrant_collection",
+        "embedding_provider",
+        "embedding_model",
+        "embedding_dim",
+    }
+)
+# 允许更新的元数据字段
+_EDITABLE_FIELDS = frozenset(
+    {"name", "description", "category_id", "icon", "visibility", "owner", "status"}
+)
+
+
+class KnowledgeBaseRepository:
+    """
+    知识库持久层（DAO）。
+
+    只负责纯粹的数据访问：创建（仅元数据）、排除软删除的列表、按 id 获取、
+    元数据更新（显式 updated_at）与软删除。不做 code 重复判定等业务规则。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        name: str,
+        code: str,
+        qdrant_collection: str,
+        description: str | None = None,
+        category_id: uuid.UUID | None = None,
+        icon: str | None = None,
+        embedding_provider: str | None = None,
+        embedding_model: str | None = None,
+        embedding_dim: int | None = None,
+        visibility: str = "private",
+        owner: str | None = None,
+    ) -> KnowledgeBase:
+        """插入知识库（仅元数据，不创建任何 Qdrant collection）。"""
+        kb = KnowledgeBase(
+            name=name,
+            code=code,
+            qdrant_collection=qdrant_collection,
+            description=description,
+            category_id=category_id,
+            icon=icon,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model,
+            embedding_dim=embedding_dim,
+            visibility=visibility,
+            owner=owner,
+        )
+        self.session.add(kb)
+        await self.session.flush()
+        return kb
+
+    async def list(self, category_id: uuid.UUID | None = None) -> list[KnowledgeBase]:
+        """列出知识库，排除 status='deleted'；可选按 category_id 过滤。"""
+        stmt = select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
+        if category_id is not None:
+            stmt = stmt.where(KnowledgeBase.category_id == category_id)
+        stmt = stmt.order_by(KnowledgeBase.updated_at.desc())
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get(self, kb_id: uuid.UUID) -> KnowledgeBase | None:
+        """按 id 获取知识库，不存在返回 None（含软删除的行也会返回，由业务层决定语义）。"""
+        return await self.session.get(KnowledgeBase, kb_id)
+
+    async def update_metadata(
+        self, kb_id: uuid.UUID, changes: dict[str, Any]
+    ) -> KnowledgeBase | None:
+        """
+        仅更新可编辑元数据字段（忽略不可变字段），并显式刷新 updated_at。
+        知识库不存在返回 None。
+        """
+        kb = await self.session.get(KnowledgeBase, kb_id)
+        if kb is None:
+            return None
+        for field, value in changes.items():
+            if field in _EDITABLE_FIELDS:
+                setattr(kb, field, value)
+        kb.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return kb
+
+    async def soft_delete(self, kb_id: uuid.UUID) -> KnowledgeBase | None:
+        """软删除：设置 status='deleted' 并刷新 updated_at；不存在返回 None。"""
+        kb = await self.session.get(KnowledgeBase, kb_id)
+        if kb is None:
+            return None
+        kb.status = "deleted"
+        kb.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return kb
