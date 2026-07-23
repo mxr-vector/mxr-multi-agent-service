@@ -105,3 +105,18 @@ class KnowledgeBaseRepository:
         kb.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         return kb
+
+    async def adjust_counts(
+        self, kb: KnowledgeBase, doc_delta: int = 0, chunk_delta: int = 0
+    ) -> KnowledgeBase:
+        """
+        增量调整冗余计数（document_count / total_chunk_count），并刷新 updated_at。
+
+        由业务层在写入文档/块的同一事务内调用，保持计数与实际行数一致；
+        计数不允许为负，下溢时归零。
+        """
+        kb.document_count = max(0, kb.document_count + doc_delta)
+        kb.total_chunk_count = max(0, kb.total_chunk_count + chunk_delta)
+        kb.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return kb

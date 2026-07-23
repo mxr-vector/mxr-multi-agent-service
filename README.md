@@ -40,9 +40,8 @@ project
 ## 1.2 环境要求
 
 PostgreSQL 18.0+
-Qdrant 
-
-
+Qdrant@latest
+Rocm/CUDA 显卡 16G(显存至少满足16G)
 
 ## 1.3 RAG 系统
 
@@ -56,6 +55,9 @@ Qdrant
 [向量数据库对比 2026: Qdrant vs ChromaDB vs pgvector 选型指南](https://jangwook.net/zh/blog/zh/vector-db-comparison-2026-qdrant-chroma-pgvector/)
 
 [Qdrant使用手册](https://qdrant.org.cn/documentation/quickstart/)
+
+PostgreSQL作为关系型知识库持久化维护，也便于经过向量块命中后返回完整文档，交给对话模型。并能根据命中块精准定位来源出处。
+
 
 # 二.本地推理框架部署
 

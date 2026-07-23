@@ -95,6 +95,20 @@ class QdrantManager:
             self.client.delete_collection(self.collection)
             logger.info(f"[Qdrant] 已删除集合: {self.collection}")
 
+    def delete_points(self, ids: Sequence[Any]) -> None:
+        """按 point id 列表删除点（集合不存在或 ids 为空时直接返回）。
+
+        用于灰度重建：新版本点写入后，清理旧版本遗留的向量点。
+        """
+        point_ids = list(ids)
+        if not point_ids or not self.client.collection_exists(self.collection):
+            return
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.PointIdsList(points=point_ids),
+        )
+        logger.info(f"[Qdrant] 已删除 {len(point_ids)} 个点 (集合: {self.collection})")
+
     # ---------- 写入 ----------
     def upsert_points(
         self,
@@ -182,9 +196,7 @@ class QdrantManager:
 
         self.ensure_hybrid_collection(len(dense_vectors[0]), recreate=recreate)
 
-        point_ids = (
-            list(ids) if ids is not None else [uuid4().hex for _ in text_list]
-        )
+        point_ids = list(ids) if ids is not None else [uuid4().hex for _ in text_list]
         points = []
         for i, text in enumerate(text_list):
             base = dict(payloads[i]) if payloads is not None else {}
@@ -201,9 +213,7 @@ class QdrantManager:
             )
 
         self.client.upsert(collection_name=self.collection, points=points)
-        logger.info(
-            f"[Qdrant] 写入 {len(points)} 条混合向量到集合: {self.collection}"
-        )
+        logger.info(f"[Qdrant] 写入 {len(points)} 条混合向量到集合: {self.collection}")
         return point_ids
 
     # ---------- 检索 ----------
