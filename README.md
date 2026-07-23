@@ -77,7 +77,7 @@ uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ## 2.2 运行vllm服务
 ```shell
 # pool model  vllm 0.25.1+
-vllm serve ./models/Qwen3-Embedding-0.6B \
+vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --host 0.0.0.0 \
     --port 8001 \
     --served-model-name Qwen3-Embedding-0.6B \
@@ -85,23 +85,23 @@ vllm serve ./models/Qwen3-Embedding-0.6B \
     --dtype auto \
     --gpu-memory-utilization 0.85 \
     --max-model-len 8192 \
-    --max-num-seqs 256 \
-    --max-num-batched-tokens 32768 \
+    --max-num-seqs 16 \
+    --max-num-batched-tokens 8192 \
     --trust-remote-code \
-    --api-key 123456
+    --api-key 95279527
 
 # chat model
-vllm serve Qwen/Qwen3-8B \
+vllm serve /models/chat/Qwen3.5-2B \
     --host 0.0.0.0 \
-    --port 8000 \
-    --served-model-name Qwen3-8B \
-    --dtype auto \
-    --gpu-memory-utilization 0.85 \
-    --max-model-len 32768 \
-    --max-num-seqs 256 \
-    --max-num-batched-tokens 32768 \
+    --port 8001 \
+    --served-model-name Qwen3.5-2B \
+    --dtype half \
+    --gpu-memory-utilization 0.90 \
+    --max-model-len 8192 \
+    --max-num-seqs 16 \
+    --max-num-batched-tokens 8192 \
     --trust-remote-code \
-    --api-key 123456
+    --api-key 95279527
 ```
 
 # 三.池化模型说明
