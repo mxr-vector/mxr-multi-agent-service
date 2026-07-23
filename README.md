@@ -10,31 +10,31 @@
 
 ```text
 project
-|-- env # 开发生产环境目录 (需要.env.sample 复制到 .env.development,.env.production下)
+|—— env # 开发生产环境目录 (需要.env.sample 复制到 .env.development,.env.production下)
 |
-|-- core # 核心配置目录(数据库连接，自动导包等)
+|—— core # 核心配置目录(数据库连接，自动导包等)
 |
-|-- database # 数据库的crud操作 
+|—— database # 数据库的crud操作 
 |
-|-- exception # 全局异常/自定义异常
+|—— exception # 全局异常/自定义异常
 |
-|-- middleware # web访问层中间件
+|—— middleware # web访问层中间件
 |
-|-- routers # web路由入口
+|—— routers # web路由入口
 |
-|-- static # 服务门户页面
+|—— static # 服务门户页面
 |
-|-- model # 存放各类模型客户端，提供抽象层方法
+|—— model # 存放各类模型客户端，提供抽象层方法
 |       
-|-- utils # 常规辅助工具类
+|—— utils # 常规辅助工具类
 |     |-- chat # 文本类模块
 |     |-- embeddings # 嵌入向量模型
 |     |-- rerank # 重排序模型
-|-- agent # 智能体代理模块
+|—— agent # 智能体代理模块
 |     |-- prompts # 提示词维护模块
 |     |-- tools # 智能体调用工具模块
 |     |-- sub # 子智能体模块 （不同场景）
-|---multi-agent-ui # 简单的前端测试项目(Vue3.x)
+|—— multi-agent-ui # 简单的前端测试项目(Vue3.x)
 ```
 
 ## 1.2 环境要求
