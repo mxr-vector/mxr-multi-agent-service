@@ -21,6 +21,7 @@ class KnowledgeBase(Base):
     """
 
     __tablename__ = "rag_knowledge_bases"
+    __table_args__ = {"schema": "rag"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

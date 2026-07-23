@@ -16,13 +16,18 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
+-- RAG 相关表统一归属到独立的 rag schema, 与其它业务表隔离
+-- ------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS rag;
+
+-- ------------------------------------------------------------
 -- 0. 分类树 rag_categories
 --    支持多级分类(如 "技术文档" -> "数据同步" -> "Flink CDC"),
 --    parent_id 自引用, 不加外键, 业务层保证存在性和防止循环引用
 -- ------------------------------------------------------------
-CREATE TABLE rag_categories (
+CREATE TABLE rag.rag_categories (
     id          UUID PRIMARY KEY DEFAULT uuidv7(),
-    parent_id   UUID,                    -- 逻辑关联 rag_categories.id, NULL 表示根分类
+    parent_id   UUID,                    -- 逻辑关联 rag.rag_categories.id, NULL 表示根分类
     name        TEXT NOT NULL,
     sort_order  INT NOT NULL DEFAULT 0,  -- 同级排序, 前端展示用
 
@@ -30,7 +35,7 @@ CREATE TABLE rag_categories (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rag_categories_parent ON rag_categories (parent_id);
+CREATE INDEX idx_rag_categories_parent ON rag.rag_categories (parent_id);
 
 -- ------------------------------------------------------------
 -- 0.1 知识库表 rag_knowledge_bases
@@ -39,14 +44,14 @@ CREATE INDEX idx_rag_categories_parent ON rag_categories (parent_id);
 --    (如果后续需要同一知识库内混用多个 embedding provider,
 --     再把 embedding_provider/embedding_dim 下放到 rag_documents 级别)
 -- ------------------------------------------------------------
-CREATE TABLE rag_knowledge_bases (
+CREATE TABLE rag.rag_knowledge_bases (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
 
     name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
     code                VARCHAR(100) NOT NULL UNIQUE, -- 业务侧引用的稳定标识, 如 'msgupcenter_docs'
     description         TEXT,
 
-    category_id         UUID,                        -- 逻辑关联 rag_categories.id, 业务层保证存在性
+    category_id         UUID,                        -- 逻辑关联 rag.rag_categories.id, 业务层保证存在性
     icon                VARCHAR(100),                 -- 前端展示用图标/颜色标识
 
     -- Qdrant 映射: 一个知识库对应一个 collection(不同知识库可用不同 embedding 模型/维度)
@@ -69,18 +74,18 @@ CREATE TABLE rag_knowledge_bases (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rag_kb_category ON rag_knowledge_bases (category_id);
-CREATE INDEX idx_rag_kb_status   ON rag_knowledge_bases (status) WHERE status != 'deleted';
+CREATE INDEX idx_rag_kb_category ON rag.rag_knowledge_bases (category_id);
+CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE status != 'deleted';
 
 -- ------------------------------------------------------------
 -- 1. 父文档表 rag_documents
 --    存放原始文档级信息, 是整个层级结构的顶端 (相当于 level = 最大值)
 --    新增 knowledge_base_id, 归属到具体知识库, 供上传归类和浏览过滤
 -- ------------------------------------------------------------
-CREATE TABLE rag_documents (
+CREATE TABLE rag.rag_documents (
     id              UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag_knowledge_bases.id, 业务层保证存在性
+    knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性
 
     -- 来源信息, 便于溯源和增量同步判断是否需要重新入库
     source_uri      TEXT,                       -- 原始文件路径 / URL / DB 表名等
@@ -107,11 +112,11 @@ CREATE TABLE rag_documents (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- 由业务层在 UPDATE 时显式赋值, 不再用触发器自动维护
 );
 
-CREATE INDEX idx_rag_documents_kb           ON rag_documents (knowledge_base_id);
-CREATE INDEX idx_rag_documents_source_hash  ON rag_documents (source_uri, content_hash);
-CREATE INDEX idx_rag_documents_metadata_gin ON rag_documents USING GIN (metadata);
-CREATE INDEX idx_rag_documents_status       ON rag_documents (status) WHERE status != 'deleted';
-CREATE INDEX idx_rag_documents_valid_until  ON rag_documents (valid_until) WHERE valid_until IS NOT NULL;
+CREATE INDEX idx_rag_documents_kb           ON rag.rag_documents (knowledge_base_id);
+CREATE INDEX idx_rag_documents_source_hash  ON rag.rag_documents (source_uri, content_hash);
+CREATE INDEX idx_rag_documents_metadata_gin ON rag.rag_documents USING GIN (metadata);
+CREATE INDEX idx_rag_documents_status       ON rag.rag_documents (status) WHERE status != 'deleted';
+CREATE INDEX idx_rag_documents_valid_until  ON rag.rag_documents (valid_until) WHERE valid_until IS NOT NULL;
 
 -- ------------------------------------------------------------
 -- 2. 父子块表 rag_chunks
@@ -122,12 +127,12 @@ CREATE INDEX idx_rag_documents_valid_until  ON rag_documents (valid_until) WHERE
 --
 --    document_id / parent_chunk_id 不加外键约束: 关联关系(级联删除、存在性校验)由业务层保证
 -- ------------------------------------------------------------
-CREATE TABLE rag_chunks (
+CREATE TABLE rag.rag_chunks (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),  -- 与 Qdrant point id 保持一致, 用于命中后回查
 
-    document_id         UUID NOT NULL,          -- 逻辑关联 rag_documents.id, 业务层保证存在性
-    parent_chunk_id     UUID,                   -- 逻辑关联 rag_chunks.id (自引用), 业务层保证存在性
-    document_version    INT NOT NULL,           -- 冗余存储 rag_documents.version, 用于重建索引时新旧版本并存/切换
+    document_id         UUID NOT NULL,          -- 逻辑关联 rag.rag_documents.id, 业务层保证存在性
+    parent_chunk_id     UUID,                   -- 逻辑关联 rag.rag_chunks.id (自引用), 业务层保证存在性
+    document_version    INT NOT NULL,           -- 冗余存储 rag.rag_documents.version, 用于重建索引时新旧版本并存/切换
 
     level               SMALLINT NOT NULL DEFAULT 0,  -- 0=叶子子块(已入 Qdrant), 数字越大代表范围越大
     chunk_index         INT NOT NULL,                 -- 同一 document_id + level 内的顺序号, 用于还原原文顺序
@@ -152,10 +157,10 @@ CREATE TABLE rag_chunks (
 );
 
 -- 常规查询索引 (无向量索引, 向量检索在 Qdrant 侧)
-CREATE INDEX idx_rag_chunks_document      ON rag_chunks (document_id, document_version);
-CREATE INDEX idx_rag_chunks_parent        ON rag_chunks (parent_chunk_id);
-CREATE INDEX idx_rag_chunks_level         ON rag_chunks (level);
-CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
+CREATE INDEX idx_rag_chunks_document      ON rag.rag_chunks (document_id, document_version);
+CREATE INDEX idx_rag_chunks_parent        ON rag.rag_chunks (parent_chunk_id);
+CREATE INDEX idx_rag_chunks_level         ON rag.rag_chunks (level);
+CREATE INDEX idx_rag_chunks_metadata_gin  ON rag.rag_chunks USING GIN (metadata);
 
 -- ============================================================
 -- 3. 典型写入模式
@@ -188,27 +193,27 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 -- 4.1 分类树展开 (递归 CTE, 拿到某个根分类下所有子分类, 前端做级联菜单/侧边栏)
 -- WITH RECURSIVE cat_tree AS (
 --     SELECT id, parent_id, name, sort_order, 0 AS depth
---     FROM rag_categories
+--     FROM rag.rag_categories
 --     WHERE id = :root_category_id
 --
 --     UNION ALL
 --
 --     SELECT c.id, c.parent_id, c.name, c.sort_order, t.depth + 1
---     FROM rag_categories c
+--     FROM rag.rag_categories c
 --     JOIN cat_tree t ON c.parent_id = t.id
 -- )
 -- SELECT * FROM cat_tree ORDER BY depth, sort_order;
 
 -- 4.2 某分类(含子分类)下的知识库列表
 -- SELECT kb.id, kb.name, kb.document_count, kb.total_chunk_count, kb.status
--- FROM rag_knowledge_bases kb
+-- FROM rag.rag_knowledge_bases kb
 -- WHERE kb.category_id = ANY(:category_ids_in_subtree)   -- 4.1 查出的整棵子树 id 列表
 --   AND kb.status != 'deleted'
 -- ORDER BY kb.updated_at DESC;
 
 -- 4.3 某知识库下的文档列表 (分页浏览)
 -- SELECT id, title, doc_type, status, version, updated_at
--- FROM rag_documents
+-- FROM rag.rag_documents
 -- WHERE knowledge_base_id = :kb_id
 --   AND status != 'deleted'
 -- ORDER BY updated_at DESC
@@ -224,7 +229,7 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 
 -- 5.2 第二阶段: 用命中的 id 回查 PG, 拿完整内容 + 章节/页码 (给前端展示用)
 -- SELECT id, document_id, chapter_title, page_start, page_end, content
--- FROM rag_chunks
+-- FROM rag.rag_chunks
 -- WHERE id = ANY(:matched_chunk_ids);
 
 -- 5.3 第三阶段: 如需给对话模型更完整的上下文, 递归回溯到父级 (或直接 join rag_documents)
@@ -232,13 +237,13 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 --
 -- WITH RECURSIVE ancestor AS (
 --     SELECT c.id, c.document_id, c.parent_chunk_id, c.level, c.content, 0 AS depth
---     FROM rag_chunks c
+--     FROM rag.rag_chunks c
 --     WHERE c.id = ANY(:matched_chunk_ids)          -- 上一步 Qdrant 检索命中的子块 id 列表
 --
 --     UNION ALL
 --
 --     SELECT p.id, p.document_id, p.parent_chunk_id, p.level, p.content, a.depth + 1
---     FROM rag_chunks p
+--     FROM rag.rag_chunks p
 --     JOIN ancestor a ON p.id = a.parent_chunk_id
 -- )
 -- SELECT DISTINCT ON (document_id)                  -- 多个命中子块可能属于同一父级, 去重
@@ -250,7 +255,7 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag_chunks USING GIN (metadata);
 -- 简单两级场景 (子块的父级就是文档本身) 直接 join documents + knowledge_bases 即可, 不需要递归:
 --
 -- SELECT DISTINCT d.id, d.title, d.content, kb.name AS knowledge_base_name
--- FROM rag_chunks c
--- JOIN rag_documents d ON d.id = c.document_id
--- JOIN rag_knowledge_bases kb ON kb.id = d.knowledge_base_id
+-- FROM rag.rag_chunks c
+-- JOIN rag.rag_documents d ON d.id = c.document_id
+-- JOIN rag.rag_knowledge_bases kb ON kb.id = d.knowledge_base_id
 -- WHERE c.id = ANY(:matched_chunk_ids);

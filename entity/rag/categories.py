@@ -18,6 +18,7 @@ class Category(Base):
     """
 
     __tablename__ = "rag_categories"
+    __table_args__ = {"schema": "rag"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
