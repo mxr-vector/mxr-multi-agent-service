@@ -10,4 +10,7 @@ import "element-plus/theme-chalk/el-message-box.css";
 import "element-plus/theme-chalk/el-message.css";
 import "element-plus/theme-chalk/el-loading.css";
 
+// 列表页通用布局工具类（.list-page / .list-panel / .list-scroll / .list-footer）
+import "@/assets/styles/layout.css";
+
 createApp(App).use(router).mount("#app");

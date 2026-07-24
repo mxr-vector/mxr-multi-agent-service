@@ -1,0 +1,49 @@
+/* ============================================================
+ * 列表页通用布局工具类
+ * 作用：让分页/底栏稳定固定在可视区底部，主体区域内部滚动，
+ *      不随内容增多或空状态而上下跳动。
+ *
+ * 用法（按需组合，父链需有确定高度，本项目由 .main-layout-main 提供）：
+ *   .list-page   —— 页面/卡片根容器：撑满可视区、纵向排列
+ *   .list-panel  —— 嵌套面板：吃掉剩余高度、继续纵向排列（如内容卡片）
+ *   .list-scroll —— 真正滚动的区域：吃掉剩余高度并内部滚动
+ *   .list-footer —— 分页/操作底栏：固定不压缩
+ *
+ * 各页面仍可在自己的 scoped 样式里补充视觉（内边距、分隔线等）。
+ * ============================================================ */
+
+.list-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.list-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.list-footer {
+  flex: 0 0 auto;
+}
+
+/* 窄屏回退自然流：避免内部滚动与页面整体滚动冲突 */
+@media (max-width: 720px) {
+  .list-page {
+    height: auto;
+  }
+
+  .list-scroll {
+    overflow-y: visible;
+  }
+}

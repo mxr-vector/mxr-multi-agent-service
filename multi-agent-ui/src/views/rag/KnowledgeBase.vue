@@ -132,7 +132,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="rag-page" v-loading="loading" element-loading-text="加载中…">
+  <section class="rag-page list-page" v-loading="loading" element-loading-text="加载中…">
     <section class="summary-grid">
       <article>
         <span>知识库总数</span>
@@ -150,7 +150,7 @@ onMounted(() => {
         <small>已入库块数</small>
       </article>
     </section>
-    <section class="content-card">
+    <section class="content-card list-panel">
       <div class="toolbar">
         <div>
           <h2>知识库列表</h2>
@@ -162,12 +162,13 @@ onMounted(() => {
         </div>
       </div>
       <KnowledgeBaseTable
+        class="list-scroll"
         :list="knowledgeBases"
         :categories="categories"
         @edit="openEdit"
         @remove="removeKnowledgeBase"
       />
-      <div class="pagination-bar">
+      <div class="pagination-bar list-footer">
         <Pagination
           v-model:page="page"
           v-model:size="size"
@@ -189,7 +190,6 @@ onMounted(() => {
 
 <style scoped>
 .rag-page {
-  display: grid;
   gap: 20px;
   color: #273249;
 }
@@ -238,6 +238,7 @@ p {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  flex: 0 0 auto;
 }
 
 .summary-grid article,
@@ -276,10 +277,13 @@ p {
   border-bottom: 1px solid #edf0f5;
 }
 
+/* 内容卡片撑满剩余高度、分页固定底部的骨架由全局工具类
+   list-panel / list-scroll / list-footer 提供，此处只保留底栏视觉样式。 */
 .pagination-bar {
   display: flex;
   justify-content: flex-end;
   padding: 16px 20px;
+  border-top: 1px solid #edf0f5;
 }
 
 h2 {

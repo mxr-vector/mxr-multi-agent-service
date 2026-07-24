@@ -345,7 +345,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="doc-page">
+  <section class="doc-page list-page">
     <!-- 顶部导航条：前进/后退/向上 + 面包屑 -->
     <div class="nav-bar">
       <div class="nav-btns">
@@ -482,7 +482,7 @@ onMounted(async () => {
         </div>
 
         <!-- 卡片网格 -->
-        <div class="doc-content">
+        <div class="doc-content list-scroll">
           <div v-if="pagedDocuments.length" class="card-grid">
             <DocumentCard
               v-for="doc in pagedDocuments"
@@ -501,7 +501,7 @@ onMounted(async () => {
           </el-empty>
         </div>
 
-        <div class="pagination-bar">
+        <div class="pagination-bar list-footer">
           <Pagination
             v-model:page="page"
             v-model:size="size"
@@ -546,11 +546,7 @@ onMounted(async () => {
 
 <style scoped>
 .doc-page {
-  display: flex;
-  flex-direction: column;
   gap: 14px;
-  height: 100%;
-  min-height: 0;
   color: #273249;
 }
 
@@ -766,13 +762,11 @@ onMounted(async () => {
   background: #e0637a;
 }
 
-/* 卡片网格 */
+/* 卡片网格：撑满剩余高度与内部滚动的骨架由全局 list-scroll 提供，
+   此处只保留空状态居中所需的列式布局。 */
 .doc-content {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .doc-empty {
@@ -793,7 +787,6 @@ onMounted(async () => {
 
 .pagination-bar {
   display: flex;
-  flex: 0 0 auto;
   justify-content: flex-end;
   padding-top: 12px;
   border-top: 1px solid #eef1f7;
