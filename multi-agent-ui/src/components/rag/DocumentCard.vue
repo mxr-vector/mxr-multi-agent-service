@@ -172,7 +172,7 @@ function handleCommand(command: string) {
     line-height: 1.4;
     text-align: center;
     text-overflow: ellipsis;
-    -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
 }
 
