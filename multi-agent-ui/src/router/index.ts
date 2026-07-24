@@ -3,7 +3,13 @@ import MainLayout from "@/layout/MainLayout.vue";
 import Workspace from "@/views/Workspace.vue";
 import { navigationItems } from "./navigation";
 
-const ragViews = {
+// 导航名 -> 页面组件（每个菜单目标对应 views/ 下独立维护的页面）
+const viewModules = {
+  overview: () => import("@/views/overview/index.vue"),
+  conversations: () => import("@/views/conversations/index.vue"),
+  workflows: () => import("@/views/workflows/index.vue"),
+  agents: () => import("@/views/agents/index.vue"),
+  settings: () => import("@/views/settings/index.vue"),
   "rag-knowledge-base": () => import("@/views/rag/KnowledgeBase.vue"),
   "rag-ducument": () => import("@/views/rag/Ducument.vue"),
 };
@@ -14,7 +20,7 @@ function createChildRoutes(items = navigationItems): RouteRecordRaw[] {
     return {
       path: item.path.slice(1),
       name: item.name,
-      component: ragViews[item.name as keyof typeof ragViews] ?? Workspace,
+      component: viewModules[item.name as keyof typeof viewModules] ?? Workspace,
       meta: item,
       children: [],
     };

@@ -108,20 +108,6 @@ function navIcon(icon: string) {
         </RouterLink>
       </template>
     </nav>
-
-    <div class="promo">
-      <div class="promo-art" aria-hidden="true">
-        <span class="promo-cube promo-cube--1">AI</span>
-        <span class="promo-cube promo-cube--2">AI</span>
-        <span class="promo-cube promo-cube--3">AI</span>
-      </div>
-      <strong class="promo-title">构建 · 测试 · 优化</strong>
-      <span class="promo-sub">让智能体应用更高效</span>
-    </div>
-    <RouterLink class="promo-button" to="/conversations">
-      <span aria-hidden="true">＋</span>
-      <span class="promo-button-text">创建会话</span>
-    </RouterLink>
   </aside>
 </template>
 
@@ -314,100 +300,6 @@ function navIcon(icon: string) {
   white-space: nowrap;
 }
 
-.promo {
-  position: relative;
-  display: grid;
-  gap: 4px;
-  margin: 14px 4px 12px;
-  padding: 74px 16px 16px;
-  overflow: hidden;
-  border-radius: 16px;
-  background: linear-gradient(160deg, #eef3ff 0%, #e4ecff 100%);
-  text-align: center;
-}
-
-.promo-art {
-  position: absolute;
-  top: 14px;
-  left: 0;
-  right: 0;
-  display: flex;
-  height: 56px;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 8px;
-}
-
-.promo-cube {
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  transform: rotate(-8deg);
-  box-shadow: 0 10px 18px rgb(91 139 255 / 30%);
-}
-
-.promo-cube--1 {
-  width: 34px;
-  height: 34px;
-  background: linear-gradient(145deg, #93b4ff, #6c8dff);
-}
-
-.promo-cube--2 {
-  width: 44px;
-  height: 44px;
-  background: linear-gradient(145deg, #6c8dff, #5468ff);
-  transform: rotate(6deg);
-}
-
-.promo-cube--3 {
-  width: 34px;
-  height: 34px;
-  background: linear-gradient(145deg, #a9c2ff, #7f9dff);
-  transform: rotate(12deg);
-}
-
-.promo-title {
-  font-size: 14px;
-  font-weight: 800;
-  background: linear-gradient(90deg, #4c6ef5, #7b5bff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.promo-sub {
-  color: #8b95b1;
-  font-size: 11px;
-}
-
-.promo-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 46px;
-  margin: 0 4px;
-  border-radius: 12px;
-  color: #fff;
-  background: linear-gradient(135deg, #5b8bff, #4c6ef5);
-  box-shadow: 0 10px 22px rgb(76 110 245 / 30%);
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-  transition:
-    transform 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.promo-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 26px rgb(76 110 245 / 38%);
-}
-
 /* 折叠态 */
 .app-sidebar--collapsed {
   padding-right: 12px;
@@ -423,9 +315,7 @@ function navIcon(icon: string) {
 .app-sidebar--collapsed .brand-copy,
 .app-sidebar--collapsed .navigation-text,
 .app-sidebar--collapsed .navigation-chevron,
-.app-sidebar--collapsed .navigation-children,
-.app-sidebar--collapsed .promo,
-.app-sidebar--collapsed .promo-button-text {
+.app-sidebar--collapsed .navigation-children {
   display: none;
 }
 
@@ -434,17 +324,11 @@ function navIcon(icon: string) {
   padding: 0;
 }
 
-.app-sidebar--collapsed .promo-button {
-  min-height: 44px;
-}
-
 @media (max-width: 720px) {
   .brand-copy,
   .navigation-text,
   .navigation-chevron,
-  .navigation-children,
-  .promo,
-  .promo-button-text {
+  .navigation-children {
     display: none;
   }
 
