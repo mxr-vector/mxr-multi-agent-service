@@ -27,9 +27,11 @@ function toggleSidebar() { isSidebarCollapsed.value = !isSidebarCollapsed.value 
 .main-layout {
     --sidebar-width: 260px;
     --content-max-width: 1600px;
+    --content-gap: 16px;
     display: grid;
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     background: linear-gradient(160deg, #eef1f8 0%, #f6f8fc 100%);
     transition: grid-template-columns 180ms ease;
 }
@@ -38,19 +40,28 @@ function toggleSidebar() { isSidebarCollapsed.value = !isSidebarCollapsed.value 
     --sidebar-width: 78px;
 }
 
+/* 白色内容容器：承载顶栏与主内容，浮于渐变背景之上 */
 .main-layout-content {
     display: flex;
     min-width: 0;
     flex-direction: column;
+    margin: var(--content-gap) var(--content-gap) var(--content-gap) 0;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #e8ebf2;
+    border-radius: 16px;
+    box-shadow: 0 18px 40px rgb(37 50 82 / 7%);
 }
 
 .main-layout-main {
     flex: 1;
+    min-height: 0;
     min-width: 0;
-    padding: 0;
+    padding: 24px 28px;
+    overflow-y: auto;
 }
 
-/* 页面内容直接铺满主区，紧贴侧边栏，无左右留白 */
+/* 页面内容铺满白色容器内部，无额外左右留白 */
 .main-layout-main> :deep(*) {
     max-width: none;
     margin-inline: 0;
@@ -59,10 +70,11 @@ function toggleSidebar() { isSidebarCollapsed.value = !isSidebarCollapsed.value 
 @media (max-width: 720px) {
     .main-layout {
         --sidebar-width: 78px;
+        --content-gap: 10px;
     }
 
     .main-layout-main {
-        padding: 0;
+        padding: 16px 14px;
     }
 }
 </style>
