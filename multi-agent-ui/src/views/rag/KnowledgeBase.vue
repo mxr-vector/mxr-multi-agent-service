@@ -133,13 +133,6 @@ onMounted(() => {
 
 <template>
     <section class="rag-page" v-loading="loading" element-loading-text="加载中…">
-        <header class="page-header">
-            <div>
-                <p class="eyebrow">RAG SYSTEM / KNOWLEDGE BASE</p>
-                <h1>知识库管理</h1>
-                <p>创建并维护为智能体提供检索上下文的知识库。</p>
-            </div><button class="primary-button" type="button" @click="openCreate">＋ 新建知识库</button>
-        </header>
         <section class="summary-grid">
             <article><span>知识库总数</span><strong>{{ stats.knowledge_base_count }}</strong><small>全部知识源</small></article>
             <article><span>已收录文档</span><strong>{{ stats.document_count }}</strong><small>所有知识库合计</small></article>
@@ -150,7 +143,10 @@ onMounted(() => {
                 <div>
                     <h2>知识库列表</h2><span>共 {{ total }} 个知识库</span>
                 </div>
-                <SearchInput v-model="keyword" placeholder="搜索名称 / 描述" />
+                <div class="toolbar-actions">
+                    <SearchInput v-model="keyword" placeholder="搜索名称 / 描述" />
+                    <button class="primary-button" type="button" @click="openCreate">＋ 新建知识库</button>
+                </div>
             </div>
             <KnowledgeBaseTable :list="knowledgeBases" :categories="categories" @edit="openEdit"
                 @remove="removeKnowledgeBase" />
@@ -167,18 +163,22 @@ onMounted(() => {
 <style scoped>
 .rag-page {
     display: grid;
-    gap: 24px;
-    max-width: 1280px;
-    margin: 0 auto;
+    gap: 20px;
     color: #273249
 }
 
 .page-header,
 .toolbar {
     display: flex;
-    align-items: end;
+    align-items: center;
     justify-content: space-between;
     gap: 20px
+}
+
+.toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px
 }
 
 .eyebrow {
@@ -193,18 +193,6 @@ h1,
 h2,
 p {
     margin-top: 0
-}
-
-h1 {
-    margin-bottom: 9px;
-    font-size: clamp(26px, 3vw, 34px);
-    letter-spacing: -1px
-}
-
-.page-header p:not(.eyebrow) {
-    margin-bottom: 0;
-    color: #788397;
-    font-size: 14px
 }
 
 .primary-button {

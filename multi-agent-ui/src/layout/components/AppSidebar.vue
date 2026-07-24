@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { navigationItems, type NavigationItem } from '@/router/navigation'
+import { navigationItems, NAV_ICON_ASSET, type NavigationItem } from '@/router/navigation'
+import SvgIcon from '@/components/SvgIcon.vue'
 
 interface Props { collapsed: boolean }
 const props = defineProps<Props>()
@@ -18,18 +19,8 @@ function toggleChildren(name: string) {
 }
 function hasActiveChild(path: string) { return route.path.startsWith(`${path}/`) }
 
-/** 线性图标集合，键与 navigation.ts 中的 icon 字段对应。 */
-const icons: Record<string, string> = {
-    dashboard: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/>',
-    chat: '<path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5Z"/>',
-    workflow: '<rect x="3" y="4" width="6" height="6" rx="1.6"/><rect x="15" y="14" width="6" height="6" rx="1.6"/><path d="M9 7h5a4 4 0 0 1 4 4v3"/>',
-    rag: '<path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 12l9 5 9-5"/><path d="M3 16.5l9 5 9-5"/>',
-    knowledge: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19a1 1 0 0 1 1 1v13.5H6.5A1.5 1.5 0 0 0 5 19V4.5Z"/><path d="M5 19a1.5 1.5 0 0 0 1.5 1.5H20"/>',
-    category: '<path d="M20.6 13.4 12 22l-9-9V3h10l7.6 7.6a1.9 1.9 0 0 1 0 2.8Z"/><circle cx="7.8" cy="7.8" r="1.4"/>',
-    document: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>',
-    agent: '<rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/><path d="M12 3v4M8 19v2M16 19v2"/>',
-    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 0 1-4 0v-.1A1.7 1.7 0 0 0 6 19.7a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.9l.1-.1a1.7 1.7 0 0 0-1.2-2.8H2a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 3.3 6a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.8l.1.1A1.7 1.7 0 0 0 8 2.3h.1A1.7 1.7 0 0 0 9.3 1 2 2 0 0 1 13 1v.1A1.7 1.7 0 0 0 15.9 3l.1-.1a2 2 0 1 1 2.8 2.9l-.1.1a1.7 1.7 0 0 0 1.2 2.8H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1.2Z"/>',
-}
+/** 依据 icon 键取 assets/icon/left_icon 资源名 */
+function navIcon(icon: string) { return NAV_ICON_ASSET[icon] ?? 'wenjian' }
 </script>
 
 <template>
@@ -55,7 +46,9 @@ const icons: Record<string, string> = {
                         :class="{ 'navigation-link--active': hasActiveChild(item.path) }" type="button"
                         :title="props.collapsed ? item.label : undefined" :aria-expanded="isExpanded(item.name)"
                         @click="toggleChildren(item.name)">
-                        <span class="navigation-icon" aria-hidden="true" v-html="icons[item.icon]"></span>
+                        <span class="navigation-icon" aria-hidden="true">
+                            <SvgIcon :name="navIcon(item.icon)" :size="20" />
+                        </span>
                         <span class="navigation-text">{{ item.label }}</span>
                         <span class="navigation-chevron" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -67,13 +60,17 @@ const icons: Record<string, string> = {
                     <div v-show="isExpanded(item.name) && !props.collapsed" class="navigation-children">
                         <RouterLink v-for="child in item.children" :key="child.name" :to="child.path"
                             class="navigation-child-link">
-                            <span class="navigation-child-dot" aria-hidden="true"></span>{{ child.label }}
+                            <span class="navigation-child-icon" aria-hidden="true">
+                                <SvgIcon :name="navIcon(child.icon)" :size="16" />
+                            </span>{{ child.label }}
                         </RouterLink>
                     </div>
                 </div>
                 <RouterLink v-else :to="item.path" class="navigation-link"
                     :title="props.collapsed ? item.label : undefined">
-                    <span class="navigation-icon" aria-hidden="true" v-html="icons[item.icon]"></span>
+                    <span class="navigation-icon" aria-hidden="true">
+                        <SvgIcon :name="navIcon(item.icon)" :size="20" />
+                    </span>
                     <span class="navigation-text">{{ item.label }}</span>
                 </RouterLink>
             </template>
@@ -247,16 +244,15 @@ const icons: Record<string, string> = {
     font-weight: 600;
 }
 
-.navigation-child-dot {
-    width: 5px;
-    height: 5px;
+.navigation-child-icon {
+    display: grid;
     flex: 0 0 auto;
-    border-radius: 50%;
-    background: currentcolor;
-    opacity: .55;
+    place-items: center;
+    color: currentcolor;
+    opacity: .7;
 }
 
-.navigation-child-link.router-link-active .navigation-child-dot {
+.navigation-child-link.router-link-active .navigation-child-icon {
     opacity: 1;
 }
 

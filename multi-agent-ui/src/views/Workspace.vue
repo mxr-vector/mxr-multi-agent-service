@@ -14,13 +14,9 @@ const highlights = computed(() => [
 
 <template>
     <section class="workspace-view">
-        <div class="page-heading">
-            <div>
-                <p class="eyebrow">MULTI-AGENT WORKSPACE</p>
-                <h1>{{ page.label }}</h1>
-                <p class="page-description">{{ page.description }}</p>
-            </div><button class="primary-action" type="button"><span aria-hidden="true">＋</span>创建{{ page.label
-            }}</button>
+        <div class="page-actions">
+            <button class="primary-action" type="button"><span aria-hidden="true">＋</span>创建{{ page.label
+                }}</button>
         </div>
         <div class="highlight-grid">
             <article v-for="highlight in highlights" :key="highlight.label" class="highlight-card">
@@ -39,16 +35,12 @@ const highlights = computed(() => [
 <style scoped>
 .workspace-view {
     display: grid;
-    gap: 26px;
-    max-width: 1280px;
-    margin: 0 auto;
+    gap: 22px;
 }
 
-.page-heading {
+.page-actions {
     display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 20px;
+    justify-content: flex-end;
 }
 
 .eyebrow {
@@ -180,7 +172,6 @@ const highlights = computed(() => [
 
 @media (max-width: 560px) {
 
-    .page-heading,
     .empty-state {
         align-items: flex-start;
         flex-direction: column;

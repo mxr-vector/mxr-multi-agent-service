@@ -1,7 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import type { NavigationItem } from '@/router/navigation'
+import { NAV_ICON_ASSET, type NavigationItem } from '@/router/navigation'
+import SvgIcon from '@/components/SvgIcon.vue'
 
 interface Props { sidebarCollapsed: boolean }
 interface Emits { toggleSidebar: [] }
@@ -11,6 +12,7 @@ const route = useRoute()
 
 const menuButtonLabel = computed(() => (props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'))
 const currentLabel = computed(() => (route.meta as NavigationItem).label ?? '工作台')
+const currentIcon = computed(() => NAV_ICON_ASSET[(route.meta as NavigationItem).icon] ?? '')
 </script>
 
 <template>
@@ -32,7 +34,10 @@ const currentLabel = computed(() => (route.meta as NavigationItem).label ?? '工
                     </svg>
                 </RouterLink>
                 <span class="breadcrumb-sep" aria-hidden="true">/</span>
-                <strong class="breadcrumb-current">{{ currentLabel }}</strong>
+                <span class="breadcrumb-current">
+                    <SvgIcon v-if="currentIcon" class="breadcrumb-icon" :name="currentIcon" :size="18" />
+                    <strong>{{ currentLabel }}</strong>
+                </span>
             </nav>
         </div>
 
@@ -143,9 +148,16 @@ const currentLabel = computed(() => (route.meta as NavigationItem).label ?? '工
 }
 
 .breadcrumb-current {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     color: #2f3a58;
     font-size: 15px;
     font-weight: 600;
+}
+
+.breadcrumb-icon {
+    color: #4c6ef5;
 }
 
 .notification-badge {

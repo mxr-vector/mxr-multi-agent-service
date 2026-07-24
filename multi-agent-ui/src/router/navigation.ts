@@ -10,6 +10,19 @@ export interface NavigationItem extends RouteMeta {
   readonly children?: readonly NavigationItem[];
 }
 
+/** icon 键 -> assets/icon/left_icon 下的资源基础名，供侧边栏与顶栏共用 */
+export const NAV_ICON_ASSET: Record<string, string> = {
+  dashboard: "zhihuizhongxin",
+  chat: "zhishihudong",
+  workflow: "lunhuantuguanli",
+  rag: "shujufenxi",
+  knowledge: "danganhe",
+  category: "shujuzidianguanli",
+  document: "wenjian",
+  agent: "keji",
+  settings: "xitongguanli",
+};
+
 export const navigationItems: readonly NavigationItem[] = [
   {
     path: "/overview",

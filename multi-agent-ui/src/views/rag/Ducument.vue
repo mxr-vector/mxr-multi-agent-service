@@ -109,14 +109,6 @@ onMounted(async () => {
 
 <template>
     <section class="document-page" v-loading="loading" element-loading-text="加载中…">
-        <header class="page-header">
-            <div>
-                <p class="eyebrow">RAG SYSTEM / DOCUMENTS</p>
-                <h1>文档管理</h1>
-                <p>将文档导入知识库，并跟踪解析与向量化状态。</p>
-            </div><button class="primary-button" type="button" :disabled="uploading" @click="triggerUpload">{{ uploading
-                ? '上传中…' : '上传文档' }}</button>
-        </header>
         <DocumentUploader ref="uploaderRef" :uploading="uploading" :disabled="!selectedKbId" @blocked="onBlocked"
             @file-selected="onFileSelected" />
         <section class="content-card">
@@ -131,6 +123,8 @@ onMounted(async () => {
                     <el-select v-model="statusFilter" style="width: 140px">
                         <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
                     </el-select>
+                    <button class="primary-button" type="button" :disabled="uploading" @click="triggerUpload">{{
+                        uploading ? '上传中…' : '＋ 上传文档' }}</button>
                 </div>
             </div>
             <DocumentTable :documents="documents" :knowledge-bases="knowledgeBases" :vectorizing-id="vectorizingId"
@@ -145,16 +139,14 @@ onMounted(async () => {
 <style scoped>
 .document-page {
     display: grid;
-    gap: 24px;
-    max-width: 1280px;
-    margin: 0 auto;
+    gap: 20px;
     color: #273249
 }
 
 .page-header,
 .toolbar {
     display: flex;
-    align-items: end;
+    align-items: center;
     justify-content: space-between;
     gap: 20px
 }
@@ -171,18 +163,6 @@ h1,
 h2,
 p {
     margin-top: 0
-}
-
-h1 {
-    margin-bottom: 9px;
-    font-size: clamp(26px, 3vw, 34px);
-    letter-spacing: -1px
-}
-
-.page-header p:not(.eyebrow) {
-    margin-bottom: 0;
-    color: #788397;
-    font-size: 14px
 }
 
 .primary-button {

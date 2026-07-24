@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     CategoryCard: typeof import('./src/components/rag/CategoryCard.vue')['default']
     CategoryFormDialog: typeof import('./src/components/rag/CategoryFormDialog.vue')['default']
+    DocumentChunkTree: typeof import('./src/components/rag/DocumentChunkTree.vue')['default']
     DocumentTable: typeof import('./src/components/rag/DocumentTable.vue')['default']
     DocumentUploader: typeof import('./src/components/rag/DocumentUploader.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
@@ -32,6 +33,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchInput: typeof import('./src/components/rag/SearchInput.vue')['default']
+    SvgIcon: typeof import('./src/components/SvgIcon.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']
