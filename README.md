@@ -25,15 +25,17 @@ project
 |—— static # 服务门户页面
 |
 |—— model # 存放各类模型客户端，提供抽象层方法
-|       
-|—— utils # 常规辅助工具类
 |     |-- chat # 文本类模块
 |     |-- embeddings # 嵌入向量模型
 |     |-- rerank # 重排序模型
+| 
+|—— utils # 常规辅助工具类
+| 
 |—— agent # 智能体代理模块
 |     |-- prompts # 提示词维护模块
 |     |-- tools # 智能体调用工具模块
 |     |-- sub # 子智能体模块 （不同场景）
+| 
 |—— multi-agent-ui # 简单的前端测试项目(Vue3.x)
 ```
 
