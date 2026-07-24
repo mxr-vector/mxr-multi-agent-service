@@ -6,6 +6,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from entity.base import Base
+from utils.date_format import format_datetime
+from utils.id import format_id
 
 
 class Document(Base):
@@ -73,9 +75,9 @@ class Document(Base):
     def to_dict(self) -> dict:
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
-            "id": str(self.id),
+            "id": format_id(self.id),
             "tenant_id": self.tenant_id,
-            "knowledge_base_id": str(self.knowledge_base_id),
+            "knowledge_base_id": format_id(self.knowledge_base_id),
             "source_uri": self.source_uri,
             "source_system": self.source_system,
             "title": self.title,
@@ -89,6 +91,6 @@ class Document(Base):
             "last_verified_at": self.last_verified_at,
             "status": self.status,
             "version": self.version,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
+            "created_at": format_datetime(self.created_at),
+            "updated_at": format_datetime(self.updated_at),
         }

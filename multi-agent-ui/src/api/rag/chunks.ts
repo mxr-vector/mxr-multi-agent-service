@@ -1,4 +1,4 @@
-import request, { type ApiResult } from "@/api/request";
+import request, { type ApiResult } from "@/utils/request";
 import { CHUNK_URL } from "./index";
 
 /** 分块实体（对应后端 rag_chunks.to_dict） */

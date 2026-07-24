@@ -6,6 +6,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from entity.base import Base
+from utils.date_format import format_datetime
+from utils.id import format_id
 
 
 class Chunk(Base):
@@ -65,12 +67,10 @@ class Chunk(Base):
     def to_dict(self) -> dict:
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
-            "id": str(self.id),
+            "id": format_id(self.id),
             "tenant_id": self.tenant_id,
-            "document_id": str(self.document_id),
-            "parent_chunk_id": (
-                str(self.parent_chunk_id) if self.parent_chunk_id else None
-            ),
+            "document_id": format_id(self.document_id),
+            "parent_chunk_id": format_id(self.parent_chunk_id),
             "document_version": self.document_version,
             "level": self.level,
             "chunk_index": self.chunk_index,
@@ -83,5 +83,5 @@ class Chunk(Base):
             "page_end": self.page_end,
             "content_hash": self.content_hash,
             "metadata": self.chunk_metadata,
-            "created_at": self.created_at,
+            "created_at": format_datetime(self.created_at),
         }

@@ -8,6 +8,7 @@ from database.rag.document import DocumentRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
 from utils.file_ingest import ingest_file
+from utils.id import format_id
 from utils.logger import logger
 
 
@@ -183,13 +184,13 @@ class DocumentService:
 
             valid_until = doc.valid_until.isoformat() if doc.valid_until else None
             texts = [c.content for c in leaf_chunks]
-            ids = [str(c.id) for c in leaf_chunks]
+            ids = [format_id(c.id) for c in leaf_chunks]
             payloads = [
                 {
-                    "document_id": str(doc.id),
-                    "knowledge_base_id": str(doc.knowledge_base_id),
+                    "document_id": format_id(doc.id),
+                    "knowledge_base_id": format_id(doc.knowledge_base_id),
                     "document_version": doc.version,
-                    "chunk_id": str(c.id),
+                    "chunk_id": format_id(c.id),
                     "chapter_title": c.chapter_title,
                     "page_start": c.page_start,
                     "page_end": c.page_end,
@@ -206,7 +207,7 @@ class DocumentService:
                 doc.id, doc.version
             )
             if stale_leaves:
-                manager.delete_points([str(c.id) for c in stale_leaves])
+                manager.delete_points([format_id(c.id) for c in stale_leaves])
                 await chunk_repo.delete_excluding_version(doc.id, doc.version)
 
             await doc_repo.set_status(doc, "active")

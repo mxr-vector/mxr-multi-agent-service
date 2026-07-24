@@ -1,4 +1,4 @@
-import request, { type ApiResult } from "@/api/request";
+import request, { type ApiResult } from "@/utils/request";
 import { CATEGORY_URL } from "./index";
 
 /** 分类实体（对应后端 rag_categories.to_dict） */

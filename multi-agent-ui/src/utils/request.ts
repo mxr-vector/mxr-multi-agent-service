@@ -1,6 +1,7 @@
 import axios, { type InternalAxiosRequestConfig, type AxiosResponse } from "axios";
 import { ElMessage, ElMessageBox } from "element-plus";
 import errorCode from "@/utils/errorCode";
+import { getToken } from "@/utils/auth";
 
 // 后端统一响应结构：所有接口经响应拦截器后返回 { code, msg, data }
 export interface ApiResult<T = unknown> {
@@ -23,7 +24,11 @@ const service = axios.create({
 // 请求拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // 在发送请求之前做些什么（如注入 token）pn
+    // 注入鉴权 token：后端 TokenAuthMiddleware 要求 Authorization: Bearer <API_SECRET_KEY>
+    const token = getToken();
+    if (token && !config.headers?.Authorization) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {

@@ -6,6 +6,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from entity.base import Base
+from utils.date_format import format_datetime
+from utils.id import format_id
 
 
 class KnowledgeBase(Base):
@@ -73,11 +75,11 @@ class KnowledgeBase(Base):
     def to_dict(self) -> dict:
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
-            "id": str(self.id),
+            "id": format_id(self.id),
             "tenant_id": self.tenant_id,
             "name": self.name,
             "description": self.description,
-            "category_id": str(self.category_id) if self.category_id else None,
+            "category_id": format_id(self.category_id),
             "icon": self.icon,
             "qdrant_collection": self.qdrant_collection,
             "embedding_provider": self.embedding_provider,
@@ -88,6 +90,6 @@ class KnowledgeBase(Base):
             "document_count": self.document_count,
             "total_chunk_count": self.total_chunk_count,
             "status": self.status,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
+            "created_at": format_datetime(self.created_at),
+            "updated_at": format_datetime(self.updated_at),
         }

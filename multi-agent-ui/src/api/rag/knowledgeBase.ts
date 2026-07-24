@@ -1,4 +1,4 @@
-import request, { type ApiResult } from "@/api/request";
+import request, { type ApiResult } from "@/utils/request";
 import { KNOWLEDGE_BASE_URL } from "./index";
 
 /** 知识库实体（对应后端 rag_knowledge_bases.to_dict） */

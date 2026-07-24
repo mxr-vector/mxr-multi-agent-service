@@ -1,4 +1,4 @@
-import request, { type ApiResult } from "@/api/request";
+import request, { type ApiResult } from "@/utils/request";
 import { DOCUMENT_URL } from "./index";
 
 /** 文档实体（对应后端 rag_documents.to_dict） */
