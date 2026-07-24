@@ -39,7 +39,14 @@ defineEmits<{
     border: 1px solid #e8ebf2;
     border-radius: 13px;
     background: #fff;
-    box-shadow: 0 8px 24px rgb(43 56 86 / 3%)
+    box-shadow: 0 8px 24px rgb(43 56 86 / 3%);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease
+}
+
+.category-card:hover {
+    transform: translateY(-2px);
+    border-color: #d3dbf5;
+    box-shadow: 0 14px 32px rgb(43 56 86 / 9%)
 }
 
 .category-mark {
@@ -74,11 +81,20 @@ defineEmits<{
     background: transparent;
     font-size: 12px;
     font-weight: 600;
-    cursor: pointer
+    cursor: pointer;
+    transition: color 150ms ease
+}
+
+.card-actions button:hover {
+    color: #3550c9
 }
 
 .card-actions button.danger {
     color: #d05a5a
+}
+
+.card-actions button.danger:hover {
+    color: #b83e3e
 }
 
 .category-card>p {

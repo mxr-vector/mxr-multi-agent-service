@@ -90,6 +90,14 @@ th {
     font-weight: 600
 }
 
+tbody tr {
+    transition: background-color 150ms ease
+}
+
+tbody tr:hover {
+    background: #f7f9ff
+}
+
 tbody tr:last-child td {
     border-bottom: 0
 }
@@ -129,7 +137,12 @@ em.processing {
     background: transparent;
     font-size: 12px;
     font-weight: 600;
-    cursor: pointer
+    cursor: pointer;
+    transition: color 150ms ease
+}
+
+.text-button:hover {
+    color: #3550c9
 }
 
 .row-actions {
@@ -139,6 +152,10 @@ em.processing {
 
 .text-button.danger {
     color: #d05a5a
+}
+
+.text-button.danger:hover {
+    color: #b83e3e
 }
 
 .empty-row {

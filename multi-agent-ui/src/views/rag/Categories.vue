@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
     listCategories,
     createCategory,
@@ -8,8 +8,10 @@ import {
     deleteCategory,
     type Category,
 } from '@/api/rag/categories'
+import { confirmDanger } from '@/utils/confirm'
 import CategoryCard from '@/components/rag/CategoryCard.vue'
 import CategoryFormDialog from '@/components/rag/CategoryFormDialog.vue'
+import SearchInput from '@/components/rag/SearchInput.vue'
 import type { CategoryFormPayload } from '@/components/rag/types'
 
 // 顶部色带循环取色
@@ -17,6 +19,14 @@ const markColors = ['#6279df', '#40a67b', '#a276d7', '#df9b4f', '#e0637a', '#3fa
 
 const loading = ref(false)
 const categories = ref<Category[]>([])
+const keyword = ref('')
+
+// 按关键词过滤（名称），子分类数与上级名称仍基于全量数据计算
+const filteredCategories = computed(() => {
+    const kw = keyword.value.trim().toLowerCase()
+    if (!kw) return categories.value
+    return categories.value.filter((c) => c.name.toLowerCase().includes(kw))
+})
 
 // 各分类的直接子分类数量（parent_id 指向该分类）
 const childCountMap = computed(() => {
@@ -75,15 +85,10 @@ async function handleSubmit(payload: CategoryFormPayload) {
 }
 
 async function removeCategory(category: Category) {
-    try {
-        await ElMessageBox.confirm(
-            `确定删除分类「${category.name}」吗？仅空分类可删除。`,
-            '删除确认',
-            { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-        )
-    } catch {
-        return
-    }
+    const confirmed = await confirmDanger(
+        `确定删除分类「${category.name}」吗？仅空分类可删除。`
+    )
+    if (!confirmed) return
     await deleteCategory(category.id)
     ElMessage.success('分类已删除')
     await loadCategories()
@@ -93,7 +98,7 @@ onMounted(loadCategories)
 </script>
 
 <template>
-    <section class="categories-page" v-loading="loading">
+    <section class="categories-page" v-loading="loading" element-loading-text="加载中…">
         <header class="page-header">
             <div>
                 <p class="eyebrow">RAG SYSTEM / CATEGORIES</p>
@@ -106,12 +111,16 @@ onMounted(loadCategories)
                 <p>为文档分配分类后，可在智能体检索时按业务范围筛选内容。</p>
             </div>
         </section>
-        <section v-if="categories.length" class="category-grid">
-            <CategoryCard v-for="(category, index) in categories" :key="category.id" :category="category"
+        <div class="category-toolbar">
+            <span class="toolbar-count">共 {{ filteredCategories.length }} 个分类</span>
+            <SearchInput v-model="keyword" placeholder="搜索分类名称" />
+        </div>
+        <section v-if="filteredCategories.length" class="category-grid">
+            <CategoryCard v-for="(category, index) in filteredCategories" :key="category.id" :category="category"
                 :color="markColors[index % markColors.length]" :child-count="childCountMap[category.id] ?? 0"
                 :parent-name="parentName(category.parent_id)" @edit="openEdit" @remove="removeCategory" />
         </section>
-        <el-empty v-else description="暂无分类，点击右上角新建" />
+        <el-empty v-else :description="keyword ? '未找到匹配的分类' : '暂无分类，点击右上角新建'" />
 
         <CategoryFormDialog v-model:visible="dialogVisible" :record="editing" :categories="categories"
             :submitting="submitting" @submit="handleSubmit" />
@@ -201,6 +210,18 @@ h1 {
     font-size: 12px
 }
 
+.category-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px
+}
+
+.toolbar-count {
+    color: #7d879a;
+    font-size: 12px
+}
+
 .category-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -209,6 +230,11 @@ h1 {
 
 @media(max-width:720px) {
     .page-header {
+        align-items: flex-start;
+        flex-direction: column
+    }
+
+    .category-toolbar {
         align-items: flex-start;
         flex-direction: column
     }

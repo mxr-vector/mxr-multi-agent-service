@@ -93,6 +93,14 @@ th {
     font-weight: 600
 }
 
+tbody tr {
+    transition: background-color 150ms ease
+}
+
+tbody tr:hover {
+    background: #f7f9ff
+}
+
 tbody tr:last-child td {
     border-bottom: 0
 }
@@ -126,7 +134,12 @@ em.pending {
     background: transparent;
     font-size: 12px;
     font-weight: 600;
-    cursor: pointer
+    cursor: pointer;
+    transition: color 150ms ease
+}
+
+.text-button:not(:disabled):hover {
+    color: #3550c9
 }
 
 .text-button:disabled {

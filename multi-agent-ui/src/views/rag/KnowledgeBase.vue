@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
     listKnowledgeBases,
     createKnowledgeBase,
@@ -9,8 +9,10 @@ import {
     type KnowledgeBase,
 } from '@/api/rag/knowledgeBase'
 import { listCategories, type Category } from '@/api/rag/categories'
+import { confirmDanger } from '@/utils/confirm'
 import KnowledgeBaseTable from '@/components/rag/KnowledgeBaseTable.vue'
 import KnowledgeBaseFormDialog from '@/components/rag/KnowledgeBaseFormDialog.vue'
+import SearchInput from '@/components/rag/SearchInput.vue'
 import type { KnowledgeBaseFormPayload } from '@/components/rag/types'
 
 const loading = ref(false)
@@ -94,15 +96,10 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
 }
 
 async function removeKnowledgeBase(base: KnowledgeBase) {
-    try {
-        await ElMessageBox.confirm(
-            `确定删除知识库「${base.name}」吗？删除后将不再出现在列表中。`,
-            '删除确认',
-            { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
-        )
-    } catch {
-        return
-    }
+    const confirmed = await confirmDanger(
+        `确定删除知识库「${base.name}」吗？删除后将不再出现在列表中。`
+    )
+    if (!confirmed) return
     await deleteKnowledgeBase(base.id)
     ElMessage.success('知识库已删除')
     await loadKnowledgeBases()
@@ -115,7 +112,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <section class="rag-page" v-loading="loading">
+    <section class="rag-page" v-loading="loading" element-loading-text="加载中…">
         <header class="page-header">
             <div>
                 <p class="eyebrow">RAG SYSTEM / KNOWLEDGE BASE</p>
@@ -132,7 +129,8 @@ onMounted(() => {
             <div class="toolbar">
                 <div>
                     <h2>知识库列表</h2><span>共 {{ filteredList.length }} 个知识库</span>
-                </div><input v-model="keyword" aria-label="搜索知识库" placeholder="搜索名称 / 描述" />
+                </div>
+                <SearchInput v-model="keyword" placeholder="搜索名称 / 描述" />
             </div>
             <KnowledgeBaseTable :list="filteredList" :categories="categories" @edit="openEdit"
                 @remove="removeKnowledgeBase" />
@@ -245,20 +243,6 @@ h2 {
     font-size: 16px
 }
 
-input {
-    width: 205px;
-    padding: 9px 11px;
-    border: 1px solid #dfe4ef;
-    border-radius: 8px;
-    outline: 0;
-    color: #34405a
-}
-
-input:focus {
-    border-color: #8091e8;
-    box-shadow: 0 0 0 3px rgb(128 145 232 / 12%)
-}
-
 @media(max-width:720px) {
 
     .page-header,
@@ -269,10 +253,6 @@ input:focus {
 
     .summary-grid {
         grid-template-columns: 1fr
-    }
-
-    input {
-        width: 100%
     }
 }
 </style>

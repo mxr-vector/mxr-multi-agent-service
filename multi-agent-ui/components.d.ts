@@ -28,6 +28,7 @@ declare module 'vue' {
     KnowledgeBaseTable: typeof import('./src/components/rag/KnowledgeBaseTable.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SearchInput: typeof import('./src/components/rag/SearchInput.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

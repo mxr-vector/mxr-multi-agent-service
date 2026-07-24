@@ -96,7 +96,7 @@ onMounted(async () => {
 </script>
 
 <template>
-    <section class="document-page" v-loading="loading">
+    <section class="document-page" v-loading="loading" element-loading-text="加载中…">
         <header class="page-header">
             <div>
                 <p class="eyebrow">RAG SYSTEM / DOCUMENTS</p>
