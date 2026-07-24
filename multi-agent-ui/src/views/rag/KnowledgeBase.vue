@@ -18,12 +18,12 @@ const knowledgeBases = ref<KnowledgeBase[]>([])
 const categories = ref<Category[]>([])
 const keyword = ref('')
 
-// 列表按关键词过滤（名称 / 描述 / Qdrant 集合）
+// 列表按关键词过滤（名称 / 描述）
 const filteredList = computed(() => {
     const kw = keyword.value.trim().toLowerCase()
     if (!kw) return knowledgeBases.value
     return knowledgeBases.value.filter((b) =>
-        [b.name, b.qdrant_collection, b.description ?? ''].some((f) => f.toLowerCase().includes(kw))
+        [b.name, b.description ?? ''].some((f) => f.toLowerCase().includes(kw))
     )
 })
 
@@ -80,7 +80,6 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
         } else {
             await createKnowledgeBase({
                 name: payload.name,
-                qdrant_collection: payload.qdrant_collection,
                 description: payload.description || null,
                 category_id: payload.category_id,
                 visibility: payload.visibility,
@@ -133,7 +132,7 @@ onMounted(() => {
             <div class="toolbar">
                 <div>
                     <h2>知识库列表</h2><span>共 {{ filteredList.length }} 个知识库</span>
-                </div><input v-model="keyword" aria-label="搜索知识库" placeholder="搜索名称 / 描述 / 集合" />
+                </div><input v-model="keyword" aria-label="搜索知识库" placeholder="搜索名称 / 描述" />
             </div>
             <KnowledgeBaseTable :list="filteredList" :categories="categories" @edit="openEdit"
                 @remove="removeKnowledgeBase" />

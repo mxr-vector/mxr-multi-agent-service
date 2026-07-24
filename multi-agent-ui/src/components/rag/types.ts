@@ -3,7 +3,6 @@
 /** 知识库表单弹窗提交的载荷。 */
 export interface KnowledgeBaseFormPayload {
   name: string;
-  qdrant_collection: string;
   description: string;
   category_id: string | null;
   visibility: string;

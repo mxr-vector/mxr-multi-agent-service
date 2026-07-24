@@ -1493,6 +1493,7 @@ dependencies = [
     { name = "requests" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "tqdm" },
+    { name = "uuid-utils" },
 ]
 
 [package.metadata]
@@ -1516,6 +1517,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.34.2" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "tqdm", specifier = ">=4.68.4" },
+    { name = "uuid-utils", specifier = ">=0.17.0" },
 ]
 
 [[package]]

@@ -12,7 +12,9 @@ class KnowledgeBase(Base):
     """
     知识库 ORM 模型（映射 rag_knowledge_bases）。
 
-    - id 由 PostgreSQL 18 的 uuidv7() 服务端默认生成；
+    - id 主键使用时间有序的 UUIDv7：正常创建路径由应用端（uuid_utils.compat.uuid7）
+      生成并显式传入，以便同一事务内由 id 派生 Qdrant collection 名；
+      server_default=text("uuidv7()") 保留作为底层兜底（省略 id 的直接插入仍能得到时间有序 id）；
     - tenant_id 为多租户隔离标识，由业务层注入（缺省 'default'），建库后不可变；
     - category_id 逻辑关联 rag_categories.id，不加外键/relationship；
     - qdrant_collection / embedding_* 建库后不可变，避免与未来 Qdrant collection 失配；

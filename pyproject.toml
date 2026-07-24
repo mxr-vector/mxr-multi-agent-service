@@ -24,6 +24,7 @@ dependencies = [
     "requests>=2.34.2",
     "sqlalchemy[asyncio]>=2.0.36",
     "tqdm>=4.68.4",
+    "uuid-utils>=0.17.0",
 ]
 
 

@@ -4,7 +4,9 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid_utils.compat import uuid7
 
+from database.qdrant_client import build_kb_collection_name
 from entity.rag.knowledge_base import KnowledgeBase
 
 # 建库后不可变、不允许通过更新修改的字段
@@ -37,7 +39,6 @@ class KnowledgeBaseRepository:
     async def create(
         self,
         name: str,
-        qdrant_collection: str,
         tenant_id: str = "default",
         description: str | None = None,
         category_id: uuid.UUID | None = None,
@@ -48,8 +49,15 @@ class KnowledgeBaseRepository:
         visibility: str = "private",
         owner: str | None = None,
     ) -> KnowledgeBase:
-        """插入知识库（仅元数据，不创建任何 Qdrant collection）。"""
+        """插入知识库（仅元数据，不创建任何 Qdrant collection）。
+
+        应用端生成时间有序的 UUIDv7 作为 id（保持 B-tree 索引局部性、减少重排），
+        并由该 id 派生 Qdrant collection 名称，对前端完全无感知。
+        """
+        new_id = uuid7()
+        qdrant_collection = build_kb_collection_name(new_id)
         kb = KnowledgeBase(
+            id=new_id,
             name=name,
             qdrant_collection=qdrant_collection,
             tenant_id=tenant_id,

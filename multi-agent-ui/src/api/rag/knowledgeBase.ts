@@ -22,10 +22,9 @@ export interface KnowledgeBase {
   updated_at: string;
 }
 
-/** 创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入） */
+/** 创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入；qdrant_collection 由后端由 id 派生） */
 export interface KnowledgeBaseCreatePayload {
   name: string;
-  qdrant_collection: string;
   description?: string | null;
   category_id?: string | null;
   icon?: string | null;

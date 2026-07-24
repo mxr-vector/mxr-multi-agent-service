@@ -13,6 +13,8 @@
 -- id 生成: 使用 PostgreSQL 18 内置的 uuidv7() (要求 PG >= 18), 时间有序 UUID,
 --         相比 gen_random_uuid()(UUID v4, 完全随机)写入 B-tree 主键索引时局部性更好,
 --         减少索引页分裂, 大批量写入场景下性能明显更优, 同时仍保持全局唯一, 可直接作为 Qdrant point id
+--         例外: rag_knowledge_bases.id 由应用端(uuid_utils.compat.uuid7)生成并显式传入,
+--         以便同一事务内由 id 派生 qdrant_collection(形如 kb_{id.hex}_v1); 上方 uuidv7() 默认值保留作为兜底
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -58,6 +60,7 @@ CREATE TABLE rag.rag_knowledge_bases (
     icon                VARCHAR(100),                 -- 前端展示用图标/颜色标识
 
     -- Qdrant 映射: 一个知识库对应一个 collection(不同知识库可用不同 embedding 模型/维度)
+    -- 命名规则: 由后端根据 id 派生为 kb_{id.hex}_v1, 前端无感知, 不由用户输入
     qdrant_collection   VARCHAR(200) NOT NULL,
     embedding_provider  VARCHAR(50),                  -- 'vllm_qwen3' / 'dashscope' / 'cohere' 等, 便于检索时选对客户端
     embedding_model     VARCHAR(100),                 -- 具体模型名, 如 'Qwen3-Embedding-0.6B'

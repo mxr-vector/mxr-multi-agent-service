@@ -20,7 +20,6 @@ const emit = defineEmits<{
 const formRef = ref<FormInstance>()
 const form = reactive<KnowledgeBaseFormPayload>({
     name: '',
-    qdrant_collection: '',
     description: '',
     category_id: null,
     visibility: 'private',
@@ -29,7 +28,6 @@ const form = reactive<KnowledgeBaseFormPayload>({
 const isEdit = computed(() => Boolean(props.record))
 const rules: FormRules = {
     name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }],
-    qdrant_collection: [{ required: true, message: '请输入 Qdrant collection', trigger: 'blur' }],
 }
 
 const dialogVisible = computed({
@@ -44,7 +42,6 @@ watch(
         if (!v) return
         Object.assign(form, {
             name: props.record?.name ?? '',
-            qdrant_collection: props.record?.qdrant_collection ?? '',
             description: props.record?.description ?? '',
             category_id: props.record?.category_id ?? null,
             visibility: props.record?.visibility ?? 'private',
@@ -66,9 +63,6 @@ async function handleSubmit() {
         <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
             <el-form-item label="名称" prop="name">
                 <el-input v-model="form.name" placeholder="请输入知识库名称" maxlength="64" />
-            </el-form-item>
-            <el-form-item label="Qdrant 集合" prop="qdrant_collection">
-                <el-input v-model="form.qdrant_collection" :disabled="isEdit" placeholder="创建后不可修改" />
             </el-form-item>
             <el-form-item label="分类">
                 <el-select v-model="form.category_id" clearable placeholder="未分类" style="width: 100%">

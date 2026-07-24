@@ -45,7 +45,7 @@ function categoryName(categoryId: string | null) {
             </thead>
             <tbody>
                 <tr v-for="base in list" :key="base.id">
-                    <td><strong>{{ base.name }}</strong><span>{{ base.description || base.qdrant_collection }}</span>
+                    <td><strong>{{ base.name }}</strong><span>{{ base.description || '暂无描述' }}</span>
                     </td>
                     <td>{{ categoryName(base.category_id) }}</td>
                     <td>{{ base.document_count }} 份</td>

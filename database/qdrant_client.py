@@ -2,12 +2,26 @@ from core.source.qdrant import get_qdrant_client
 from qdrant_client import models
 from qdrant_client.models import Distance, PointStruct, VectorParams
 from typing import Any, List, Optional, Sequence
-from uuid import uuid4
+from uuid import UUID, uuid4
 from utils.logger import logger
 
 # 混合检索命名向量：dense 走语义（COSINE），sparse 走 BM25 关键词（IDF 由服务端计算）
 DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
+
+# 知识库 collection 命名规则：由知识库 id 后端派生，前端无感知。
+# 形如 kb_{id.hex}_v1（id 去连字符的 32 位十六进制，版本段固定 v1）。
+KB_COLLECTION_PREFIX = "kb_"
+KB_COLLECTION_VERSION = "v1"
+
+
+def build_kb_collection_name(kb_id: UUID) -> str:
+    """由知识库 UUID 派生 Qdrant collection 名称：kb_{id.hex}_v1。
+
+    id 使用 .hex 去除连字符以贴合 Qdrant 命名习惯；版本段固定为 v1。
+    这是全局唯一的命名入口，业务层不得再拼接或接受外部传入的 collection 名。
+    """
+    return f"{KB_COLLECTION_PREFIX}{kb_id.hex}_{KB_COLLECTION_VERSION}"
 
 
 class QdrantManager:

@@ -18,7 +18,6 @@ class KnowledgeBaseService:
     async def create(
         self,
         name: str,
-        qdrant_collection: str,
         tenant_id: str = "default",
         description: str | None = None,
         category_id: uuid.UUID | None = None,
@@ -32,12 +31,12 @@ class KnowledgeBaseService:
         """
         创建知识库（仅元数据，不创建 Qdrant collection）。
         tenant_id 缺省为 'default'，由上层从请求上下文注入。
+        qdrant_collection 由持久层由 id 派生，不接受外部传入。
         """
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.create(
                 name=name,
-                qdrant_collection=qdrant_collection,
                 tenant_id=tenant_id,
                 description=description,
                 category_id=category_id,

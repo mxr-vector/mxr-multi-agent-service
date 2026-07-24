@@ -14,10 +14,12 @@ _service = KnowledgeBaseService()
 
 
 class KnowledgeBaseCreate(BaseModel):
-    """创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入）。"""
+    """创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入）。
+
+    qdrant_collection 由后端由 id 派生，不在请求体中暴露。
+    """
 
     name: str
-    qdrant_collection: str
     description: Optional[str] = None
     category_id: Optional[uuid.UUID] = None
     icon: Optional[str] = None
@@ -45,7 +47,6 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
     """创建知识库（仅元数据，tenant_id 服务端默认注入）。"""
     kb = await _service.create(
         name=payload.name,
-        qdrant_collection=payload.qdrant_collection,
         description=payload.description,
         category_id=payload.category_id,
         icon=payload.icon,
