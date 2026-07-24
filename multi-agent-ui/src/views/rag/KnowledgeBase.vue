@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
     listKnowledgeBases,
@@ -9,10 +9,12 @@ import {
     type KnowledgeBase,
 } from '@/api/rag/knowledgeBase'
 import { listCategories, type Category } from '@/api/rag/categories'
+import { getRagStats, type RagStats } from '@/api/rag/stats'
 import { confirmDanger } from '@/utils/confirm'
 import KnowledgeBaseTable from '@/components/rag/KnowledgeBaseTable.vue'
 import KnowledgeBaseFormDialog from '@/components/rag/KnowledgeBaseFormDialog.vue'
 import SearchInput from '@/components/rag/SearchInput.vue'
+import Pagination from '@/components/rag/Pagination.vue'
 import type { KnowledgeBaseFormPayload } from '@/components/rag/types'
 
 const loading = ref(false)
@@ -20,28 +22,28 @@ const knowledgeBases = ref<KnowledgeBase[]>([])
 const categories = ref<Category[]>([])
 const keyword = ref('')
 
-// 列表按关键词过滤（名称 / 描述）
-const filteredList = computed(() => {
-    const kw = keyword.value.trim().toLowerCase()
-    if (!kw) return knowledgeBases.value
-    return knowledgeBases.value.filter((b) =>
-        [b.name, b.description ?? ''].some((f) => f.toLowerCase().includes(kw))
-    )
-})
+// 分页状态（服务端分页）
+const page = ref(1)
+const size = ref(20)
+const total = ref(0)
 
-// 汇总指标
-const totalDocuments = computed(() =>
-    knowledgeBases.value.reduce((sum, b) => sum + (b.document_count ?? 0), 0)
-)
-const totalChunks = computed(() =>
-    knowledgeBases.value.reduce((sum, b) => sum + (b.total_chunk_count ?? 0), 0)
-)
+// 全局统计（汇总卡片数据源）
+const stats = ref<RagStats>({
+    knowledge_base_count: 0,
+    document_count: 0,
+    total_chunk_count: 0,
+})
 
 async function loadKnowledgeBases() {
     loading.value = true
     try {
-        const res = await listKnowledgeBases()
-        knowledgeBases.value = res.data ?? []
+        const res = await listKnowledgeBases({
+            page: page.value,
+            size: size.value,
+            keyword: keyword.value.trim() || undefined,
+        })
+        knowledgeBases.value = res.data?.items ?? []
+        total.value = res.data?.total ?? 0
     } finally {
         loading.value = false
     }
@@ -49,8 +51,23 @@ async function loadKnowledgeBases() {
 
 async function loadCategories() {
     const res = await listCategories()
-    categories.value = res.data ?? []
+    categories.value = res.data?.items ?? []
 }
+
+async function loadStats() {
+    const res = await getRagStats()
+    if (res.data) stats.value = res.data
+}
+
+// 关键词防抖：变更后回到第 1 页并触发服务端重载
+let keywordTimer: ReturnType<typeof setTimeout> | undefined
+watch(keyword, () => {
+    if (keywordTimer) clearTimeout(keywordTimer)
+    keywordTimer = setTimeout(() => {
+        page.value = 1
+        loadKnowledgeBases()
+    }, 300)
+})
 
 // 新建 / 编辑弹窗
 const dialogVisible = ref(false)
@@ -90,6 +107,7 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
         }
         dialogVisible.value = false
         await loadKnowledgeBases()
+        await loadStats()
     } finally {
         submitting.value = false
     }
@@ -103,11 +121,13 @@ async function removeKnowledgeBase(base: KnowledgeBase) {
     await deleteKnowledgeBase(base.id)
     ElMessage.success('知识库已删除')
     await loadKnowledgeBases()
+    await loadStats()
 }
 
 onMounted(() => {
     loadKnowledgeBases()
     loadCategories()
+    loadStats()
 })
 </script>
 
@@ -121,19 +141,22 @@ onMounted(() => {
             </div><button class="primary-button" type="button" @click="openCreate">＋ 新建知识库</button>
         </header>
         <section class="summary-grid">
-            <article><span>知识库总数</span><strong>{{ knowledgeBases.length }}</strong><small>全部知识源</small></article>
-            <article><span>已收录文档</span><strong>{{ totalDocuments }}</strong><small>所有知识库合计</small></article>
-            <article><span>分块总数</span><strong>{{ totalChunks }}</strong><small>已入库块数</small></article>
+            <article><span>知识库总数</span><strong>{{ stats.knowledge_base_count }}</strong><small>全部知识源</small></article>
+            <article><span>已收录文档</span><strong>{{ stats.document_count }}</strong><small>所有知识库合计</small></article>
+            <article><span>分块总数</span><strong>{{ stats.total_chunk_count }}</strong><small>已入库块数</small></article>
         </section>
         <section class="content-card">
             <div class="toolbar">
                 <div>
-                    <h2>知识库列表</h2><span>共 {{ filteredList.length }} 个知识库</span>
+                    <h2>知识库列表</h2><span>共 {{ total }} 个知识库</span>
                 </div>
                 <SearchInput v-model="keyword" placeholder="搜索名称 / 描述" />
             </div>
-            <KnowledgeBaseTable :list="filteredList" :categories="categories" @edit="openEdit"
+            <KnowledgeBaseTable :list="knowledgeBases" :categories="categories" @edit="openEdit"
                 @remove="removeKnowledgeBase" />
+            <div class="pagination-bar">
+                <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadKnowledgeBases" />
+            </div>
         </section>
 
         <KnowledgeBaseFormDialog v-model:visible="dialogVisible" :record="editing" :categories="categories"
@@ -236,6 +259,12 @@ h1 {
     align-items: center;
     padding: 19px 20px;
     border-bottom: 1px solid #edf0f5
+}
+
+.pagination-bar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px
 }
 
 h2 {

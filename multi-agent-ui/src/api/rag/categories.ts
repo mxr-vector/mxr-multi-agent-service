@@ -1,5 +1,5 @@
 import request, { type ApiResult } from "@/utils/request";
-import { CATEGORY_URL } from "./index";
+import { CATEGORY_URL, type PageResult } from "./index";
 
 /** 分类实体（对应后端 rag_categories.to_dict） */
 export interface Category {
@@ -32,10 +32,22 @@ export function createCategory(payload: CategoryCreatePayload) {
   return request.post<Category, ApiResult<Category>>(CATEGORY_URL.root, payload);
 }
 
-/** 扁平列出分类：省略 parentId 返回全部，传入则只返回其直接子分类 */
-export function listCategories(parentId?: string) {
-  return request.get<Category[], ApiResult<Category[]>>(CATEGORY_URL.root, {
-    params: { parent_id: parentId },
+/** 分页列出分类参数 */
+export interface CategoryListParams {
+  /** 页码，从 1 开始（默认 1） */
+  page?: number;
+  /** 每页数量（1-200，默认 20） */
+  size?: number;
+  /** 只返回该父分类的直接子分类 */
+  parent_id?: string;
+  /** 按名称模糊搜索 */
+  keyword?: string;
+}
+
+/** 分页列出分类：可选按 parent_id/关键词过滤 */
+export function listCategories(params: CategoryListParams = {}) {
+  return request.get<PageResult<Category>, ApiResult<PageResult<Category>>>(CATEGORY_URL.root, {
+    params,
   });
 }
 

@@ -1,5 +1,5 @@
 import request, { type ApiResult } from "@/utils/request";
-import { CHUNK_URL } from "./index";
+import { CHUNK_URL, type PageResult } from "./index";
 
 /** 分块实体（对应后端 rag_chunks.to_dict） */
 export interface Chunk {
@@ -32,15 +32,15 @@ export interface ChunkListParams {
   level?: number;
   /** 按文档版本过滤 */
   document_version?: number;
+  /** 页码，从 1 开始（默认 1） */
+  page?: number;
   /** 每页数量（1-200，默认 50） */
-  limit?: number;
-  /** 偏移量（默认 0） */
-  offset?: number;
+  size?: number;
 }
 
 /** 按文档分页列出分块，可选 level/document_version 过滤，按 chunk_index 升序 */
 export function listChunks(params: ChunkListParams) {
-  return request.get<Chunk[], ApiResult<Chunk[]>>(CHUNK_URL.root, { params });
+  return request.get<PageResult<Chunk>, ApiResult<PageResult<Chunk>>>(CHUNK_URL.root, { params });
 }
 
 /** 按 id 获取分块 */

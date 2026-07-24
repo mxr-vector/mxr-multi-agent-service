@@ -5,6 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.chunks import Chunk
+from utils.page import paginate
 
 
 class ChunkRepository:
@@ -33,18 +34,18 @@ class ChunkRepository:
         document_id: uuid.UUID,
         level: int | None = None,
         document_version: int | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[Chunk]:
-        """按文档分页列出块，可选 level/document_version 过滤，按 chunk_index 升序。"""
+        page: int = 1,
+        size: int = 50,
+    ) -> tuple[list[Chunk], int]:
+        """按文档分页列出块，可选 level/document_version 过滤，按 chunk_index 升序。返回 (items, total)。"""
         stmt = select(Chunk).where(Chunk.document_id == document_id)
         if level is not None:
             stmt = stmt.where(Chunk.level == level)
         if document_version is not None:
             stmt = stmt.where(Chunk.document_version == document_version)
-        stmt = stmt.order_by(Chunk.chunk_index.asc()).limit(limit).offset(offset)
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        stmt = stmt.order_by(Chunk.chunk_index.asc())
+        items, total = await paginate(self.session, stmt, page, size)
+        return list(items), total
 
     async def get(self, chunk_id: uuid.UUID) -> Chunk | None:
         """按 id 获取块，不存在返回 None。"""

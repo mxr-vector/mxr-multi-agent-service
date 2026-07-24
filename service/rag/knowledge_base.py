@@ -4,6 +4,7 @@ from typing import Any
 from database.postgre_client import get_session
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
+from utils.page import PageResult, build_page_result
 
 
 class KnowledgeBaseService:
@@ -50,12 +51,20 @@ class KnowledgeBaseService:
             await session.commit()
             return kb.to_dict()
 
-    async def list(self, category_id: uuid.UUID | None = None) -> list[dict]:
-        """列出知识库（排除软删除的），可选按 category_id 过滤。"""
+    async def list(
+        self,
+        page: int = 1,
+        size: int = 20,
+        category_id: uuid.UUID | None = None,
+        keyword: str | None = None,
+    ) -> PageResult:
+        """分页列出知识库（排除软删除的），可选按 category_id / keyword 过滤。"""
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
-            kbs = await repo.list(category_id=category_id)
-            return [kb.to_dict() for kb in kbs]
+            kbs, total = await repo.list(
+                page=page, size=size, category_id=category_id, keyword=keyword
+            )
+            return build_page_result([kb.to_dict() for kb in kbs], total, page, size)
 
     async def get(self, kb_id: uuid.UUID) -> dict:
         """按 id 获取知识库，不存在时抛出业务异常。"""

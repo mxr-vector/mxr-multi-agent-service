@@ -3,6 +3,7 @@ import uuid
 from database.postgre_client import get_session
 from database.rag.chunks import ChunkRepository
 from exception.bad_except import bad_except
+from utils.page import PageResult, build_page_result
 
 
 class ChunkService:
@@ -18,20 +19,22 @@ class ChunkService:
         document_id: uuid.UUID,
         level: int | None = None,
         document_version: int | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[dict]:
+        page: int = 1,
+        size: int = 50,
+    ) -> PageResult:
         """按文档分页列出分块，可选 level/document_version 过滤，按 chunk_index 升序。"""
         async with get_session() as session:
             repo = ChunkRepository(session)
-            chunks = await repo.list_by_document(
+            chunks, total = await repo.list_by_document(
                 document_id,
                 level=level,
                 document_version=document_version,
-                limit=limit,
-                offset=offset,
+                page=page,
+                size=size,
             )
-            return [chunk.to_dict() for chunk in chunks]
+            return build_page_result(
+                [chunk.to_dict() for chunk in chunks], total, page, size
+            )
 
     async def get(self, chunk_id: uuid.UUID) -> dict:
         """按 id 获取分块，不存在时抛业务异常。"""

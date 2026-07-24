@@ -1,5 +1,5 @@
 import request, { type ApiResult } from "@/utils/request";
-import { KNOWLEDGE_BASE_URL } from "./index";
+import { KNOWLEDGE_BASE_URL, type PageResult } from "./index";
 
 /** 知识库实体（对应后端 rag_knowledge_bases.to_dict） */
 export interface KnowledgeBase {
@@ -51,11 +51,24 @@ export function createKnowledgeBase(payload: KnowledgeBaseCreatePayload) {
   return request.post<KnowledgeBase, ApiResult<KnowledgeBase>>(KNOWLEDGE_BASE_URL.root, payload);
 }
 
-/** 列出知识库（排除软删除的），可选按 categoryId 过滤 */
-export function listKnowledgeBases(categoryId?: string) {
-  return request.get<KnowledgeBase[], ApiResult<KnowledgeBase[]>>(KNOWLEDGE_BASE_URL.root, {
-    params: { category_id: categoryId },
-  });
+/** 分页列出知识库参数 */
+export interface KnowledgeBaseListParams {
+  /** 页码，从 1 开始（默认 1） */
+  page?: number;
+  /** 每页数量（1-200，默认 20） */
+  size?: number;
+  /** 按分类过滤 */
+  category_id?: string;
+  /** 按名称/描述模糊搜索 */
+  keyword?: string;
+}
+
+/** 分页列出知识库（排除软删除的），可选按分类/关键词过滤 */
+export function listKnowledgeBases(params: KnowledgeBaseListParams = {}) {
+  return request.get<PageResult<KnowledgeBase>, ApiResult<PageResult<KnowledgeBase>>>(
+    KNOWLEDGE_BASE_URL.root,
+    { params }
+  );
 }
 
 /** 按 id 获取知识库 */

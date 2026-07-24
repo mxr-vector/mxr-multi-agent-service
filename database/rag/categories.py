@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.categories import Category
 from entity.rag.knowledge_base import KnowledgeBase
+from utils.page import paginate
 
 
 class CategoryRepository:
@@ -37,17 +38,25 @@ class CategoryRepository:
         await self.session.flush()
         return category
 
-    async def list(self, parent_id: uuid.UUID | None = None) -> list[Category]:
+    async def list(
+        self,
+        page: int = 1,
+        size: int = 20,
+        parent_id: uuid.UUID | None = None,
+        keyword: str | None = None,
+    ) -> tuple[list[Category], int]:
         """
-        扁平列表：省略 parent_id 时返回全部分类；
-        传入 parent_id 时只返回该节点的直接子分类。
+        分页扁平列表：省略 parent_id 时返回全部分类，传入则只返回
+        该节点的直接子分类；可选按 keyword 对 name 做 ILIKE 匹配。返回 (items, total)。
         """
         stmt = select(Category)
         if parent_id is not None:
             stmt = stmt.where(Category.parent_id == parent_id)
+        if keyword:
+            stmt = stmt.where(Category.name.ilike(f"%{keyword}%"))
         stmt = stmt.order_by(Category.sort_order)
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        items, total = await paginate(self.session, stmt, page, size)
+        return list(items), total
 
     async def get(self, category_id: uuid.UUID) -> Category | None:
         """按 id 获取单个分类，不存在返回 None。"""

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
     listDocuments,
@@ -10,6 +10,7 @@ import {
 import { listKnowledgeBases, type KnowledgeBase } from '@/api/rag/knowledgeBase'
 import DocumentUploader from '@/components/rag/DocumentUploader.vue'
 import DocumentTable from '@/components/rag/DocumentTable.vue'
+import Pagination from '@/components/rag/Pagination.vue'
 
 const loading = ref(false)
 const uploading = ref(false)
@@ -18,6 +19,12 @@ const documents = ref<RagDocument[]>([])
 const knowledgeBases = ref<KnowledgeBase[]>([])
 const selectedKbId = ref<string | null>(null)
 const statusFilter = ref('')
+
+// 分页状态（服务端分页）
+const page = ref(1)
+const size = ref(20)
+const total = ref(0)
+
 const uploaderRef = ref<InstanceType<typeof DocumentUploader>>()
 
 const statusOptions = [
@@ -27,15 +34,10 @@ const statusOptions = [
     { label: '向量化中', value: 'reindexing' },
 ]
 
-// 按状态客户端过滤
-const filteredDocuments = computed(() => {
-    if (!statusFilter.value) return documents.value
-    return documents.value.filter((d) => d.status === statusFilter.value)
-})
-
+// 按状态服务端过滤（下拉选项）
 async function loadKnowledgeBases() {
     const res = await listKnowledgeBases()
-    knowledgeBases.value = res.data ?? []
+    knowledgeBases.value = res.data?.items ?? []
     if (!selectedKbId.value && knowledgeBases.value.length) {
         selectedKbId.value = knowledgeBases.value[0].id
     }
@@ -44,12 +46,19 @@ async function loadKnowledgeBases() {
 async function loadDocuments() {
     if (!selectedKbId.value) {
         documents.value = []
+        total.value = 0
         return
     }
     loading.value = true
     try {
-        const res = await listDocuments({ knowledge_base_id: selectedKbId.value })
-        documents.value = res.data ?? []
+        const res = await listDocuments({
+            knowledge_base_id: selectedKbId.value,
+            page: page.value,
+            size: size.value,
+            status: statusFilter.value || undefined,
+        })
+        documents.value = res.data?.items ?? []
+        total.value = res.data?.total ?? 0
     } finally {
         loading.value = false
     }
@@ -86,8 +95,11 @@ async function handleVectorize(doc: RagDocument) {
     }
 }
 
-// 切换知识库时重新拉取文档
-watch(selectedKbId, loadDocuments)
+// 切换知识库或状态过滤：回到第 1 页并重新拉取
+watch([selectedKbId, statusFilter], () => {
+    page.value = 1
+    loadDocuments()
+})
 
 onMounted(async () => {
     await loadKnowledgeBases()
@@ -110,7 +122,7 @@ onMounted(async () => {
         <section class="content-card">
             <div class="toolbar">
                 <div>
-                    <h2>全部文档</h2><span>共 {{ filteredDocuments.length }} 份文档</span>
+                    <h2>全部文档</h2><span>共 {{ total }} 份文档</span>
                 </div>
                 <div class="filters">
                     <el-select v-model="selectedKbId" placeholder="选择知识库" style="width: 200px">
@@ -121,8 +133,11 @@ onMounted(async () => {
                     </el-select>
                 </div>
             </div>
-            <DocumentTable :documents="filteredDocuments" :knowledge-bases="knowledgeBases"
-                :vectorizing-id="vectorizingId" @vectorize="handleVectorize" />
+            <DocumentTable :documents="documents" :knowledge-bases="knowledgeBases" :vectorizing-id="vectorizingId"
+                @vectorize="handleVectorize" />
+            <div class="pagination-bar">
+                <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadDocuments" />
+            </div>
         </section>
     </section>
 </template>
@@ -199,6 +214,12 @@ h1 {
     align-items: center;
     padding: 19px 20px;
     border-bottom: 1px solid #edf0f5
+}
+
+.pagination-bar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px
 }
 
 h2 {

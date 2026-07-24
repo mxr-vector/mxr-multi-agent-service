@@ -19,18 +19,18 @@ async def list_chunks(
         default=None, description="按层级过滤（0 叶块 / 1 父块）"
     ),
     document_version: Optional[int] = Query(default=None, description="按文档版本过滤"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(default=50, ge=1, le=200, description="每页数量"),
 ):
     """按文档分页列出分块，可选 level/document_version 过滤，按 chunk_index 升序。"""
-    chunks = await _service.list(
+    page_result = await _service.list(
         document_id,
         level=level,
         document_version=document_version,
-        limit=limit,
-        offset=offset,
+        page=page,
+        size=size,
     )
-    return R.success(data=chunks)
+    return R.success(data=page_result)
 
 
 @router.get("/{chunk_id}")

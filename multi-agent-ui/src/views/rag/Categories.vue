@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
     listCategories,
@@ -12,6 +12,7 @@ import { confirmDanger } from '@/utils/confirm'
 import CategoryCard from '@/components/rag/CategoryCard.vue'
 import CategoryFormDialog from '@/components/rag/CategoryFormDialog.vue'
 import SearchInput from '@/components/rag/SearchInput.vue'
+import Pagination from '@/components/rag/Pagination.vue'
 import type { CategoryFormPayload } from '@/components/rag/types'
 
 // 顶部色带循环取色
@@ -21,12 +22,10 @@ const loading = ref(false)
 const categories = ref<Category[]>([])
 const keyword = ref('')
 
-// 按关键词过滤（名称），子分类数与上级名称仍基于全量数据计算
-const filteredCategories = computed(() => {
-    const kw = keyword.value.trim().toLowerCase()
-    if (!kw) return categories.value
-    return categories.value.filter((c) => c.name.toLowerCase().includes(kw))
-})
+// 分页状态（服务端分页）
+const page = ref(1)
+const size = ref(20)
+const total = ref(0)
 
 // 各分类的直接子分类数量（parent_id 指向该分类）
 const childCountMap = computed(() => {
@@ -45,12 +44,27 @@ function parentName(parentId: string | null) {
 async function loadCategories() {
     loading.value = true
     try {
-        const res = await listCategories()
-        categories.value = res.data ?? []
+        const res = await listCategories({
+            page: page.value,
+            size: size.value,
+            keyword: keyword.value.trim() || undefined,
+        })
+        categories.value = res.data?.items ?? []
+        total.value = res.data?.total ?? 0
     } finally {
         loading.value = false
     }
 }
+
+// 关键词防抖：变更后回到第 1 页并触发服务端重载
+let keywordTimer: ReturnType<typeof setTimeout> | undefined
+watch(keyword, () => {
+    if (keywordTimer) clearTimeout(keywordTimer)
+    keywordTimer = setTimeout(() => {
+        page.value = 1
+        loadCategories()
+    }, 300)
+})
 
 // 新建 / 编辑弹窗
 const dialogVisible = ref(false)
@@ -112,15 +126,18 @@ onMounted(loadCategories)
             </div>
         </section>
         <div class="category-toolbar">
-            <span class="toolbar-count">共 {{ filteredCategories.length }} 个分类</span>
+            <span class="toolbar-count">共 {{ total }} 个分类</span>
             <SearchInput v-model="keyword" placeholder="搜索分类名称" />
         </div>
-        <section v-if="filteredCategories.length" class="category-grid">
-            <CategoryCard v-for="(category, index) in filteredCategories" :key="category.id" :category="category"
+        <section v-if="categories.length" class="category-grid">
+            <CategoryCard v-for="(category, index) in categories" :key="category.id" :category="category"
                 :color="markColors[index % markColors.length]" :child-count="childCountMap[category.id] ?? 0"
                 :parent-name="parentName(category.parent_id)" @edit="openEdit" @remove="removeCategory" />
         </section>
         <el-empty v-else :description="keyword ? '未找到匹配的分类' : '暂无分类，点击右上角新建'" />
+        <div v-if="total" class="pagination-bar">
+            <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadCategories" />
+        </div>
 
         <CategoryFormDialog v-model:visible="dialogVisible" :record="editing" :categories="categories"
             :submitting="submitting" @submit="handleSubmit" />
@@ -226,6 +243,11 @@ h1 {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px
+}
+
+.pagination-bar {
+    display: flex;
+    justify-content: flex-end
 }
 
 @media(max-width:720px) {

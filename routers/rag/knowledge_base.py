@@ -61,11 +61,16 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
 
 @router.get("")
 async def list_knowledge_bases(
+    page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(default=20, ge=1, le=200, description="每页数量"),
     category_id: Optional[uuid.UUID] = Query(default=None, description="按分类过滤"),
+    keyword: Optional[str] = Query(default=None, description="按名称/描述模糊搜索"),
 ):
-    """列出知识库（排除软删除的），可选按 category_id 过滤。"""
-    kbs = await _service.list(category_id=category_id)
-    return R.success(data=kbs)
+    """分页列出知识库（排除软删除的），可选按 category_id / keyword 过滤。"""
+    page_result = await _service.list(
+        page=page, size=size, category_id=category_id, keyword=keyword
+    )
+    return R.success(data=page_result)
 
 
 @router.get("/{kb_id}")

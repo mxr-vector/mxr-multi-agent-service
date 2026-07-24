@@ -60,12 +60,15 @@ async def vectorize_document(doc_id: uuid.UUID = Path(...)):
 @router.get("")
 async def list_documents(
     knowledge_base_id: uuid.UUID = Query(..., description="按知识库过滤"),
-    limit: int = Query(default=20, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(default=20, ge=1, le=200, description="每页数量"),
+    status: Optional[str] = Query(default=None, description="按状态过滤"),
 ):
-    """按知识库分页列出文档（排除软删除的）。"""
-    docs = await _service.list(knowledge_base_id, limit=limit, offset=offset)
-    return R.success(data=docs)
+    """按知识库分页列出文档（排除软删除的），可选按 status 过滤。"""
+    page_result = await _service.list(
+        knowledge_base_id, page=page, size=size, status=status
+    )
+    return R.success(data=page_result)
 
 
 @router.get("/{doc_id}")

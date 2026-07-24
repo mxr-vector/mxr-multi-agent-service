@@ -10,6 +10,7 @@ from exception.bad_except import bad_except
 from utils.file_ingest import ingest_file
 from utils.id import format_id
 from utils.logger import logger
+from utils.page import PageResult, build_page_result
 
 
 class DocumentService:
@@ -234,14 +235,17 @@ class DocumentService:
     async def list(
         self,
         knowledge_base_id: uuid.UUID,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> list[dict]:
-        """按知识库分页列出文档（排除软删除的）。"""
+        page: int = 1,
+        size: int = 20,
+        status: str | None = None,
+    ) -> PageResult:
+        """按知识库分页列出文档（排除软删除的），可选按 status 过滤。"""
         async with get_session() as session:
             repo = DocumentRepository(session)
-            docs = await repo.list_by_kb(knowledge_base_id, limit=limit, offset=offset)
-            return [doc.to_dict() for doc in docs]
+            docs, total = await repo.list_by_kb(
+                knowledge_base_id, page=page, size=size, status=status
+            )
+            return build_page_result([doc.to_dict() for doc in docs], total, page, size)
 
     async def get(self, doc_id: uuid.UUID) -> dict:
         """按 id 获取文档，不存在时抛业务异常。"""

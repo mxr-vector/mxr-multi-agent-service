@@ -2,12 +2,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils.compat import uuid7
 
 from database.qdrant_client import build_kb_collection_name
 from entity.rag.knowledge_base import KnowledgeBase
+from utils.page import paginate
 
 # 建库后不可变、不允许通过更新修改的字段
 _IMMUTABLE_FIELDS = frozenset(
@@ -74,14 +75,31 @@ class KnowledgeBaseRepository:
         await self.session.flush()
         return kb
 
-    async def list(self, category_id: uuid.UUID | None = None) -> list[KnowledgeBase]:
-        """列出知识库，排除 status='deleted'；可选按 category_id 过滤。"""
+    async def list(
+        self,
+        page: int = 1,
+        size: int = 20,
+        category_id: uuid.UUID | None = None,
+        keyword: str | None = None,
+    ) -> tuple[list[KnowledgeBase], int]:
+        """
+        分页列出知识库，排除 status='deleted'；可选按 category_id 过滤，
+        可选按 keyword 对 name/description 做 ILIKE 模糊匹配。返回 (items, total)。
+        """
         stmt = select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
         if category_id is not None:
             stmt = stmt.where(KnowledgeBase.category_id == category_id)
+        if keyword:
+            pattern = f"%{keyword}%"
+            stmt = stmt.where(
+                or_(
+                    KnowledgeBase.name.ilike(pattern),
+                    KnowledgeBase.description.ilike(pattern),
+                )
+            )
         stmt = stmt.order_by(KnowledgeBase.updated_at.desc())
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        items, total = await paginate(self.session, stmt, page, size)
+        return list(items), total
 
     async def get(self, kb_id: uuid.UUID) -> KnowledgeBase | None:
         """按 id 获取知识库，不存在返回 None（含软删除的行也会返回，由业务层决定语义）。"""

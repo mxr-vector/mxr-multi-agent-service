@@ -1,5 +1,5 @@
 import request, { type ApiResult } from "@/utils/request";
-import { DOCUMENT_URL } from "./index";
+import { DOCUMENT_URL, type PageResult } from "./index";
 
 /** 文档实体（对应后端 rag_documents.to_dict） */
 export interface RagDocument {
@@ -42,10 +42,12 @@ export interface DocumentUploadParams {
 export interface DocumentListParams {
   /** 按知识库过滤 */
   knowledge_base_id: string;
+  /** 页码，从 1 开始（默认 1） */
+  page?: number;
   /** 每页数量（1-200，默认 20） */
-  limit?: number;
-  /** 偏移量（默认 0） */
-  offset?: number;
+  size?: number;
+  /** 按状态过滤 */
+  status?: string;
 }
 
 /** 更新文档请求体（仅可编辑元数据；内容/哈希/版本/归属/状态不可变） */
@@ -79,11 +81,12 @@ export function vectorizeDocument(docId: string) {
   return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.vectorize(docId));
 }
 
-/** 按知识库分页列出文档（排除软删除的） */
+/** 按知识库分页列出文档（排除软删除的），可选按 status 过滤 */
 export function listDocuments(params: DocumentListParams) {
-  return request.get<RagDocument[], ApiResult<RagDocument[]>>(DOCUMENT_URL.root, {
-    params,
-  });
+  return request.get<PageResult<RagDocument>, ApiResult<PageResult<RagDocument>>>(
+    DOCUMENT_URL.root,
+    { params }
+  );
 }
 
 /** 按 id 获取文档 */

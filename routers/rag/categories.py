@@ -42,13 +42,18 @@ async def create_category(payload: CategoryCreate = Body(...)):
 
 @router.get("")
 async def list_categories(
+    page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(default=20, ge=1, le=200, description="每页数量"),
     parent_id: Optional[uuid.UUID] = Query(
         default=None, description="按父分类过滤，返回其直接子分类"
     ),
+    keyword: Optional[str] = Query(default=None, description="按分类名称模糊搜索"),
 ):
-    """扁平列出分类：省略 parent_id 返回全部，传入则只返回直接子分类。"""
-    categories = await _service.list(parent_id=parent_id)
-    return R.success(data=categories)
+    """分页扁平列出分类：省略 parent_id 返回全部，传入则只返回直接子分类；可选 keyword 过滤。"""
+    page_result = await _service.list(
+        page=page, size=size, parent_id=parent_id, keyword=keyword
+    )
+    return R.success(data=page_result)
 
 
 @router.get("/{category_id}")

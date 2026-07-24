@@ -3,6 +3,7 @@ import uuid
 from database.postgre_client import get_session
 from database.rag.categories import CategoryRepository
 from exception.bad_except import bad_except
+from utils.page import PageResult, build_page_result
 
 
 class CategoryService:
@@ -32,15 +33,25 @@ class CategoryService:
             await session.commit()
             return category.to_dict()
 
-    async def list(self, parent_id: uuid.UUID | None = None) -> list[dict]:
+    async def list(
+        self,
+        page: int = 1,
+        size: int = 20,
+        parent_id: uuid.UUID | None = None,
+        keyword: str | None = None,
+    ) -> PageResult:
         """
-        返回扁平分类列表（不做服务端树装配）；
-        省略 parent_id 返回全部，传入则只返回其直接子分类。
+        分页返回扁平分类列表（不做服务端树装配）；省略 parent_id 返回全部，
+        传入则只返回其直接子分类；可选按 keyword 对 name 过滤。
         """
         async with get_session() as session:
             repo = CategoryRepository(session)
-            categories = await repo.list(parent_id=parent_id)
-            return [c.to_dict() for c in categories]
+            categories, total = await repo.list(
+                page=page, size=size, parent_id=parent_id, keyword=keyword
+            )
+            return build_page_result(
+                [c.to_dict() for c in categories], total, page, size
+            )
 
     async def get(self, category_id: uuid.UUID) -> dict:
         """按 id 获取分类，不存在时抛出业务异常。"""

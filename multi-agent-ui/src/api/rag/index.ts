@@ -10,6 +10,20 @@
 /** 后端父路由前缀（对应服务端 ENV.base_url） */
 const BASE = "/rag";
 
+/**
+ * 统一分页结果契约（对应后端 utils/page.py::PageResult）。
+ *
+ * items 为当前页数据，total 为过滤后的总量，pages 为总页数；
+ * 作为统一响应 ApiResult 的 data 载荷返回。
+ */
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
 /** RAG 分类管理接口地址 */
 export const CATEGORY_URL = {
   /** 列表 / 新建 */
@@ -46,8 +60,15 @@ export const CHUNK_URL = {
   byId: (id: string) => `${BASE}/chunks/${id}`,
 } as const;
 
+/** RAG 统计接口地址 */
+export const STATS_URL = {
+  /** 全局聚合概览 */
+  root: `${BASE}/stats`,
+} as const;
+
 // 统一出口：业务侧可直接从 "@/api/rag" 导入功能函数与类型
 export * from "./categories";
 export * from "./knowledgeBase";
 export * from "./document";
 export * from "./chunks";
+export * from "./stats";

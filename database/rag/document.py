@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.document import Document
+from utils.page import paginate
 
 # 仅可通过元数据更新修改的字段（内容/哈希/版本/归属/状态不在其中，见设计 D6）
 _EDITABLE_FIELDS = frozenset(
@@ -76,20 +77,21 @@ class DocumentRepository:
     async def list_by_kb(
         self,
         knowledge_base_id: uuid.UUID,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> list[Document]:
-        """按知识库分页列出文档，排除 status='deleted'。"""
+        page: int = 1,
+        size: int = 20,
+        status: str | None = None,
+    ) -> tuple[list[Document], int]:
+        """按知识库分页列出文档，排除 status='deleted'；可选按 status 过滤。返回 (items, total)。"""
         stmt = (
             select(Document)
             .where(Document.knowledge_base_id == knowledge_base_id)
             .where(Document.status != "deleted")
-            .order_by(Document.updated_at.desc())
-            .limit(limit)
-            .offset(offset)
         )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        if status is not None:
+            stmt = stmt.where(Document.status == status)
+        stmt = stmt.order_by(Document.updated_at.desc())
+        items, total = await paginate(self.session, stmt, page, size)
+        return list(items), total
 
     async def find_by_source(
         self, knowledge_base_id: uuid.UUID, source_uri: str
