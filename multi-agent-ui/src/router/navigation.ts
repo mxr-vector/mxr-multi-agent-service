@@ -65,14 +65,6 @@ export const navigationItems: readonly NavigationItem[] = [
         group: "管理",
       },
       {
-        path: "/rag/categories",
-        name: "rag-categories",
-        label: "AI 分类管理",
-        description: "维护知识库内容的分类体系。",
-        icon: "category",
-        group: "管理",
-      },
-      {
         path: "/rag/ducument",
         name: "rag-ducument",
         label: "文档管理",

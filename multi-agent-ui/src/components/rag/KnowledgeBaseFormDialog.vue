@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { KnowledgeBase } from '@/api/rag/knowledgeBase'
 import type { Category } from '@/api/rag/categories'
+import { buildCategoryTree } from '@/api/rag/categories'
 import type { KnowledgeBaseFormPayload } from '@/components/rag/types'
 
 const props = defineProps<{
@@ -26,6 +27,8 @@ const form = reactive<KnowledgeBaseFormPayload>({
     status: 'active',
 })
 const isEdit = computed(() => Boolean(props.record))
+// 分类树（扁平 parent_id 列表组装为树，供树形下拉选择）
+const categoryTree = computed(() => buildCategoryTree(props.categories))
 const rules: FormRules = {
     name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }],
 }
@@ -65,9 +68,9 @@ async function handleSubmit() {
                 <el-input v-model="form.name" placeholder="请输入知识库名称" maxlength="64" />
             </el-form-item>
             <el-form-item label="分类">
-                <el-select v-model="form.category_id" clearable placeholder="未分类" style="width: 100%">
-                    <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-                </el-select>
+                <el-tree-select v-model="form.category_id" :data="categoryTree"
+                    :props="{ label: 'name', children: 'children' }" node-key="id" value-key="id" check-strictly
+                    clearable placeholder="未分类" :render-after-expand="false" style="width: 100%" />
             </el-form-item>
             <el-form-item label="可见性">
                 <el-select v-model="form.visibility" style="width: 100%">

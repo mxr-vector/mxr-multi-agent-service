@@ -46,13 +46,14 @@ function toggleSidebar() { isSidebarCollapsed.value = !isSidebarCollapsed.value 
 
 .main-layout-main {
     flex: 1;
-    padding: 26px clamp(20px, 2.2vw, 36px) 44px;
+    min-width: 0;
+    padding: 0;
 }
 
-/* 让页面内容填满主区宽度，避免各视图 max-width:1280px 居中后两侧出现大片留白 */
+/* 页面内容直接铺满主区，紧贴侧边栏，无左右留白 */
 .main-layout-main> :deep(*) {
-    max-width: var(--content-max-width);
-    margin-inline: auto;
+    max-width: none;
+    margin-inline: 0;
 }
 
 @media (max-width: 720px) {
@@ -61,7 +62,7 @@ function toggleSidebar() { isSidebarCollapsed.value = !isSidebarCollapsed.value 
     }
 
     .main-layout-main {
-        padding: 18px;
+        padding: 0;
     }
 }
 </style>

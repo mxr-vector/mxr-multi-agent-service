@@ -12,6 +12,7 @@ from utils.page import paginate
 _EDITABLE_FIELDS = frozenset(
     {
         "title",
+        "category_id",
         "source_uri",
         "source_system",
         "doc_type",
@@ -48,13 +49,20 @@ class DocumentRepository:
         source_system: str | None = None,
         title: str | None = None,
         metadata: dict | None = None,
+        category_id: uuid.UUID | None = None,
+        valid_from: datetime | None = None,
+        valid_until: datetime | None = None,
         status: str = "pending",
         version: int = 1,
         tenant_id: str = "default",
     ) -> Document:
-        """插入一条文档（默认 status='pending'，尚未向量化）。"""
+        """插入一条文档（默认 status='pending'，尚未向量化）。
+
+        valid_from 缺省由数据库 now() 服务端默认；valid_until 为 NULL 表示长期有效。
+        """
         doc = Document(
             knowledge_base_id=knowledge_base_id,
+            category_id=category_id,
             content=content,
             content_hash=content_hash,
             doc_type=doc_type,
@@ -66,6 +74,10 @@ class DocumentRepository:
             version=version,
             tenant_id=tenant_id,
         )
+        if valid_from is not None:
+            doc.valid_from = valid_from
+        if valid_until is not None:
+            doc.valid_until = valid_until
         self.session.add(doc)
         await self.session.flush()
         return doc

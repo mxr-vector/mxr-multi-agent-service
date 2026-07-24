@@ -13,8 +13,8 @@ import { getRagStats, type RagStats } from '@/api/rag/stats'
 import { confirmDanger } from '@/utils/confirm'
 import KnowledgeBaseTable from '@/components/rag/KnowledgeBaseTable.vue'
 import KnowledgeBaseFormDialog from '@/components/rag/KnowledgeBaseFormDialog.vue'
-import SearchInput from '@/components/rag/SearchInput.vue'
-import Pagination from '@/components/rag/Pagination.vue'
+import SearchInput from '@/components/SearchInput.vue'
+import Pagination from '@/components/Pagination.vue'
 import type { KnowledgeBaseFormPayload } from '@/components/rag/types'
 
 const loading = ref(false)

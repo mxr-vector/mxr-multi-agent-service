@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Body, File, Form, Path, Query, UploadFile
@@ -17,6 +18,7 @@ class DocumentUpdate(BaseModel):
     """更新文档请求体（仅可编辑元数据；内容/哈希/版本/归属/状态不可变）。"""
 
     title: Optional[str] = None
+    category_id: Optional[uuid.UUID] = None
     source_uri: Optional[str] = None
     source_system: Optional[str] = None
     doc_type: Optional[str] = None
@@ -31,14 +33,25 @@ class DocumentUpdate(BaseModel):
 async def upload_document(
     file: UploadFile = File(..., description="待上传文件（pdf/markdown/excel/docx）"),
     knowledge_base_id: uuid.UUID = Form(..., description="目标知识库 id"),
+    category_id: Optional[uuid.UUID] = Form(default=None, description="文档级分类 id"),
     source_uri: Optional[str] = Form(
         default=None, description="来源标识，缺省用文件名"
     ),
     source_system: Optional[str] = Form(default=None, description="来源系统"),
     title: Optional[str] = Form(default=None, description="文档标题，缺省用文件名"),
+    valid_from: Optional[datetime] = Form(
+        default=None, description="有效期起始时间，缺省用服务端 now()"
+    ),
+    valid_until: Optional[datetime] = Form(
+        default=None, description="有效期截止时间，缺省表示长期有效"
+    ),
+    remark: Optional[str] = Form(
+        default=None, description="备注，存入 metadata.remark"
+    ),
 ):
     """上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op。"""
     data = await file.read()
+    metadata = {"remark": remark} if remark else None
     doc = await _service.upload(
         knowledge_base_id=knowledge_base_id,
         filename=file.filename,
@@ -46,6 +59,10 @@ async def upload_document(
         source_uri=source_uri,
         source_system=source_system,
         title=title,
+        metadata=metadata,
+        category_id=category_id,
+        valid_from=valid_from,
+        valid_until=valid_until,
     )
     return R.success(data=doc)
 

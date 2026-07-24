@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 
-// RAG 各列表页共用的服务端分页控件：统一布局、每页选项与中文文案（共 X 条 / X条/页）。
+// 各列表页共用的服务端分页控件：统一布局、每页选项与中文文案（共 X 条 / X条/页）。
 const props = withDefaults(
     defineProps<{
         page: number

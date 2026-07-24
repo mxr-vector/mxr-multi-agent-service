@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { Category } from '@/api/rag/categories'
+import { buildCategoryTree, collectSubtreeIds } from '@/api/rag/categories'
 import type { CategoryFormPayload } from '@/components/rag/types'
 
 const props = defineProps<{
@@ -9,6 +10,8 @@ const props = defineProps<{
     record: Category | null
     categories: Category[]
     submitting: boolean
+    /** 新建时默认上级文件夹（取自左侧当前选中的文件夹），编辑时忽略 */
+    defaultParentId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -23,10 +26,16 @@ const form = reactive<CategoryFormPayload>({
     sort_order: 0,
 })
 const isEdit = computed(() => Boolean(props.record))
-// 上级分类候选：编辑时排除自身，避免自引用
-const parentOptions = computed(() => props.categories.filter((c) => c.id !== props.record?.id))
+// 上级分类候选树：编辑时排除自身及其后代，避免自引用与成环
+const parentTree = computed(() => {
+    const excluded = props.record ? collectSubtreeIds(props.categories, props.record.id) : null
+    const candidates = excluded
+        ? props.categories.filter((c) => !excluded.has(c.id))
+        : props.categories
+    return buildCategoryTree(candidates)
+})
 const rules: FormRules = {
-    name: [{ required: true, message: '请输入分类名称', trigger: 'blur' }],
+    name: [{ required: true, message: '请输入文件夹名称', trigger: 'blur' }],
 }
 
 const dialogVisible = computed({
@@ -41,7 +50,7 @@ watch(
         if (!v) return
         Object.assign(form, {
             name: props.record?.name ?? '',
-            parent_id: props.record?.parent_id ?? null,
+            parent_id: props.record?.parent_id ?? props.defaultParentId ?? null,
             sort_order: props.record?.sort_order ?? 0,
         })
         formRef.value?.clearValidate()
@@ -56,15 +65,15 @@ async function handleSubmit() {
 </script>
 
 <template>
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑分类' : '新建分类'" width="460px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '修改文件夹' : '新建文件夹'" width="460px">
         <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
             <el-form-item label="名称" prop="name">
-                <el-input v-model="form.name" placeholder="请输入分类名称" maxlength="64" />
+                <el-input v-model="form.name" placeholder="请输入文件夹名称" maxlength="64" />
             </el-form-item>
-            <el-form-item label="上级分类">
-                <el-select v-model="form.parent_id" clearable placeholder="顶级分类" style="width: 100%">
-                    <el-option v-for="c in parentOptions" :key="c.id" :label="c.name" :value="c.id" />
-                </el-select>
+            <el-form-item label="上级文件夹">
+                <el-tree-select v-model="form.parent_id" :data="parentTree"
+                    :props="{ label: 'name', children: 'children' }" node-key="id" value-key="id" check-strictly
+                    clearable placeholder="顶级文件夹" :render-after-expand="false" style="width: 100%" />
             </el-form-item>
             <el-form-item label="排序">
                 <el-input-number v-model="form.sort_order" :min="0" :max="9999" />

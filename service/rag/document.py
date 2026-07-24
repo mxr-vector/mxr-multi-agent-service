@@ -34,6 +34,9 @@ class DocumentService:
         source_system: str | None = None,
         title: str | None = None,
         metadata: dict | None = None,
+        category_id: uuid.UUID | None = None,
+        valid_from: datetime | None = None,
+        valid_until: datetime | None = None,
         tenant_id: str = "default",
     ) -> dict:
         """
@@ -79,6 +82,10 @@ class DocumentService:
                 doc = await doc_repo.replace_content(
                     existing, content, content_hash, doc_type
                 )
+                # 重新上传时按用户弹窗填写的分类/有效期/备注覆盖旧值
+                self._apply_upload_meta(
+                    doc, category_id, valid_from, valid_until, metadata
+                )
                 await self._persist_chunk_tree(
                     chunk_repo, doc.id, doc.version, parents, doc.tenant_id
                 )
@@ -96,6 +103,9 @@ class DocumentService:
                     source_system=source_system,
                     title=title or filename,
                     metadata=metadata,
+                    category_id=category_id,
+                    valid_from=valid_from,
+                    valid_until=valid_until,
                     tenant_id=tenant_id,
                 )
                 await self._persist_chunk_tree(
@@ -105,6 +115,24 @@ class DocumentService:
 
             await session.commit()
             return doc.to_dict()
+
+    @staticmethod
+    def _apply_upload_meta(
+        doc,
+        category_id: uuid.UUID | None,
+        valid_from: datetime | None,
+        valid_until: datetime | None,
+        metadata: dict | None,
+    ) -> None:
+        """重新上传（版本替换）时，把用户新填的分类/有效期/备注写回文档（仅非空字段生效）。"""
+        if category_id is not None:
+            doc.category_id = category_id
+        if valid_from is not None:
+            doc.valid_from = valid_from
+        if valid_until is not None:
+            doc.valid_until = valid_until
+        if metadata:
+            doc.doc_metadata = {**(doc.doc_metadata or {}), **metadata}
 
     @staticmethod
     async def _persist_chunk_tree(

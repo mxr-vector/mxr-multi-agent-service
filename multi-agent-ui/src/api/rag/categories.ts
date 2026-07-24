@@ -13,6 +13,52 @@ export interface Category {
   updated_at: string;
 }
 
+/** 分类树节点（在扁平 Category 上追加 children，用于 el-tree-select 等树形组件） */
+export interface CategoryTreeNode extends Category {
+  children: CategoryTreeNode[];
+}
+
+/** 将扁平的 parent_id 分类列表组装成树，按 sort_order 升序排列同级节点 */
+export function buildCategoryTree(list: Category[]): CategoryTreeNode[] {
+  const map = new Map<string, CategoryTreeNode>();
+  list.forEach((c) => map.set(c.id, { ...c, children: [] }));
+  const roots: CategoryTreeNode[] = [];
+  map.forEach((node) => {
+    const parent = node.parent_id ? map.get(node.parent_id) : null;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  });
+  const sortNodes = (nodes: CategoryTreeNode[]) => {
+    nodes.sort((a, b) => a.sort_order - b.sort_order);
+    nodes.forEach((n) => sortNodes(n.children));
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+/** 收集某个分类自身及其全部后代的 id（用于编辑分类时排除自引用与成环） */
+export function collectSubtreeIds(list: Category[], rootId: string): Set<string> {
+  const childrenMap = new Map<string | null, Category[]>();
+  list.forEach((c) => {
+    const key = c.parent_id;
+    const bucket = childrenMap.get(key);
+    if (bucket) bucket.push(c);
+    else childrenMap.set(key, [c]);
+  });
+  const ids = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    const cur = stack.pop() as string;
+    (childrenMap.get(cur) ?? []).forEach((child) => {
+      if (!ids.has(child.id)) {
+        ids.add(child.id);
+        stack.push(child.id);
+      }
+    });
+  }
+  return ids;
+}
+
 /** 创建分类请求体 */
 export interface CategoryCreatePayload {
   name: string;

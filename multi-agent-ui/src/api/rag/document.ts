@@ -7,6 +7,7 @@ export interface RagDocument {
   /** 多租户隔离标识，由服务端注入（缺省 'default'），不可变 */
   tenant_id: string;
   knowledge_base_id: string;
+  category_id: string | null;
   source_uri: string | null;
   source_system: string | null;
   title: string | null;
@@ -30,12 +31,20 @@ export interface DocumentUploadParams {
   file: File;
   /** 目标知识库 id */
   knowledge_base_id: string;
+  /** 文档级分类 id */
+  category_id?: string | null;
   /** 来源标识，缺省用文件名 */
   source_uri?: string;
   /** 来源系统 */
   source_system?: string;
   /** 文档标题，缺省用文件名 */
   title?: string;
+  /** 有效期起始时间（ISO 字符串），缺省用服务端 now() */
+  valid_from?: string;
+  /** 有效期截止时间（ISO 字符串），缺省表示长期有效 */
+  valid_until?: string;
+  /** 备注，存入 metadata.remark */
+  remark?: string;
 }
 
 /** 分页列出文档参数 */
@@ -53,6 +62,7 @@ export interface DocumentListParams {
 /** 更新文档请求体（仅可编辑元数据；内容/哈希/版本/归属/状态不可变） */
 export interface DocumentUpdatePayload {
   title?: string;
+  category_id?: string | null;
   source_uri?: string;
   source_system?: string;
   doc_type?: string;
@@ -68,9 +78,13 @@ export function uploadDocument(params: DocumentUploadParams) {
   const form = new FormData();
   form.append("file", params.file);
   form.append("knowledge_base_id", params.knowledge_base_id);
+  if (params.category_id != null) form.append("category_id", params.category_id);
   if (params.source_uri != null) form.append("source_uri", params.source_uri);
   if (params.source_system != null) form.append("source_system", params.source_system);
   if (params.title != null) form.append("title", params.title);
+  if (params.valid_from != null) form.append("valid_from", params.valid_from);
+  if (params.valid_until != null) form.append("valid_until", params.valid_until);
+  if (params.remark != null) form.append("remark", params.remark);
   return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.upload, form, {
     headers: { "Content-Type": "multipart/form-data" },
   });

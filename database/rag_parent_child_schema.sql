@@ -95,6 +95,7 @@ CREATE TABLE rag.rag_documents (
     tenant_id       VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
 
     knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性
+    category_id     UUID,                       -- 逻辑关联 rag.rag_categories.id, 文档级分类(独立于知识库分类), 业务层保证存在性
 
     -- 来源信息, 便于溯源和增量同步判断是否需要重新入库
     source_uri      TEXT,                       -- 原始文件路径 / URL / DB 表名等
@@ -123,6 +124,7 @@ CREATE TABLE rag.rag_documents (
 
 CREATE INDEX idx_rag_documents_tenant       ON rag.rag_documents (tenant_id);
 CREATE INDEX idx_rag_documents_kb           ON rag.rag_documents (knowledge_base_id);
+CREATE INDEX idx_rag_documents_category     ON rag.rag_documents (category_id);
 CREATE INDEX idx_rag_documents_source_hash  ON rag.rag_documents (source_uri, content_hash);
 CREATE INDEX idx_rag_documents_metadata_gin ON rag.rag_documents USING GIN (metadata);
 CREATE INDEX idx_rag_documents_status       ON rag.rag_documents (status) WHERE status != 'deleted';

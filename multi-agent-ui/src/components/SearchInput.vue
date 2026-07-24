@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// RAG 各管理页共用的搜索框：统一图标、清空按钮与聚焦样式。
+// 各管理页共用的搜索框：统一图标、清空按钮与聚焦样式。
 withDefaults(defineProps<{ placeholder?: string }>(), { placeholder: '搜索' })
 const model = defineModel<string>({ default: '' })
 </script>
