@@ -107,6 +107,16 @@ vllm serve /models/chat/Qwen3.5-2B \
     --max-num-batched-tokens 8192 \
     --trust-remote-code \
     --api-key 95279527
+
+
+# qdrant
+podman run -d  \
+--name qdrant \
+-p 6333:6333  \
+-p 6334:6334  \
+-v qdrant_storage:$PWD/mydata/qdrant/storage \
+ -e QDRANT__SERVICE__API_KEY=95279527 \
+docker.io/qdrant/qdrant
 ```
 
 # 三.池化模型说明
