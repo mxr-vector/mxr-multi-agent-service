@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
-import type { Category } from "@/api/rag/categories";
 import { formatDateTime } from "@/utils/format";
 
-const props = defineProps<{
+defineProps<{
   list: KnowledgeBase[];
-  categories: Category[];
 }>();
 
 defineEmits<{
@@ -22,11 +20,6 @@ const statusText: Record<string, string> = {
 function statusLabel(status: string) {
   return statusText[status] ?? status;
 }
-
-function categoryName(categoryId: string | null) {
-  if (!categoryId) return "未分类";
-  return props.categories.find((c) => c.id === categoryId)?.name ?? "未知分类";
-}
 </script>
 
 <template>
@@ -35,7 +28,6 @@ function categoryName(categoryId: string | null) {
       <thead>
         <tr>
           <th>知识库</th>
-          <th>分类</th>
           <th>文档数量</th>
           <th>分块数</th>
           <th>最近更新</th>
@@ -49,7 +41,6 @@ function categoryName(categoryId: string | null) {
             <strong>{{ base.name }}</strong>
             <span>{{ base.description || "暂无描述" }}</span>
           </td>
-          <td>{{ categoryName(base.category_id) }}</td>
           <td>{{ base.document_count }} 份</td>
           <td>{{ base.total_chunk_count }}</td>
           <td>{{ formatDateTime(base.updated_at) }}</td>
@@ -66,7 +57,7 @@ function categoryName(categoryId: string | null) {
           </td>
         </tr>
         <tr v-if="!list.length">
-          <td colspan="7" class="empty-row">暂无知识库</td>
+          <td colspan="6" class="empty-row">暂无知识库</td>
         </tr>
       </tbody>
     </table>

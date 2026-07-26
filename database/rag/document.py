@@ -12,7 +12,7 @@ from utils.page import paginate
 _EDITABLE_FIELDS = frozenset(
     {
         "title",
-        "category_id",
+        "folder_id",
         "source_uri",
         "source_system",
         "doc_type",
@@ -49,7 +49,7 @@ class DocumentRepository:
         source_system: str | None = None,
         title: str | None = None,
         metadata: dict | None = None,
-        category_id: uuid.UUID | None = None,
+        folder_id: uuid.UUID | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
         status: str = "pending",
@@ -62,7 +62,7 @@ class DocumentRepository:
         """
         doc = Document(
             knowledge_base_id=knowledge_base_id,
-            category_id=category_id,
+            folder_id=folder_id,
             content=content,
             content_hash=content_hash,
             doc_type=doc_type,

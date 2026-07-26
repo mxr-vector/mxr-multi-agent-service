@@ -10,22 +10,22 @@ import {
 } from "@/api/rag/document";
 import { listKnowledgeBases, type KnowledgeBase } from "@/api/rag/knowledgeBase";
 import {
-  buildCategoryTree,
-  createCategory,
-  deleteCategory,
-  listCategories,
-  updateCategory,
-  type Category,
-} from "@/api/rag/categories";
+  buildFolderTree,
+  createFolder,
+  deleteFolder as deleteFolderApi,
+  listFolders,
+  updateFolder,
+  type Folder,
+} from "@/api/rag/folders";
 import { confirmDanger } from "@/utils/confirm";
 import DocumentCard from "@/components/rag/DocumentCard.vue";
 import DocumentChunkTree from "@/components/rag/DocumentChunkTree.vue";
 import DocumentUploadDialog from "@/components/rag/DocumentUploadDialog.vue";
-import CategoryFormDialog from "@/components/rag/CategoryFormDialog.vue";
+import FolderFormDialog from "@/components/rag/FolderFormDialog.vue";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
 import SvgIcon from "@/components/SvgIcon.vue";
-import type { CategoryFormPayload, DocumentUploadFormPayload } from "@/components/rag/types";
+import type { FolderFormPayload, DocumentUploadFormPayload } from "@/components/rag/types";
 
 // —— 顶部同步状态图例（与 DocumentCard 圆点保持一致）——
 const syncLegend = [
@@ -79,12 +79,12 @@ const uploading = ref(false);
 const vectorizingId = ref<string | null>(null);
 const allDocuments = ref<RagDocument[]>([]);
 const knowledgeBases = ref<KnowledgeBase[]>([]);
-const categories = ref<Category[]>([]);
+const folders = ref<Folder[]>([]);
 
-// 文件夹（分类）树
-const folderTree = computed(() => buildCategoryTree(categories.value));
+// 文件夹树（仅当前生效知识库内的文件夹）
+const folderTree = computed(() => buildFolderTree(folders.value));
 const folderTreeRef = ref<InstanceType<typeof ElTree>>();
-const selectedCategoryId = ref<string | null>(null);
+const selectedFolderId = ref<string | null>(null);
 
 // —— 文件夹导航：前进/后退历史 + 面包屑 ——
 const history = ref<(string | null)[]>([null]);
@@ -93,7 +93,7 @@ const canBack = computed(() => histIndex.value > 0);
 const canForward = computed(() => histIndex.value < history.value.length - 1);
 
 function selectFolder(id: string | null, pushHistory = true) {
-  selectedCategoryId.value = id;
+  selectedFolderId.value = id;
   page.value = 1;
   if (pushHistory) {
     history.value = history.value.slice(0, histIndex.value + 1);
@@ -113,20 +113,28 @@ function goForward() {
   selectFolder(history.value[histIndex.value], false);
 }
 function goUp() {
-  const cur = categories.value.find((c) => c.id === selectedCategoryId.value);
+  const cur = folders.value.find((f) => f.id === selectedFolderId.value);
   selectFolder(cur?.parent_id ?? null);
 }
-function onFolderClick(node: Category) {
+function onFolderClick(node: Folder) {
   selectFolder(node.id);
+}
+
+// 知识库切换时重置文件夹导航：选中态、前进/后退历史与面包屑回到根目录
+function resetFolderNav() {
+  selectedFolderId.value = null;
+  history.value = [null];
+  histIndex.value = 0;
+  nextTick(() => folderTreeRef.value?.setCurrentKey(undefined));
 }
 
 // 面包屑：根目录 → …祖先链 → 当前文件夹
 const breadcrumb = computed(() => {
   const path: { id: string | null; name: string }[] = [{ id: null, name: "根目录" }];
-  if (selectedCategoryId.value) {
-    const byId = new Map(categories.value.map((c) => [c.id, c]));
-    const chain: Category[] = [];
-    let cur = byId.get(selectedCategoryId.value);
+  if (selectedFolderId.value) {
+    const byId = new Map(folders.value.map((f) => [f.id, f]));
+    const chain: Folder[] = [];
+    let cur = byId.get(selectedFolderId.value);
     while (cur) {
       chain.unshift(cur);
       cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
@@ -142,11 +150,10 @@ type FilterState = {
   keyword: string;
   dateRange: [string, string] | null;
   tableType: "" | "yes" | "no";
-  aiTag: string;
   remark: string;
 };
 function emptyFilter(): FilterState {
-  return { kbId: "", keyword: "", dateRange: null, tableType: "", aiTag: "", remark: "" };
+  return { kbId: "", keyword: "", dateRange: null, tableType: "", remark: "" };
 }
 const draft = reactive<FilterState>(emptyFilter());
 const applied = reactive<FilterState>(emptyFilter());
@@ -166,13 +173,13 @@ function isSpreadsheet(doc: RagDocument) {
 const page = ref(1);
 const size = ref(12);
 
-// 过滤链：文件夹 → 手册名称 → 生效时间 → 表格类 → 备注（AI 标签后端暂缺，占位不参与）
+// 过滤链：文件夹 → 手册名称 → 生效时间 → 表格类 → 备注
 const filteredDocuments = computed(() => {
   const kw = applied.keyword.trim().toLowerCase();
   const remark = applied.remark.trim().toLowerCase();
   const [from, to] = applied.dateRange ?? [null, null];
   return allDocuments.value.filter((doc) => {
-    if (selectedCategoryId.value && doc.category_id !== selectedCategoryId.value) return false;
+    if (selectedFolderId.value && doc.folder_id !== selectedFolderId.value) return false;
     if (kw) {
       const name = (doc.title || doc.source_uri || "").toLowerCase();
       if (!name.includes(kw)) return false;
@@ -205,9 +212,21 @@ async function loadKnowledgeBases() {
     draft.kbId = applied.kbId;
   }
 }
-async function loadCategories() {
-  const res = await listCategories({ page: 1, size: 200 });
-  categories.value = res.data?.items ?? [];
+// 当前生效的知识库对象（上传弹窗只读展示用）
+const appliedKb = computed(
+  () => knowledgeBases.value.find((b) => b.id === applied.kbId) ?? null
+);
+// 未选择知识库时禁用新建文件/文件夹等操作
+const hasKb = computed(() => Boolean(applied.kbId));
+
+// 文件夹按知识库加载：无 KB 时清空
+async function loadFolders() {
+  if (!applied.kbId) {
+    folders.value = [];
+    return;
+  }
+  const res = await listFolders({ knowledge_base_id: applied.kbId, page: 1, size: 200 });
+  folders.value = res.data?.items ?? [];
 }
 async function loadDocuments() {
   if (!applied.kbId) {
@@ -223,12 +242,15 @@ async function loadDocuments() {
   }
 }
 
-// 搜索：提交草稿；知识库变化则重新拉取；回到第 1 页
+// 搜索：提交草稿；知识库变化则重置文件夹导航并重新拉取；回到第 1 页
 async function applySearch() {
   const kbChanged = draft.kbId !== applied.kbId;
   Object.assign(applied, draft);
   page.value = 1;
-  if (kbChanged) await loadDocuments();
+  if (kbChanged) {
+    resetFolderNav();
+    await Promise.all([loadFolders(), loadDocuments()]);
+  }
 }
 function resetFilters() {
   const kb = applied.kbId;
@@ -248,7 +270,7 @@ async function onUploadSubmit(payload: DocumentUploadFormPayload) {
     await uploadDocument({
       file: payload.file,
       knowledge_base_id: payload.knowledge_base_id,
-      category_id: payload.category_id,
+      folder_id: payload.folder_id,
       title: payload.title,
       valid_from: payload.valid_from,
       valid_until: payload.valid_until,
@@ -256,10 +278,6 @@ async function onUploadSubmit(payload: DocumentUploadFormPayload) {
     });
     ElMessage.success("上传成功，已完成解析与切块");
     uploadDialogVisible.value = false;
-    if (payload.knowledge_base_id !== applied.kbId) {
-      applied.kbId = payload.knowledge_base_id;
-      draft.kbId = payload.knowledge_base_id;
-    }
     await loadDocuments();
   } finally {
     uploading.value = false;
@@ -269,13 +287,13 @@ async function onUploadSubmit(payload: DocumentUploadFormPayload) {
 // —— 文件夹管理（新建 / 修改 / 删除）——
 const folderDialogVisible = ref(false);
 const folderSubmitting = ref(false);
-const editingFolder = ref<Category | null>(null);
+const editingFolder = ref<Folder | null>(null);
 function openCreateFolder() {
   editingFolder.value = null;
   folderDialogVisible.value = true;
 }
 function openEditFolder() {
-  const cur = categories.value.find((c) => c.id === selectedCategoryId.value);
+  const cur = folders.value.find((f) => f.id === selectedFolderId.value);
   if (!cur) {
     ElMessage.warning("请先在左侧选择要修改的文件夹");
     return;
@@ -283,39 +301,44 @@ function openEditFolder() {
   editingFolder.value = cur;
   folderDialogVisible.value = true;
 }
-async function onFolderSubmit(payload: CategoryFormPayload) {
+async function onFolderSubmit(payload: FolderFormPayload) {
   folderSubmitting.value = true;
   try {
     if (editingFolder.value) {
-      await updateCategory(editingFolder.value.id, payload);
+      // knowledge_base_id 创建后不可变，更新时不传
+      await updateFolder(editingFolder.value.id, {
+        name: payload.name,
+        parent_id: payload.parent_id,
+        sort_order: payload.sort_order,
+      });
       ElMessage.success("文件夹已更新");
     } else {
-      await createCategory(payload);
+      await createFolder(payload);
       ElMessage.success("文件夹已创建");
     }
     folderDialogVisible.value = false;
-    await loadCategories();
+    await loadFolders();
   } finally {
     folderSubmitting.value = false;
   }
 }
 async function deleteFolder() {
-  const cur = categories.value.find((c) => c.id === selectedCategoryId.value);
+  const cur = folders.value.find((f) => f.id === selectedFolderId.value);
   if (!cur) {
     ElMessage.warning("请先在左侧选择要删除的文件夹");
     return;
   }
   const confirmed = await confirmDanger(`确定删除文件夹「${cur.name}」吗？仅空文件夹可删除。`);
   if (!confirmed) return;
-  await deleteCategory(cur.id);
+  await deleteFolderApi(cur.id);
   ElMessage.success("文件夹已删除");
   selectFolder(cur.parent_id ?? null);
-  await loadCategories();
+  await loadFolders();
 }
 
 // 新建文件夹时默认以当前选中文件夹为上级
 const folderDefaultParentId = computed(() =>
-  editingFolder.value ? null : selectedCategoryId.value
+  editingFolder.value ? null : selectedFolderId.value
 );
 
 // —— 向量化 ——
@@ -339,8 +362,8 @@ function openChunks(doc: RagDocument) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadKnowledgeBases(), loadCategories()]);
-  await loadDocuments();
+  await loadKnowledgeBases();
+  await Promise.all([loadFolders(), loadDocuments()]);
 });
 </script>
 
@@ -443,13 +466,6 @@ onMounted(async () => {
                 <el-option v-for="b in knowledgeBases" :key="b.id" :label="b.name" :value="b.id" />
               </el-select>
             </label>
-            <!-- AI 标签：后端暂未提供标签维度，占位以匹配设计稿 -->
-            <label class="fi">
-              <span>AI标签</span>
-              <el-select v-model="draft.aiTag" placeholder="选择标签" disabled>
-                <el-option label="全部" value="" />
-              </el-select>
-            </label>
             <label class="fi">
               <span>备注</span>
               <el-input v-model="draft.remark" placeholder="模糊查询" clearable />
@@ -463,13 +479,23 @@ onMounted(async () => {
 
         <!-- 操作栏 + 图例 -->
         <div class="action-bar">
+          <!-- 未选择知识库时禁用新建/修改/删除操作 -->
           <div class="actions">
-            <button type="button" class="primary-button" @click="openUpload">＋ 新建文件</button>
-            <button type="button" class="ghost-button" @click="openCreateFolder">
+            <button type="button" class="primary-button" :disabled="!hasKb" @click="openUpload">
+              ＋ 新建文件
+            </button>
+            <button type="button" class="ghost-button" :disabled="!hasKb" @click="openCreateFolder">
               ＋ 新建文件夹
             </button>
-            <button type="button" class="ghost-button" @click="openEditFolder">修改文件夹</button>
-            <button type="button" class="ghost-button danger" @click="deleteFolder">
+            <button type="button" class="ghost-button" :disabled="!hasKb" @click="openEditFolder">
+              修改文件夹
+            </button>
+            <button
+              type="button"
+              class="ghost-button danger"
+              :disabled="!hasKb"
+              @click="deleteFolder"
+            >
               删除文件夹
             </button>
           </div>
@@ -516,15 +542,16 @@ onMounted(async () => {
     <DocumentUploadDialog
       v-model:visible="uploadDialogVisible"
       :uploading="uploading"
-      :knowledge-bases="knowledgeBases"
-      :default-kb-id="applied.kbId"
-      :default-category-id="selectedCategoryId"
+      :knowledge-base="appliedKb"
+      :folders="folders"
+      :default-folder-id="selectedFolderId"
       @submit="onUploadSubmit"
     />
-    <CategoryFormDialog
+    <FolderFormDialog
       v-model:visible="folderDialogVisible"
       :record="editingFolder"
-      :categories="categories"
+      :folders="folders"
+      :knowledge-base-id="applied.kbId"
       :submitting="folderSubmitting"
       :default-parent-id="folderDefaultParentId"
       @submit="onFolderSubmit"
@@ -827,12 +854,24 @@ onMounted(async () => {
     color 150ms ease;
 }
 
-.ghost-button:hover {
+.primary-button:disabled,
+.ghost-button:disabled {
+  color: #c2c9d6;
+  background: #f4f6fa;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.ghost-button:disabled {
+  border-color: #e8ebf2;
+}
+
+.ghost-button:not(:disabled):hover {
   border-color: #b9c4ea;
   color: #526ae2;
 }
 
-.ghost-button.danger:hover {
+.ghost-button.danger:not(:disabled):hover {
   border-color: #edb4b4;
   color: #d05a5a;
 }

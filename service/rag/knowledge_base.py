@@ -21,7 +21,6 @@ class KnowledgeBaseService:
         name: str,
         tenant_id: str = "default",
         description: str | None = None,
-        category_id: uuid.UUID | None = None,
         icon: str | None = None,
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
@@ -40,7 +39,6 @@ class KnowledgeBaseService:
                 name=name,
                 tenant_id=tenant_id,
                 description=description,
-                category_id=category_id,
                 icon=icon,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
@@ -55,14 +53,13 @@ class KnowledgeBaseService:
         self,
         page: int = 1,
         size: int = 20,
-        category_id: uuid.UUID | None = None,
         keyword: str | None = None,
     ) -> PageResult:
-        """分页列出知识库（排除软删除的），可选按 category_id / keyword 过滤。"""
+        """分页列出知识库（排除软删除的），可选按 keyword 过滤。"""
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kbs, total = await repo.list(
-                page=page, size=size, category_id=category_id, keyword=keyword
+                page=page, size=size, keyword=keyword
             )
             return build_page_result([kb.to_dict() for kb in kbs], total, page, size)
 
@@ -77,7 +74,7 @@ class KnowledgeBaseService:
 
     async def update(self, kb_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
-        仅元数据更新（name/description/category_id/icon/visibility/owner/status）；
+        仅元数据更新（name/description/icon/visibility/owner/status）；
         tenant_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常。
         """
         async with get_session() as session:

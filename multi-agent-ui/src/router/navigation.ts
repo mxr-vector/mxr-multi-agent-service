@@ -17,7 +17,6 @@ export const NAV_ICON_ASSET: Record<string, string> = {
   workflow: "lunhuantuguanli",
   rag: "shujufenxi",
   knowledge: "danganhe",
-  category: "shujuzidianguanli",
   document: "wenjian",
   agent: "keji",
   settings: "xitongguanli",

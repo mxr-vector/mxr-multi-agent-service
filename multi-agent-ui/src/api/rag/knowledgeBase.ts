@@ -7,7 +7,6 @@ export interface KnowledgeBase {
   tenant_id: string;
   name: string;
   description: string | null;
-  category_id: string | null;
   icon: string | null;
   qdrant_collection: string;
   embedding_provider: string | null;
@@ -26,7 +25,6 @@ export interface KnowledgeBase {
 export interface KnowledgeBaseCreatePayload {
   name: string;
   description?: string | null;
-  category_id?: string | null;
   icon?: string | null;
   embedding_provider?: string | null;
   embedding_model?: string | null;
@@ -39,7 +37,6 @@ export interface KnowledgeBaseCreatePayload {
 export interface KnowledgeBaseUpdatePayload {
   name?: string;
   description?: string | null;
-  category_id?: string | null;
   icon?: string | null;
   visibility?: string;
   owner?: string | null;
@@ -57,13 +54,11 @@ export interface KnowledgeBaseListParams {
   page?: number;
   /** 每页数量（1-200，默认 20） */
   size?: number;
-  /** 按分类过滤 */
-  category_id?: string;
   /** 按名称/描述模糊搜索 */
   keyword?: string;
 }
 
-/** 分页列出知识库（排除软删除的），可选按分类/关键词过滤 */
+/** 分页列出知识库（排除软删除的），可选按关键词过滤 */
 export function listKnowledgeBases(params: KnowledgeBaseListParams = {}) {
   return request.get<PageResult<KnowledgeBase>, ApiResult<PageResult<KnowledgeBase>>>(
     KNOWLEDGE_BASE_URL.root,

@@ -40,7 +40,7 @@ class Document(Base):
         UUID(as_uuid=True), nullable=False
     )
 
-    category_id: Mapped[uuid.UUID | None] = mapped_column(
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
 
@@ -82,7 +82,7 @@ class Document(Base):
             "id": format_id(self.id),
             "tenant_id": self.tenant_id,
             "knowledge_base_id": format_id(self.knowledge_base_id),
-            "category_id": format_id(self.category_id),
+            "folder_id": format_id(self.folder_id),
             "source_uri": self.source_uri,
             "source_system": self.source_system,
             "title": self.title,

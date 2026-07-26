@@ -2,7 +2,7 @@
 -- RAG 知识库 + 父子文档表结构 (Parent-Child / Small-to-Big Retrieval)
 -- 向量检索由 Qdrant 负责, 本库不存 embedding
 -- PG 的职责:
---   1) 知识库/分类维度组织文档, 供上传归属和前端浏览
+--   1) 知识库/文件夹维度组织文档, 供上传归属和前端浏览
 --   2) 存储完整的子块/父块/父文档内容, 供 Qdrant 检索命中后回写给对话模型做上下文
 --   3) 存储章节标题、页码等结构信息, 供前端展示"匹配到第几章/第几页"
 -- 关联方式: rag_chunks.id 与 Qdrant point id 保持一致(或在 Qdrant payload 中存 rag_chunks.id),
@@ -23,23 +23,26 @@
 CREATE SCHEMA IF NOT EXISTS rag;
 
 -- ------------------------------------------------------------
--- 0. 分类树 rag_categories
---    支持多级分类(如 "技术文档" -> "数据同步" -> "Flink CDC"),
---    parent_id 自引用, 不加外键, 业务层保证存在性和防止循环引用
+-- 0. 文件夹树 rag_folders
+--    知识库内部的多级文件夹(如 "技术文档" -> "数据同步" -> "Flink CDC"),
+--    每个文件夹归属且仅归属一个知识库, 不能跨知识库移动;
+--    parent_id 自引用, 不加外键, 业务层保证存在性、同库约束和防止循环引用
 -- ------------------------------------------------------------
-CREATE TABLE rag.rag_categories (
-    id          UUID PRIMARY KEY DEFAULT uuidv7(),
-    tenant_id   VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
-    parent_id   UUID,                    -- 逻辑关联 rag.rag_categories.id, NULL 表示根分类
-    name        TEXT NOT NULL,
-    sort_order  INT NOT NULL DEFAULT 0,  -- 同级排序, 前端展示用
+CREATE TABLE rag.rag_folders (
+    id                UUID PRIMARY KEY DEFAULT uuidv7(),
+    tenant_id         VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
+    knowledge_base_id UUID NOT NULL,           -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性, 创建后不可变
+    parent_id         UUID,                    -- 逻辑关联 rag.rag_folders.id, 同一知识库内自引用, NULL 表示根文件夹
+    name              TEXT NOT NULL,
+    sort_order        INT NOT NULL DEFAULT 0,  -- 同级排序, 前端展示用
 
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rag_categories_tenant ON rag.rag_categories (tenant_id);
-CREATE INDEX idx_rag_categories_parent ON rag.rag_categories (parent_id);
+CREATE INDEX idx_rag_folders_tenant ON rag.rag_folders (tenant_id);
+CREATE INDEX idx_rag_folders_kb     ON rag.rag_folders (knowledge_base_id);
+CREATE INDEX idx_rag_folders_parent ON rag.rag_folders (parent_id);
 
 -- ------------------------------------------------------------
 -- 0.1 知识库表 rag_knowledge_bases
@@ -56,7 +59,6 @@ CREATE TABLE rag.rag_knowledge_bases (
     name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
     description         TEXT,
 
-    category_id         UUID,                        -- 逻辑关联 rag.rag_categories.id, 业务层保证存在性
     icon                VARCHAR(100),                 -- 前端展示用图标/颜色标识
 
     -- Qdrant 映射: 一个知识库对应一个 collection(不同知识库可用不同 embedding 模型/维度)
@@ -81,7 +83,6 @@ CREATE TABLE rag.rag_knowledge_bases (
 );
 
 CREATE INDEX idx_rag_kb_tenant   ON rag.rag_knowledge_bases (tenant_id);
-CREATE INDEX idx_rag_kb_category ON rag.rag_knowledge_bases (category_id);
 CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE status != 'deleted';
 
 -- ------------------------------------------------------------
@@ -95,7 +96,7 @@ CREATE TABLE rag.rag_documents (
     tenant_id       VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
 
     knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性
-    category_id     UUID,                       -- 逻辑关联 rag.rag_categories.id, 文档级分类(独立于知识库分类), 业务层保证存在性
+    folder_id       UUID,                       -- 逻辑关联 rag.rag_folders.id, 同一知识库内的文件夹, NULL 表示知识库根目录, 业务层保证存在性与同库一致性
 
     -- 来源信息, 便于溯源和增量同步判断是否需要重新入库
     source_uri      TEXT,                       -- 原始文件路径 / URL / DB 表名等
@@ -124,7 +125,7 @@ CREATE TABLE rag.rag_documents (
 
 CREATE INDEX idx_rag_documents_tenant       ON rag.rag_documents (tenant_id);
 CREATE INDEX idx_rag_documents_kb           ON rag.rag_documents (knowledge_base_id);
-CREATE INDEX idx_rag_documents_category     ON rag.rag_documents (category_id);
+CREATE INDEX idx_rag_documents_folder       ON rag.rag_documents (folder_id);
 CREATE INDEX idx_rag_documents_source_hash  ON rag.rag_documents (source_uri, content_hash);
 CREATE INDEX idx_rag_documents_metadata_gin ON rag.rag_documents USING GIN (metadata);
 CREATE INDEX idx_rag_documents_status       ON rag.rag_documents (status) WHERE status != 'deleted';
@@ -202,31 +203,24 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag.rag_chunks USING GIN (metadata)
 --   索引构建完成后再把旧版本 chunk 和旧 Qdrant point 批量删除, 避免检索服务读到"半新半旧"的状态
 
 -- ============================================================
--- 4. 典型浏览流程 (知识库列表 -> 分类树 -> 文档列表)
+-- 4. 典型浏览流程 (知识库列表 -> 库内文件夹树 -> 文档列表)
 -- ============================================================
 
--- 4.1 分类树展开 (递归 CTE, 拿到某个根分类下所有子分类, 前端做级联菜单/侧边栏)
--- WITH RECURSIVE cat_tree AS (
+-- 4.1 知识库内文件夹树展开 (递归 CTE, 拿到某个根文件夹下所有子文件夹, 前端做侧边栏树)
+-- WITH RECURSIVE folder_tree AS (
 --     SELECT id, parent_id, name, sort_order, 0 AS depth
---     FROM rag.rag_categories
---     WHERE id = :root_category_id
+--     FROM rag.rag_folders
+--     WHERE knowledge_base_id = :kb_id AND id = :root_folder_id
 --
 --     UNION ALL
 --
---     SELECT c.id, c.parent_id, c.name, c.sort_order, t.depth + 1
---     FROM rag.rag_categories c
---     JOIN cat_tree t ON c.parent_id = t.id
+--     SELECT f.id, f.parent_id, f.name, f.sort_order, t.depth + 1
+--     FROM rag.rag_folders f
+--     JOIN folder_tree t ON f.parent_id = t.id
 -- )
--- SELECT * FROM cat_tree ORDER BY depth, sort_order;
+-- SELECT * FROM folder_tree ORDER BY depth, sort_order;
 
--- 4.2 某分类(含子分类)下的知识库列表
--- SELECT kb.id, kb.name, kb.document_count, kb.total_chunk_count, kb.status
--- FROM rag.rag_knowledge_bases kb
--- WHERE kb.category_id = ANY(:category_ids_in_subtree)   -- 4.1 查出的整棵子树 id 列表
---   AND kb.status != 'deleted'
--- ORDER BY kb.updated_at DESC;
-
--- 4.3 某知识库下的文档列表 (分页浏览)
+-- 4.2 某知识库下的文档列表 (分页浏览)
 -- SELECT id, title, doc_type, status, version, updated_at
 -- FROM rag.rag_documents
 -- WHERE knowledge_base_id = :kb_id

@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
-import type { Category } from "@/api/rag/categories";
-import { buildCategoryTree, collectSubtreeIds } from "@/api/rag/categories";
-import type { CategoryFormPayload } from "@/components/rag/types";
+import type { Folder } from "@/api/rag/folders";
+import { buildFolderTree, collectSubtreeIds } from "@/api/rag/folders";
+import type { FolderFormPayload } from "@/components/rag/types";
 
 const props = defineProps<{
   visible: boolean;
-  record: Category | null;
-  categories: Category[];
+  record: Folder | null;
+  /** 当前知识库内的文件夹列表（上级候选仅限同库） */
+  folders: Folder[];
+  /** 当前知识库 id，随提交载荷回传；创建后不可变 */
+  knowledgeBaseId: string;
   submitting: boolean;
   /** 新建时默认上级文件夹（取自左侧当前选中的文件夹），编辑时忽略 */
   defaultParentId?: string | null;
@@ -16,23 +19,21 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:visible", value: boolean): void;
-  (e: "submit", payload: CategoryFormPayload): void;
+  (e: "submit", payload: FolderFormPayload): void;
 }>();
 
 const formRef = ref<FormInstance>();
-const form = reactive<CategoryFormPayload>({
+const form = reactive({
   name: "",
-  parent_id: null,
+  parent_id: null as string | null,
   sort_order: 0,
 });
 const isEdit = computed(() => Boolean(props.record));
-// 上级分类候选树：编辑时排除自身及其后代，避免自引用与成环
+// 上级文件夹候选树：编辑时排除自身及其后代，避免自引用与成环
 const parentTree = computed(() => {
-  const excluded = props.record ? collectSubtreeIds(props.categories, props.record.id) : null;
-  const candidates = excluded
-    ? props.categories.filter((c) => !excluded.has(c.id))
-    : props.categories;
-  return buildCategoryTree(candidates);
+  const excluded = props.record ? collectSubtreeIds(props.folders, props.record.id) : null;
+  const candidates = excluded ? props.folders.filter((f) => !excluded.has(f.id)) : props.folders;
+  return buildFolderTree(candidates);
 });
 const rules: FormRules = {
   name: [{ required: true, message: "请输入文件夹名称", trigger: "blur" }],
@@ -60,7 +61,12 @@ watch(
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false);
   if (!valid) return;
-  emit("submit", { name: form.name, parent_id: form.parent_id, sort_order: form.sort_order });
+  emit("submit", {
+    name: form.name,
+    parent_id: form.parent_id,
+    sort_order: form.sort_order,
+    knowledge_base_id: props.knowledgeBaseId,
+  });
 }
 </script>
 

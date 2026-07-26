@@ -2,14 +2,11 @@
 import { computed, reactive, ref, watch } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
-import type { Category } from "@/api/rag/categories";
-import { buildCategoryTree } from "@/api/rag/categories";
 import type { KnowledgeBaseFormPayload } from "@/components/rag/types";
 
 const props = defineProps<{
   visible: boolean;
   record: KnowledgeBase | null;
-  categories: Category[];
   submitting: boolean;
 }>();
 
@@ -22,13 +19,10 @@ const formRef = ref<FormInstance>();
 const form = reactive<KnowledgeBaseFormPayload>({
   name: "",
   description: "",
-  category_id: null,
   visibility: "private",
   status: "active",
 });
 const isEdit = computed(() => Boolean(props.record));
-// 分类树（扁平 parent_id 列表组装为树，供树形下拉选择）
-const categoryTree = computed(() => buildCategoryTree(props.categories));
 const rules: FormRules = {
   name: [{ required: true, message: "请输入知识库名称", trigger: "blur" }],
 };
@@ -46,7 +40,6 @@ watch(
     Object.assign(form, {
       name: props.record?.name ?? "",
       description: props.record?.description ?? "",
-      category_id: props.record?.category_id ?? null,
       visibility: props.record?.visibility ?? "private",
       status: props.record?.status ?? "active",
     });
@@ -66,20 +59,6 @@ async function handleSubmit() {
     <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
       <el-form-item label="名称" prop="name">
         <el-input v-model="form.name" placeholder="请输入知识库名称" maxlength="64" />
-      </el-form-item>
-      <el-form-item label="分类">
-        <el-tree-select
-          v-model="form.category_id"
-          :data="categoryTree"
-          :props="{ label: 'name', children: 'children' }"
-          node-key="id"
-          value-key="id"
-          check-strictly
-          clearable
-          placeholder="未分类"
-          :render-after-expand="false"
-          style="width: 100%"
-        />
       </el-form-item>
       <el-form-item label="可见性">
         <el-select v-model="form.visibility" style="width: 100%">

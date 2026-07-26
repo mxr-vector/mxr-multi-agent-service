@@ -2,16 +2,18 @@
 import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
+import { buildFolderTree, type Folder } from "@/api/rag/folders";
 import type { DocumentUploadFormPayload } from "@/components/rag/types";
 
 const props = defineProps<{
   visible: boolean;
   uploading: boolean;
-  knowledgeBases: KnowledgeBase[];
-  /** 默认选中的知识库（取自筛选栏当前知识库） */
-  defaultKbId: string | null;
-  /** 默认归属文件夹（取自左侧当前选中的文件夹），弹窗内不再提供分类选择 */
-  defaultCategoryId: string | null;
+  /** 固定归属的知识库（页面当前生效的 KB），弹窗内只读展示 */
+  knowledgeBase: KnowledgeBase | null;
+  /** 当前知识库内的文件夹列表（归属文件夹候选仅限同库） */
+  folders: Folder[];
+  /** 默认归属文件夹（取自左侧当前选中的文件夹） */
+  defaultFolderId: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -29,9 +31,12 @@ const isSpreadsheet = ref(false);
 
 const form = reactive({
   title: "",
-  knowledge_base_id: "" as string,
+  folder_id: null as string | null,
   remark: "",
 });
+
+// 归属文件夹候选树（仅当前知识库内的文件夹）
+const folderTree = computed(() => buildFolderTree(props.folders));
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -40,15 +45,14 @@ const dialogVisible = computed({
 
 const rules: FormRules = {
   title: [{ required: true, message: "请输入手册名称", trigger: "blur" }],
-  knowledge_base_id: [{ required: true, message: "请选择知识库", trigger: "change" }],
 };
 
-// 弹窗打开时重置表单，默认选中当前知识库
+// 弹窗打开时重置表单，默认归属当前选中的文件夹
 watch(
   () => props.visible,
   (v) => {
     if (!v) return;
-    form.knowledge_base_id = props.defaultKbId ?? "";
+    form.folder_id = props.defaultFolderId;
     form.title = "";
     form.remark = "";
     selectedFile.value = null;
@@ -84,10 +88,14 @@ async function handleSubmit() {
     ElMessage.warning("请先选择要上传的文件");
     return;
   }
+  if (!props.knowledgeBase) {
+    ElMessage.warning("请先在页面选择知识库");
+    return;
+  }
   emit("submit", {
     file: selectedFile.value,
-    knowledge_base_id: form.knowledge_base_id,
-    category_id: props.defaultCategoryId,
+    knowledge_base_id: props.knowledgeBase.id,
+    folder_id: form.folder_id,
     title: form.title.trim() || selectedFile.value.name,
     valid_from: dateRange.value?.[0],
     valid_until: dateRange.value?.[1],
@@ -137,16 +145,23 @@ async function handleSubmit() {
         <!-- doc_type 由后端依据文件类型自动判定，此处随所选文件展示 -->
         <el-checkbox v-model="isSpreadsheet" disabled>是</el-checkbox>
       </el-form-item>
-      <el-form-item label="AI知识库" prop="knowledge_base_id">
-        <el-select v-model="form.knowledge_base_id" placeholder="选择知识库" style="width: 100%">
-          <el-option v-for="b in knowledgeBases" :key="b.id" :label="b.name" :value="b.id" />
-        </el-select>
+      <el-form-item label="AI知识库">
+        <!-- 知识库固定为页面当前生效的 KB，只读展示 -->
+        <el-input :model-value="knowledgeBase?.name ?? ''" disabled />
       </el-form-item>
-      <!-- AI 标签：后端暂未提供标签维度，占位以匹配设计稿 -->
-      <el-form-item label="AI标签">
-        <el-select placeholder="选择标签" disabled style="width: 100%">
-          <el-option label="全部" value="" />
-        </el-select>
+      <el-form-item label="归属文件夹">
+        <el-tree-select
+          v-model="form.folder_id"
+          :data="folderTree"
+          :props="{ label: 'name', children: 'children' }"
+          node-key="id"
+          value-key="id"
+          check-strictly
+          clearable
+          placeholder="根目录"
+          :render-after-expand="false"
+          style="width: 100%"
+        />
       </el-form-item>
       <el-form-item label="备注">
         <el-input

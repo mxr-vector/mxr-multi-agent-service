@@ -21,7 +21,6 @@ class KnowledgeBaseCreate(BaseModel):
 
     name: str
     description: Optional[str] = None
-    category_id: Optional[uuid.UUID] = None
     icon: Optional[str] = None
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
@@ -35,7 +34,6 @@ class KnowledgeBaseUpdate(BaseModel):
 
     name: Optional[str] = None
     description: Optional[str] = None
-    category_id: Optional[uuid.UUID] = None
     icon: Optional[str] = None
     visibility: Optional[str] = None
     owner: Optional[str] = None
@@ -48,7 +46,6 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
     kb = await _service.create(
         name=payload.name,
         description=payload.description,
-        category_id=payload.category_id,
         icon=payload.icon,
         embedding_provider=payload.embedding_provider,
         embedding_model=payload.embedding_model,
@@ -63,12 +60,11 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
 async def list_knowledge_bases(
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     size: int = Query(default=20, ge=1, le=200, description="每页数量"),
-    category_id: Optional[uuid.UUID] = Query(default=None, description="按分类过滤"),
     keyword: Optional[str] = Query(default=None, description="按名称/描述模糊搜索"),
 ):
-    """分页列出知识库（排除软删除的），可选按 category_id / keyword 过滤。"""
+    """分页列出知识库（排除软删除的），可选按 keyword 过滤。"""
     page_result = await _service.list(
-        page=page, size=size, category_id=category_id, keyword=keyword
+        page=page, size=size, keyword=keyword
     )
     return R.success(data=page_result)
 

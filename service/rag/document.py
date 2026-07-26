@@ -5,6 +5,7 @@ from typing import Any
 from database.postgre_client import get_session
 from database.rag.chunks import ChunkRepository
 from database.rag.document import DocumentRepository
+from database.rag.folder import FolderRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
 from utils.file_ingest import ingest_file
@@ -34,7 +35,7 @@ class DocumentService:
         source_system: str | None = None,
         title: str | None = None,
         metadata: dict | None = None,
-        category_id: uuid.UUID | None = None,
+        folder_id: uuid.UUID | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
         tenant_id: str = "default",
@@ -56,6 +57,12 @@ class DocumentService:
             kb = await kb_repo.get(knowledge_base_id)
             if kb is None or kb.status == "deleted":
                 bad_except(f"知识库不存在: {knowledge_base_id}")
+
+            # 文件夹必须存在且与目标知识库一致，封死跨库悬挂引用
+            if folder_id is not None:
+                await self._require_folder_in_kb(
+                    FolderRepository(session), folder_id, knowledge_base_id
+                )
 
             # 解析 + 切块（纯预处理，不落库）；不支持类型在此抛业务异常
             parsed = ingest_file(filename, data)
@@ -82,9 +89,9 @@ class DocumentService:
                 doc = await doc_repo.replace_content(
                     existing, content, content_hash, doc_type
                 )
-                # 重新上传时按用户弹窗填写的分类/有效期/备注覆盖旧值
+                # 重新上传时按用户弹窗填写的文件夹/有效期/备注覆盖旧值
                 self._apply_upload_meta(
-                    doc, category_id, valid_from, valid_until, metadata
+                    doc, folder_id, valid_from, valid_until, metadata
                 )
                 await self._persist_chunk_tree(
                     chunk_repo, doc.id, doc.version, parents, doc.tenant_id
@@ -103,7 +110,7 @@ class DocumentService:
                     source_system=source_system,
                     title=title or filename,
                     metadata=metadata,
-                    category_id=category_id,
+                    folder_id=folder_id,
                     valid_from=valid_from,
                     valid_until=valid_until,
                     tenant_id=tenant_id,
@@ -119,20 +126,33 @@ class DocumentService:
     @staticmethod
     def _apply_upload_meta(
         doc,
-        category_id: uuid.UUID | None,
+        folder_id: uuid.UUID | None,
         valid_from: datetime | None,
         valid_until: datetime | None,
         metadata: dict | None,
     ) -> None:
-        """重新上传（版本替换）时，把用户新填的分类/有效期/备注写回文档（仅非空字段生效）。"""
-        if category_id is not None:
-            doc.category_id = category_id
+        """重新上传（版本替换）时，把用户新填的文件夹/有效期/备注写回文档（仅非空字段生效）。"""
+        if folder_id is not None:
+            doc.folder_id = folder_id
         if valid_from is not None:
             doc.valid_from = valid_from
         if valid_until is not None:
             doc.valid_until = valid_until
         if metadata:
             doc.doc_metadata = {**(doc.doc_metadata or {}), **metadata}
+
+    @staticmethod
+    async def _require_folder_in_kb(
+        folder_repo: FolderRepository,
+        folder_id: uuid.UUID,
+        knowledge_base_id: uuid.UUID,
+    ) -> None:
+        """校验文件夹存在且与文档同属一个知识库，否则抛业务异常。"""
+        folder = await folder_repo.get(folder_id)
+        if folder is None:
+            bad_except(f"文件夹不存在: {folder_id}")
+        if folder.knowledge_base_id != knowledge_base_id:
+            bad_except("文件夹与目标知识库不一致")
 
     @staticmethod
     async def _persist_chunk_tree(
@@ -248,12 +268,21 @@ class DocumentService:
 
     async def update(self, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
-        仅元数据更新（title/metadata/source_*/valid_*/last_verified_at/doc_type）；
+        仅元数据更新（title/folder_id/metadata/source_*/valid_*/last_verified_at/doc_type）；
         不触碰 content/content_hash/version/knowledge_base_id/status，不再切块/向量化。
-        文档不存在时抛业务异常。
+        文档不存在时抛业务异常；文件夹必须与文档同属一个知识库。
         """
         async with get_session() as session:
             repo = DocumentRepository(session)
+            if changes.get("folder_id") is not None:
+                doc = await repo.get(doc_id)
+                if doc is None or doc.status == "deleted":
+                    bad_except(f"文档不存在: {doc_id}")
+                await self._require_folder_in_kb(
+                    FolderRepository(session),
+                    changes["folder_id"],
+                    doc.knowledge_base_id,
+                )
             doc = await repo.update_metadata(doc_id, changes)
             if doc is None:
                 bad_except(f"文档不存在: {doc_id}")

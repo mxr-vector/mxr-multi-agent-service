@@ -24,12 +24,12 @@ export interface PageResult<T> {
   pages: number;
 }
 
-/** RAG 分类管理接口地址 */
-export const CATEGORY_URL = {
+/** RAG 文件夹管理接口地址 */
+export const FOLDER_URL = {
   /** 列表 / 新建 */
-  root: `${BASE}/categories`,
+  root: `${BASE}/folders`,
   /** 详情 / 更新 / 删除 */
-  byId: (id: string) => `${BASE}/categories/${id}`,
+  byId: (id: string) => `${BASE}/folders/${id}`,
 } as const;
 
 /** RAG 知识库管理接口地址 */
@@ -67,7 +67,7 @@ export const STATS_URL = {
 } as const;
 
 // 统一出口：业务侧可直接从 "@/api/rag" 导入功能函数与类型
-export * from "./categories";
+export * from "./folders";
 export * from "./knowledgeBase";
 export * from "./document";
 export * from "./chunks";

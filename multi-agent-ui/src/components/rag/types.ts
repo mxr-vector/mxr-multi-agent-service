@@ -4,23 +4,24 @@
 export interface KnowledgeBaseFormPayload {
   name: string;
   description: string;
-  category_id: string | null;
   visibility: string;
   status: string;
 }
 
-/** 分类表单弹窗提交的载荷。 */
-export interface CategoryFormPayload {
+/** 文件夹表单弹窗提交的载荷。 */
+export interface FolderFormPayload {
   name: string;
   parent_id: string | null;
   sort_order: number;
+  /** 归属知识库，来自页面当前选中的 KB；创建后不可变 */
+  knowledge_base_id: string;
 }
 
 /** 文档上传弹窗提交的载荷。 */
 export interface DocumentUploadFormPayload {
   file: File;
   knowledge_base_id: string;
-  category_id: string | null;
+  folder_id: string | null;
   title: string;
   valid_from?: string;
   valid_until?: string;

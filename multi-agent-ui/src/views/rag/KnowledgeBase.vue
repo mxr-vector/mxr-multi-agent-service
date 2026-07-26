@@ -8,7 +8,6 @@ import {
   deleteKnowledgeBase,
   type KnowledgeBase,
 } from "@/api/rag/knowledgeBase";
-import { listCategories, type Category } from "@/api/rag/categories";
 import { getRagStats, type RagStats } from "@/api/rag/stats";
 import { confirmDanger } from "@/utils/confirm";
 import KnowledgeBaseTable from "@/components/rag/KnowledgeBaseTable.vue";
@@ -19,7 +18,6 @@ import type { KnowledgeBaseFormPayload } from "@/components/rag/types";
 
 const loading = ref(false);
 const knowledgeBases = ref<KnowledgeBase[]>([]);
-const categories = ref<Category[]>([]);
 const keyword = ref("");
 
 // 分页状态（服务端分页）
@@ -47,11 +45,6 @@ async function loadKnowledgeBases() {
   } finally {
     loading.value = false;
   }
-}
-
-async function loadCategories() {
-  const res = await listCategories();
-  categories.value = res.data?.items ?? [];
 }
 
 async function loadStats() {
@@ -91,7 +84,6 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
       await updateKnowledgeBase(editing.value.id, {
         name: payload.name,
         description: payload.description || null,
-        category_id: payload.category_id,
         visibility: payload.visibility,
         status: payload.status,
       });
@@ -100,7 +92,6 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
       await createKnowledgeBase({
         name: payload.name,
         description: payload.description || null,
-        category_id: payload.category_id,
         visibility: payload.visibility,
       });
       ElMessage.success("知识库已创建");
@@ -126,7 +117,6 @@ async function removeKnowledgeBase(base: KnowledgeBase) {
 
 onMounted(() => {
   loadKnowledgeBases();
-  loadCategories();
   loadStats();
 });
 </script>
@@ -164,7 +154,6 @@ onMounted(() => {
       <KnowledgeBaseTable
         class="list-scroll"
         :list="knowledgeBases"
-        :categories="categories"
         @edit="openEdit"
         @remove="removeKnowledgeBase"
       />
@@ -181,7 +170,6 @@ onMounted(() => {
     <KnowledgeBaseFormDialog
       v-model:visible="dialogVisible"
       :record="editing"
-      :categories="categories"
       :submitting="submitting"
       @submit="handleSubmit"
     />

@@ -22,7 +22,7 @@ _IMMUTABLE_FIELDS = frozenset(
 )
 # 允许更新的元数据字段
 _EDITABLE_FIELDS = frozenset(
-    {"name", "description", "category_id", "icon", "visibility", "owner", "status"}
+    {"name", "description", "icon", "visibility", "owner", "status"}
 )
 
 
@@ -42,7 +42,6 @@ class KnowledgeBaseRepository:
         name: str,
         tenant_id: str = "default",
         description: str | None = None,
-        category_id: uuid.UUID | None = None,
         icon: str | None = None,
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
@@ -63,7 +62,6 @@ class KnowledgeBaseRepository:
             qdrant_collection=qdrant_collection,
             tenant_id=tenant_id,
             description=description,
-            category_id=category_id,
             icon=icon,
             embedding_provider=embedding_provider,
             embedding_model=embedding_model,
@@ -79,16 +77,13 @@ class KnowledgeBaseRepository:
         self,
         page: int = 1,
         size: int = 20,
-        category_id: uuid.UUID | None = None,
         keyword: str | None = None,
     ) -> tuple[list[KnowledgeBase], int]:
         """
-        分页列出知识库，排除 status='deleted'；可选按 category_id 过滤，
+        分页列出知识库，排除 status='deleted'；
         可选按 keyword 对 name/description 做 ILIKE 模糊匹配。返回 (items, total)。
         """
         stmt = select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
-        if category_id is not None:
-            stmt = stmt.where(KnowledgeBase.category_id == category_id)
         if keyword:
             pattern = f"%{keyword}%"
             stmt = stmt.where(

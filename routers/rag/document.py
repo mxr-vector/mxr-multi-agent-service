@@ -18,7 +18,7 @@ class DocumentUpdate(BaseModel):
     """更新文档请求体（仅可编辑元数据；内容/哈希/版本/归属/状态不可变）。"""
 
     title: Optional[str] = None
-    category_id: Optional[uuid.UUID] = None
+    folder_id: Optional[uuid.UUID] = None
     source_uri: Optional[str] = None
     source_system: Optional[str] = None
     doc_type: Optional[str] = None
@@ -33,7 +33,7 @@ class DocumentUpdate(BaseModel):
 async def upload_document(
     file: UploadFile = File(..., description="待上传文件（pdf/markdown/excel/docx）"),
     knowledge_base_id: uuid.UUID = Form(..., description="目标知识库 id"),
-    category_id: Optional[uuid.UUID] = Form(default=None, description="文档级分类 id"),
+    folder_id: Optional[uuid.UUID] = Form(default=None, description="同一知识库内的文件夹 id"),
     source_uri: Optional[str] = Form(
         default=None, description="来源标识，缺省用文件名"
     ),
@@ -60,7 +60,7 @@ async def upload_document(
         source_system=source_system,
         title=title,
         metadata=metadata,
-        category_id=category_id,
+        folder_id=folder_id,
         valid_from=valid_from,
         valid_until=valid_until,
     )

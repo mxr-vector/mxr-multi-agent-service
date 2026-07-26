@@ -90,6 +90,28 @@ The system SHALL update only a document's descriptive and validity metadata and 
 - **WHEN** a document metadata update is applied
 - **THEN** the system leaves `content`, `content_hash`, `version`, and `knowledge_base_id` unchanged and does not re-split or re-vectorize
 
+### Requirement: Folder assignment consistency with the knowledge base
+When a document is created or updated with a `folder_id`, the system SHALL
+verify that the folder exists and belongs to the same knowledge base as the
+document, rejecting the operation with a business failure otherwise. A missing
+`folder_id` SHALL remain valid (document lives at the knowledge base root).
+
+#### Scenario: Upload into a folder of the same knowledge base
+- **WHEN** a document is uploaded with a `folder_id` whose folder belongs to
+  the target knowledge base
+- **THEN** the document is persisted with that `folder_id`
+
+#### Scenario: Reject a folder from another knowledge base
+- **WHEN** a document is uploaded or updated with a `folder_id` whose folder
+  belongs to a different knowledge base (or does not exist)
+- **THEN** the system returns a business failure and does not persist the
+  assignment
+
+#### Scenario: Upload without a folder
+- **WHEN** a document is uploaded without a `folder_id`
+- **THEN** the document is persisted at the knowledge base root
+  (`folder_id` NULL)
+
 ### Requirement: Document browsing
 The system SHALL list documents for a knowledge base excluding soft-deleted rows, with pagination, and SHALL return a single document by id with a not-found failure when absent.
 

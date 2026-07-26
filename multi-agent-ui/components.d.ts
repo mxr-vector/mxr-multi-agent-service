@@ -11,8 +11,6 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    CategoryCard: typeof import('./src/components/rag/CategoryCard.vue')['default']
-    CategoryFormDialog: typeof import('./src/components/rag/CategoryFormDialog.vue')['default']
     DocumentCard: typeof import('./src/components/rag/DocumentCard.vue')['default']
     DocumentChunkTree: typeof import('./src/components/rag/DocumentChunkTree.vue')['default']
     DocumentTable: typeof import('./src/components/rag/DocumentTable.vue')['default']
@@ -37,6 +35,7 @@ declare module 'vue' {
     ElSelect: typeof import('element-plus/es')['ElSelect']
     ElTree: typeof import('element-plus/es')['ElTree']
     ElTreeSelect: typeof import('element-plus/es')['ElTreeSelect']
+    FolderFormDialog: typeof import('./src/components/rag/FolderFormDialog.vue')['default']
     KnowledgeBaseFormDialog: typeof import('./src/components/rag/KnowledgeBaseFormDialog.vue')['default']
     KnowledgeBaseTable: typeof import('./src/components/rag/KnowledgeBaseTable.vue')['default']
     Pagination: typeof import('./src/components/Pagination.vue')['default']
