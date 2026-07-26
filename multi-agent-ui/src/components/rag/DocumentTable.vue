@@ -647,6 +647,12 @@ onMounted(async () => {
   font-weight: 700;
 }
 
+/* 侧栏卡片内的搜索框随卡片宽度自适应：
+   SearchInput 默认固定 240px，超出 240px 侧栏（含内边距）会横向溢出，覆盖树列表 */
+.side-card :deep(.search-input) {
+  width: 100%;
+}
+
 .side-tree {
   max-height: 360px;
   overflow: auto;

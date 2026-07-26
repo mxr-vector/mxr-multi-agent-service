@@ -1,5 +1,12 @@
-﻿<template>
-  <RouterView />
+﻿<script setup lang="ts">
+// Element Plus 全局默认本地化为中文（影响分页、日期选择器、MessageBox 等内置文案）
+import zhCn from "element-plus/es/locale/lang/zh-cn";
+</script>
+
+<template>
+  <el-config-provider :locale="zhCn">
+    <RouterView />
+  </el-config-provider>
 </template>
 
 <style>

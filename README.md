@@ -79,7 +79,7 @@ source .venv/bin/activate
 
 export UV_HTTP_TIMEOUT=300
 # cuda
-uv pip install vllm --extra-index-url https://download.pytorch.org/whl/cu128
+uv pip install vllm --extra-index-url https://download.pytorch.org/whl/cu130
 # rocm
 uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ```
