@@ -50,19 +50,95 @@ The system SHALL split a document into level 1 parent chunks and level 0 leaf ch
 - **THEN** level 1 parent chunks are persisted in PostgreSQL only and are not embedded or upserted to Qdrant
 
 ### Requirement: Separate vectorization trigger keyed by chunk id
-The system SHALL vectorize a document only on an explicit trigger, embedding the current version's level 0 chunks and upserting them into the owning knowledge base's `qdrant_collection` using each `rag_chunks.id` as the Qdrant point id, with payload carrying document/knowledge-base identifiers and chapter/page/validity fields plus the chunk text. Triggering vectorization on an absent or chunk-less document SHALL return a failure.
+The system SHALL vectorize a document only on an explicit trigger. The trigger
+SHALL validate the document, its knowledge base, and the presence of current
+version level 0 chunks, mark the document `reindexing`, and return
+immediately; the embedding of level 0 chunks and their upsert into the owning
+knowledge base's `qdrant_collection` (using each `rag_chunks.id` as the Qdrant
+point id, with payload carrying document/knowledge-base identifiers and
+chapter/page/validity fields plus the chunk text) SHALL run as a background
+job after the response is sent. Triggering vectorization on an absent or
+chunk-less document SHALL return a failure.
 
-#### Scenario: Vectorize an uploaded document
+#### Scenario: Trigger returns immediately with reindexing status
 - **WHEN** vectorization is triggered for a document that has level 0 chunks
-- **THEN** the system embeds those chunks and upserts them into the knowledge base's `qdrant_collection` with the Qdrant point id equal to each chunk's id, and marks the document indexed
+- **THEN** the response returns without waiting for embedding, carrying the
+  document with `status = reindexing`, and the embed/upsert work is executed
+  in the background
+
+#### Scenario: Background job completes the vectorization
+- **WHEN** the background job for a triggered document finishes embedding and
+  upserting successfully
+- **THEN** all level 0 chunks of the current version exist as points in the
+  knowledge base's `qdrant_collection` with point id equal to each chunk's id,
+  and the document status is `active`
 
 #### Scenario: Vectorize keeps the collection per knowledge base
 - **WHEN** vectorization runs
 - **THEN** points are written to the knowledge base's configured `qdrant_collection`, not a global hardcoded collection
 
 #### Scenario: Vectorize an absent or empty document
-- **WHEN** vectorization is triggered for a non-existent document or one with no level 0 chunks
-- **THEN** the system returns a failure rather than an unhandled error
+- **WHEN** vectorization is triggered for a non-existent document or one with
+  no level 0 chunks
+- **THEN** the system returns a failure rather than an unhandled error, and no
+  background job is scheduled
+
+### Requirement: Vectorization status lifecycle with failure state
+The system SHALL persist the vectorization outcome on the document `status`:
+`reindexing` while the background job runs, `active` on success, and `failed`
+when the background job raises any error (with the error logged). A document
+in `pending`, `active`, or `failed` state SHALL be eligible for (re-)triggering
+vectorization; retry after failure is a manual re-trigger.
+
+#### Scenario: Background failure lands on failed
+- **WHEN** the background vectorization job raises an error (e.g. embedding
+  endpoint unreachable, Qdrant write failure)
+- **THEN** the document status becomes `failed` and the error is logged
+
+#### Scenario: Failed document can be re-triggered
+- **WHEN** vectorization is triggered for a document with `status = failed`
+- **THEN** the trigger is accepted and the document re-enters `reindexing`
+
+### Requirement: Concurrent vectorization trigger rejection
+The system SHALL reject a vectorization trigger for a document whose status is
+already `reindexing`, returning a business failure indicating the document is
+being synchronized, and SHALL NOT schedule an additional background job.
+
+#### Scenario: Trigger while already reindexing
+- **WHEN** vectorization is triggered for a document with
+  `status = reindexing`
+- **THEN** the system returns a business failure ("正在同步中") and no new
+  background job is scheduled
+
+### Requirement: Batch document status query
+The system SHALL provide a batch status query endpoint that accepts up to 200
+document ids and returns, for each found document, its id and current
+`status`, without any other document payload. Ids that do not resolve to a
+document SHALL be omitted from the result. The route SHALL resolve correctly
+alongside the single-document path route (`/status` must not be captured as a
+document id).
+
+#### Scenario: Poll a mixed batch
+- **WHEN** the batch status endpoint is called with ids of documents in
+  various states
+- **THEN** the response contains one `{id, status}` entry per existing
+  document, and nothing for unknown ids
+
+#### Scenario: Status path is not shadowed by the id route
+- **WHEN** the batch status endpoint is called
+- **THEN** the request is served by the status route rather than failing UUID
+  validation on the single-document route
+
+### Requirement: Startup reset of orphaned reindexing documents
+On application startup the system SHALL reset every document with
+`status = reindexing` to `failed`, because in-process background jobs do not
+survive a restart and a stuck `reindexing` document would otherwise be
+permanently blocked from re-triggering.
+
+#### Scenario: Restart during an in-flight job
+- **WHEN** the service restarts while a document is `reindexing`
+- **THEN** after startup the document's status is `failed` and it can be
+  re-triggered manually
 
 ### Requirement: content_hash skip-if-unchanged on re-upload
 The system SHALL compute a `content_hash` over the parsed document text and, on re-upload of the same knowledge base and `source_uri`, skip re-splitting and re-vectorizing when the hash is unchanged, and otherwise create a new `document_version` chunk set for the changed content.

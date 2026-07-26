@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { ElTree } from "element-plus";
 import {
+  batchDocumentStatus,
   listDocuments,
   uploadDocument,
   vectorizeDocument,
@@ -216,6 +217,8 @@ async function loadDocuments() {
   } finally {
     loading.value = false;
   }
+  // 新列表里可能存在 reindexing 文档（如其他入口触发），确保轮询跟上
+  ensurePolling();
 }
 
 // —— 知识库树回调 ——
@@ -223,6 +226,8 @@ async function loadDocuments() {
 async function onTreeSelect({ kb, folder }: { kb: KnowledgeBase; folder: Folder | null }) {
   const kbChanged = kb.id !== activeKb.value?.id;
   if (kbChanged) {
+    // 切库先停掉旧库的轮询，新列表加载完成后由 loadDocuments 重新 ensure
+    stopPolling();
     activeKb.value = kb;
     folders.value = [];
     resetFolderNav();
@@ -335,17 +340,58 @@ const folderDefaultParentId = computed(() =>
   editingFolder.value ? null : selectedFolderId.value
 );
 
-// —— 向量化 ——
+// —— 向量化（异步）：快速触发 + 轮询同步状态 ——
 async function handleVectorize(doc: RagDocument) {
   vectorizingId.value = doc.id;
   try {
     await vectorizeDocument(doc.id);
-    ElMessage.success("向量化已触发");
-    await loadDocuments();
+    // 不弹提示，成功与否由状态圆点体现；就地改状态而非全量重拉，避免筛选/分页跳动
+    const target = allDocuments.value.find((d) => d.id === doc.id);
+    if (target) target.status = "reindexing";
+    ensurePolling();
   } finally {
     vectorizingId.value = null;
   }
 }
+
+// 轮询器：仅当列表中存在 reindexing 文档时运行单一定时器，全部终态后自动停止
+const POLL_INTERVAL = 2500;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopPolling() {
+  if (pollTimer != null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function ensurePolling() {
+  if (pollTimer != null) return;
+  if (!allDocuments.value.some((d) => d.status === "reindexing")) return;
+  pollTimer = setInterval(pollStatuses, POLL_INTERVAL);
+}
+
+async function pollStatuses() {
+  const ids = allDocuments.value.filter((d) => d.status === "reindexing").map((d) => d.id);
+  if (!ids.length) {
+    stopPolling();
+    return;
+  }
+  try {
+    const res = await batchDocumentStatus(ids);
+    for (const item of res.data ?? []) {
+      const doc = allDocuments.value.find((d) => d.id === item.id);
+      if (!doc || doc.status === item.status) continue;
+      // 终态不弹提示：active 圆点变绿、failed 圆点变红即信号
+      doc.status = item.status;
+    }
+  } catch {
+    // 单次轮询失败静默吞掉，下一轮重试
+  }
+  if (!allDocuments.value.some((d) => d.status === "reindexing")) stopPolling();
+}
+
+onUnmounted(stopPolling);
 
 // —— 查看分块（抽屉）——
 const chunkDrawerVisible = ref(false);

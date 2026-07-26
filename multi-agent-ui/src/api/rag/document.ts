@@ -90,9 +90,22 @@ export function uploadDocument(params: DocumentUploadParams) {
   });
 }
 
-/** 单独触发向量化：把当前版本 level 0 叶块写入知识库的 Qdrant 集合 */
+/** 批量状态查询结果项（轮询用，未知 id 不在结果中） */
+export interface DocumentStatusItem {
+  id: string;
+  status: string;
+}
+
+/** 单独触发向量化（异步）：置 reindexing 后立即返回，后台完成 embed/写 Qdrant */
 export function vectorizeDocument(docId: string) {
   return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.vectorize(docId));
+}
+
+/** 批量查询文档向量化状态（轮询）：ids 逗号分隔，上限 200 */
+export function batchDocumentStatus(ids: string[]) {
+  return request.get<DocumentStatusItem[], ApiResult<DocumentStatusItem[]>>(DOCUMENT_URL.status, {
+    params: { ids: ids.join(",") },
+  });
 }
 
 /** 按知识库分页列出文档（排除软删除的），可选按 status 过滤 */

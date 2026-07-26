@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -12,6 +13,9 @@ from utils.response import R
 router = APIRouter(prefix="/rag/document", tags=["OpenAPI - RAG 文档管理"])
 
 _service = DocumentService()
+
+# 后台向量化作业的强引用集合，防止 create_task 产物被 GC 提前回收
+_vectorize_tasks: set[asyncio.Task] = set()
 
 
 class DocumentUpdate(BaseModel):
@@ -67,10 +71,33 @@ async def upload_document(
     return R.success(data=doc)
 
 
+# 注意：/status 必须声明在 GET /{doc_id} 之前，否则 "status" 会被当作 UUID 路径参数解析
+@router.get("/status")
+async def batch_document_status(
+    ids: str = Query(..., description="逗号分隔的文档 id 列表，上限 200"),
+):
+    """批量查询文档向量化状态，返回 [{id, status}, ...]，供前端轮询。"""
+    raw = [part.strip() for part in ids.split(",") if part.strip()]
+    if len(raw) > 200:
+        raw = raw[:200]
+    try:
+        parsed = [uuid.UUID(part) for part in raw]
+    except ValueError:
+        return R.fail(msg="ids 包含非法的 UUID")
+    items = await _service.statuses(parsed)
+    return R.success(data=items)
+
+
 @router.post("/{doc_id}/vectorize")
 async def vectorize_document(doc_id: uuid.UUID = Path(...)):
-    """单独触发向量化：把当前版本 level 0 叶块写入知识库的 Qdrant 集合。"""
+    """异步触发向量化：置 reindexing 后立即返回，embed/写 Qdrant 在后台任务中完成。"""
     doc = await _service.vectorize(doc_id)
+    # 仅在触发校验通过后才排入后台作业，被拒绝的触发不会入队；
+    # 用 create_task 而非 BackgroundTasks：作业与响应生命周期完全解耦，
+    # 确保响应先刷给客户端，不受中间件链路的响应体中继影响
+    task = asyncio.create_task(_service.vectorize_job(doc_id))
+    _vectorize_tasks.add(task)
+    task.add_done_callback(_vectorize_tasks.discard)
     return R.success(data=doc)
 
 

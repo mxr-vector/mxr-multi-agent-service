@@ -50,6 +50,8 @@ export const DOCUMENT_URL = {
   byId: (id: string) => `${BASE}/document/${id}`,
   /** 单独触发向量化 */
   vectorize: (id: string) => `${BASE}/document/${id}/vectorize`,
+  /** 批量查询向量化状态（轮询） */
+  status: `${BASE}/document/status`,
 } as const;
 
 /** RAG 文档分块管理接口地址 */

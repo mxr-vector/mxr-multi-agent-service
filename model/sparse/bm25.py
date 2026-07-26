@@ -23,10 +23,18 @@ BM25_MODEL_NAME = "Qdrant/bm25"
 
 @lru_cache(maxsize=1)
 def _get_model():
-    """惰性加载并缓存 BM25 编码器（首次调用时构造，避免导入即加载）。"""
+    """惰性加载并缓存 BM25 编码器（首次调用时构造，避免导入即加载）。
+
+    优先以 local_files_only 从本地缓存加载（不发任何 HF 网络请求），
+    缓存缺失时才回退到联网下载；避免 HF 镜像不可达时拖死向量化作业。
+    """
     from fastembed import SparseTextEmbedding
 
-    return SparseTextEmbedding(model_name=BM25_MODEL_NAME)
+    try:
+        return SparseTextEmbedding(model_name=BM25_MODEL_NAME, local_files_only=True)
+    except Exception:
+        # 本地无缓存（首次部署）：联网下载，需要 HF_ENDPOINT 可达
+        return SparseTextEmbedding(model_name=BM25_MODEL_NAME)
 
 
 def _to_sparse_vector(embedding) -> SparseVector:

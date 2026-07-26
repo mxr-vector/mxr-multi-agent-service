@@ -1,14 +1,25 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from exception.gobal_exception import register_exception
 from core.auto_import import load_routers
 from middleware.auth import TokenAuthMiddleware
 from middleware.request_id import RequestIDMiddleware
 from middleware.access_log import AccessLogMiddleware
+from service.rag.document import DocumentService
 from utils.logger import logger
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from utils.env import ENV
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动清扫：重启丢失所有在途后台作业，残留 reindexing 文档统一置为 failed
+    await DocumentService().reset_stale_reindexing()
+    yield
+
 
 def create_app() -> FastAPI:
     """
@@ -20,7 +31,7 @@ def create_app() -> FastAPI:
     # 配置允许跨域的域名
     origins = ["*"]
 
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     # 挂载静态文件
     app.mount("/static", StaticFiles(directory="static"), name="static")
     # app.mount("/audio_db", StaticFiles(directory="audio_db"), name="audio_db")

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.document import Document
@@ -162,8 +162,28 @@ class DocumentRepository:
         return doc
 
     async def set_status(self, doc: Document, status: str) -> Document:
-        """状态流转（pending/reindexing/active），显式刷新 updated_at。"""
+        """状态流转（pending/reindexing/active/failed），显式刷新 updated_at。"""
         doc.status = status
         doc.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         return doc
+
+    async def fetch_status(
+        self, ids: list[uuid.UUID]
+    ) -> list[tuple[uuid.UUID, str]]:
+        """批量查状态：单条 id = ANY(:ids) 查询返回 (id, status) 对，供前端轮询。"""
+        if not ids:
+            return []
+        stmt = select(Document.id, Document.status).where(Document.id.in_(ids))
+        result = await self.session.execute(stmt)
+        return [(row.id, row.status) for row in result]
+
+    async def reset_stale_reindexing(self) -> int:
+        """启动清扫：把残留的 reindexing 文档置为 failed，返回影响行数。"""
+        stmt = (
+            update(Document)
+            .where(Document.status == "reindexing")
+            .values(status="failed", updated_at=datetime.now(timezone.utc))
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0

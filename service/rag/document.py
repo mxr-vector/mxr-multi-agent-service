@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Any
@@ -20,10 +21,10 @@ class DocumentService:
 
     - upload：校验知识库 → 解析文件 → content_hash 判增量（跳过/新版本）→
       持久化文档与两级块树 → 同步知识库计数，全程单事务、不做向量化（D1/D5/D7）；
-    - vectorize：单独触发，把当前版本 level 0 叶块写入知识库的 qdrant_collection，
-      point id 即 chunk id，并在灰度重建时于新点写入后清理旧版本（D4）；
+    - vectorize：请求域触发：校验 + 置 reindexing 后立即返回，真正的
+      embed/写 Qdrant 由 vectorize_job 在后台任务中完成（成功 active / 失败 failed）；
     - update：仅改可编辑元数据，不触碰内容/哈希/版本/归属/状态（D6）；
-    - list/get：浏览。
+    - list/get：浏览；statuses：批量状态查询，供前端轮询。
     """
 
     async def upload(
@@ -206,12 +207,10 @@ class DocumentService:
 
     async def vectorize(self, doc_id: uuid.UUID) -> dict:
         """
-        单独触发向量化：把当前版本 level 0 叶块写入知识库的 qdrant_collection，
-        point id = chunk id；灰度重建时于新点写入后清理旧版本块与旧 Qdrant 点。
-        文档/知识库不存在、无可向量化叶块均转为友好失败。
+        请求域触发向量化：校验文档/知识库/叶块后置 reindexing 并提交，立即返回；
+        真正的 embed/写 Qdrant 由 vectorize_job 在后台任务中完成。
+        文档/知识库不存在、无可向量化叶块、正在同步中均转为友好失败。
         """
-        from database.qdrant_client import QdrantManager
-
         async with get_session() as session:
             kb_repo = KnowledgeBaseRepository(session)
             doc_repo = DocumentRepository(session)
@@ -220,6 +219,10 @@ class DocumentService:
             doc = await doc_repo.get(doc_id)
             if doc is None or doc.status == "deleted":
                 bad_except(f"文档不存在: {doc_id}")
+
+            # 并发拦截：已在同步中的文档拒绝重复触发（快速返回后的双提交窗口）
+            if doc.status == "reindexing":
+                bad_except("文档正在同步中，请稍后再试")
 
             kb = await kb_repo.get(doc.knowledge_base_id)
             if kb is None or kb.status == "deleted":
@@ -230,41 +233,103 @@ class DocumentService:
                 bad_except(f"文档没有可向量化的分块: {doc_id}")
 
             await doc_repo.set_status(doc, "reindexing")
-
-            valid_until = doc.valid_until.isoformat() if doc.valid_until else None
-            texts = [c.content for c in leaf_chunks]
-            ids = [format_id(c.id) for c in leaf_chunks]
-            payloads = [
-                {
-                    "document_id": format_id(doc.id),
-                    "knowledge_base_id": format_id(doc.knowledge_base_id),
-                    "document_version": doc.version,
-                    "chunk_id": format_id(c.id),
-                    "chapter_title": c.chapter_title,
-                    "page_start": c.page_start,
-                    "page_end": c.page_end,
-                    "valid_until": valid_until,
-                }
-                for c in leaf_chunks
-            ]
-
-            manager = QdrantManager(kb.qdrant_collection)
-            # 先写新点，再清理旧版本点（灰度重建，避免检索读到半空状态）
-            manager.upsert_hybrid(texts, payloads=payloads, ids=ids)
-
-            stale_leaves = await chunk_repo.fetch_level0_excluding_version(
-                doc.id, doc.version
-            )
-            if stale_leaves:
-                manager.delete_points([format_id(c.id) for c in stale_leaves])
-                await chunk_repo.delete_excluding_version(doc.id, doc.version)
-
-            await doc_repo.set_status(doc, "active")
             await session.commit()
-            logger.info(
-                f"[RAG] 已向量化 {len(ids)} 个叶块到集合: {kb.qdrant_collection}"
-            )
             return doc.to_dict()
+
+    async def vectorize_job(self, doc_id: uuid.UUID) -> None:
+        """
+        后台向量化作业（BackgroundTasks 调度）：自持 session 重读文档/知识库，
+        把当前版本 level 0 叶块写入知识库的 qdrant_collection，point id 即 chunk id，
+        灰度重建时于新点写入后清理旧版本（D4）；成功置 active，失败置 failed 并记日志。
+        """
+        from database.qdrant_client import QdrantManager
+
+        try:
+            async with get_session() as session:
+                kb_repo = KnowledgeBaseRepository(session)
+                doc_repo = DocumentRepository(session)
+                chunk_repo = ChunkRepository(session)
+
+                doc = await doc_repo.get(doc_id)
+                if doc is None:
+                    raise RuntimeError(f"文档不存在: {doc_id}")
+                kb = await kb_repo.get(doc.knowledge_base_id)
+                if kb is None:
+                    raise RuntimeError(f"知识库不存在: {doc.knowledge_base_id}")
+
+                leaf_chunks = await chunk_repo.fetch_level0(doc.id, doc.version)
+                if not leaf_chunks:
+                    raise RuntimeError(f"文档没有可向量化的分块: {doc_id}")
+
+                valid_until = doc.valid_until.isoformat() if doc.valid_until else None
+                texts = [c.content for c in leaf_chunks]
+                ids = [format_id(c.id) for c in leaf_chunks]
+                payloads = [
+                    {
+                        "document_id": format_id(doc.id),
+                        "knowledge_base_id": format_id(doc.knowledge_base_id),
+                        "document_version": doc.version,
+                        "chunk_id": format_id(c.id),
+                        "chapter_title": c.chapter_title,
+                        "page_start": c.page_start,
+                        "page_end": c.page_end,
+                        "valid_until": valid_until,
+                    }
+                    for c in leaf_chunks
+                ]
+
+                manager = QdrantManager(kb.qdrant_collection)
+                # upsert/delete 是同步阻塞调用（embedding HTTP + Qdrant IO），
+                # 必须丢进线程池执行，否则会卡死事件循环：响应刷不出去（前端超时）、
+                # /status 轮询也会挂起
+                # 先写新点，再清理旧版本点（灰度重建，避免检索读到半空状态）
+                await asyncio.to_thread(
+                    manager.upsert_hybrid, texts, payloads=payloads, ids=ids
+                )
+
+                stale_leaves = await chunk_repo.fetch_level0_excluding_version(
+                    doc.id, doc.version
+                )
+                if stale_leaves:
+                    await asyncio.to_thread(
+                        manager.delete_points,
+                        [format_id(c.id) for c in stale_leaves],
+                    )
+                    await chunk_repo.delete_excluding_version(doc.id, doc.version)
+
+                await doc_repo.set_status(doc, "active")
+                await session.commit()
+                logger.info(
+                    f"[RAG] 已向量化 {len(ids)} 个叶块到集合: {kb.qdrant_collection}"
+                )
+        except Exception as exc:
+            logger.error(f"[RAG] 文档向量化失败: {doc_id}: {exc}")
+            # 失败落盘 failed；二次失败（如 DB 不可用）仅记日志，启动清扫兜底
+            try:
+                async with get_session() as session:
+                    doc_repo = DocumentRepository(session)
+                    doc = await doc_repo.get(doc_id)
+                    if doc is not None:
+                        await doc_repo.set_status(doc, "failed")
+                        await session.commit()
+            except Exception as inner:
+                logger.error(f"[RAG] 回写 failed 状态失败: {doc_id}: {inner}")
+
+    async def statuses(self, ids: list[uuid.UUID]) -> list[dict]:
+        """批量查询文档状态，返回 [{id, status}, ...]，未知 id 缺席（供前端轮询）。"""
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            rows = await repo.fetch_status(ids)
+            return [{"id": format_id(doc_id), "status": status} for doc_id, status in rows]
+
+    async def reset_stale_reindexing(self) -> None:
+        """启动清扫：把重启前残留的 reindexing 文档置为 failed（后台作业已丢失）。"""
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            count = await repo.reset_stale_reindexing()
+            await session.commit()
+            if count:
+                logger.warning(f"[RAG] 启动清扫：{count} 个残留 reindexing 文档已置为 failed")
 
     async def update(self, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
