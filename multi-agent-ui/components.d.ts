@@ -38,6 +38,7 @@ declare module 'vue' {
     FolderFormDialog: typeof import('./src/components/rag/FolderFormDialog.vue')['default']
     KnowledgeBaseFormDialog: typeof import('./src/components/rag/KnowledgeBaseFormDialog.vue')['default']
     KnowledgeBaseTable: typeof import('./src/components/rag/KnowledgeBaseTable.vue')['default']
+    KnowledgeTree: typeof import('./src/components/rag/KnowledgeTree.vue')['default']
     Pagination: typeof import('./src/components/Pagination.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

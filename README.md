@@ -89,7 +89,7 @@ uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 # pool model  vllm 0.25.1+
 vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --host 0.0.0.0 \
-    --port 8001 \
+    --port 9527 \
     --served-model-name Qwen3-Embedding-0.6B \
     --runner pooling \
     --dtype auto \
@@ -103,7 +103,7 @@ vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
 # chat model
 vllm serve /models/chat/Qwen3.5-2B \
     --host 0.0.0.0 \
-    --port 8001 \
+    --port 9527 \
     --served-model-name Qwen3.5-2B \
     --dtype half \
     --gpu-memory-utilization 0.90 \

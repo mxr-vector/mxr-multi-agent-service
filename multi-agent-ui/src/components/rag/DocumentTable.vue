@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { ElTree } from "element-plus";
 import {
@@ -8,12 +8,10 @@ import {
   vectorizeDocument,
   type RagDocument,
 } from "@/api/rag/document";
-import { listKnowledgeBases, type KnowledgeBase } from "@/api/rag/knowledgeBase";
+import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import {
-  buildFolderTree,
   createFolder,
   deleteFolder as deleteFolderApi,
-  listFolders,
   updateFolder,
   type Folder,
 } from "@/api/rag/folders";
@@ -22,6 +20,7 @@ import DocumentCard from "@/components/rag/DocumentCard.vue";
 import DocumentChunkTree from "@/components/rag/DocumentChunkTree.vue";
 import DocumentUploadDialog from "@/components/rag/DocumentUploadDialog.vue";
 import FolderFormDialog from "@/components/rag/FolderFormDialog.vue";
+import KnowledgeTree from "@/components/rag/KnowledgeTree.vue";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
 import SvgIcon from "@/components/SvgIcon.vue";
@@ -74,16 +73,16 @@ function filterDept(value: string, data: DeptNode) {
 watch(deptKeyword, (v) => deptTreeRef.value?.filter(v));
 
 // —— 数据源 ——
+// 知识库与文件夹的加载全部封装在左侧 KnowledgeTree 中（懒加载），
+// 本组件只持有「当前选中的知识库对象」与「该知识库的扁平文件夹列表」。
 const loading = ref(false);
 const uploading = ref(false);
 const vectorizingId = ref<string | null>(null);
 const allDocuments = ref<RagDocument[]>([]);
-const knowledgeBases = ref<KnowledgeBase[]>([]);
+const activeKb = ref<KnowledgeBase | null>(null);
 const folders = ref<Folder[]>([]);
 
-// 文件夹树（仅当前生效知识库内的文件夹）
-const folderTree = computed(() => buildFolderTree(folders.value));
-const folderTreeRef = ref<InstanceType<typeof ElTree>>();
+const knowledgeTreeRef = ref<InstanceType<typeof KnowledgeTree>>();
 const selectedFolderId = ref<string | null>(null);
 
 // —— 文件夹导航：前进/后退历史 + 面包屑 ——
@@ -100,7 +99,8 @@ function selectFolder(id: string | null, pushHistory = true) {
     history.value.push(id);
     histIndex.value = history.value.length - 1;
   }
-  nextTick(() => folderTreeRef.value?.setCurrentKey(id ?? undefined));
+  // 根目录时高亮回知识库节点本身
+  nextTick(() => knowledgeTreeRef.value?.setCurrentKey(id ?? activeKb.value?.id ?? null));
 }
 function goBack() {
   if (!canBack.value) return;
@@ -116,21 +116,18 @@ function goUp() {
   const cur = folders.value.find((f) => f.id === selectedFolderId.value);
   selectFolder(cur?.parent_id ?? null);
 }
-function onFolderClick(node: Folder) {
-  selectFolder(node.id);
-}
-
 // 知识库切换时重置文件夹导航：选中态、前进/后退历史与面包屑回到根目录
 function resetFolderNav() {
   selectedFolderId.value = null;
   history.value = [null];
   histIndex.value = 0;
-  nextTick(() => folderTreeRef.value?.setCurrentKey(undefined));
 }
 
-// 面包屑：根目录 → …祖先链 → 当前文件夹
+// 面包屑：知识库（根） → …祖先链 → 当前文件夹
 const breadcrumb = computed(() => {
-  const path: { id: string | null; name: string }[] = [{ id: null, name: "根目录" }];
+  const path: { id: string | null; name: string }[] = [
+    { id: null, name: activeKb.value?.name ?? "根目录" },
+  ];
   if (selectedFolderId.value) {
     const byId = new Map(folders.value.map((f) => [f.id, f]));
     const chain: Folder[] = [];
@@ -146,14 +143,13 @@ const breadcrumb = computed(() => {
 
 // —— 筛选表单：草稿（编辑中）与已应用（生效）分离，点击「搜索」才提交 ——
 type FilterState = {
-  kbId: string;
   keyword: string;
   dateRange: [string, string] | null;
   tableType: "" | "yes" | "no";
   remark: string;
 };
 function emptyFilter(): FilterState {
-  return { kbId: "", keyword: "", dateRange: null, tableType: "", remark: "" };
+  return { keyword: "", dateRange: null, tableType: "", remark: "" };
 }
 const draft = reactive<FilterState>(emptyFilter());
 const applied = reactive<FilterState>(emptyFilter());
@@ -204,58 +200,50 @@ const pagedDocuments = computed(() => {
 });
 
 // —— 加载 ——
-async function loadKnowledgeBases() {
-  const res = await listKnowledgeBases();
-  knowledgeBases.value = res.data?.items ?? [];
-  if (!applied.kbId && knowledgeBases.value.length) {
-    applied.kbId = knowledgeBases.value[0].id;
-    draft.kbId = applied.kbId;
-  }
-}
-// 当前生效的知识库对象（上传弹窗只读展示用）
-const appliedKb = computed(
-  () => knowledgeBases.value.find((b) => b.id === applied.kbId) ?? null
-);
 // 未选择知识库时禁用新建文件/文件夹等操作
-const hasKb = computed(() => Boolean(applied.kbId));
+const hasKb = computed(() => Boolean(activeKb.value));
 
-// 文件夹按知识库加载：无 KB 时清空
-async function loadFolders() {
-  if (!applied.kbId) {
-    folders.value = [];
-    return;
-  }
-  const res = await listFolders({ knowledge_base_id: applied.kbId, page: 1, size: 200 });
-  folders.value = res.data?.items ?? [];
-}
 async function loadDocuments() {
-  if (!applied.kbId) {
+  const kbId = activeKb.value?.id;
+  if (!kbId) {
     allDocuments.value = [];
     return;
   }
   loading.value = true;
   try {
-    const res = await listDocuments({ knowledge_base_id: applied.kbId, page: 1, size: 200 });
+    const res = await listDocuments({ knowledge_base_id: kbId, page: 1, size: 200 });
     allDocuments.value = res.data?.items ?? [];
   } finally {
     loading.value = false;
   }
 }
 
-// 搜索：提交草稿；知识库变化则重置文件夹导航并重新拉取；回到第 1 页
-async function applySearch() {
-  const kbChanged = draft.kbId !== applied.kbId;
+// —— 知识库树回调 ——
+// 树内点选知识库/文件夹：知识库变化时重置导航并重拉文档，文件夹变化只改过滤
+async function onTreeSelect({ kb, folder }: { kb: KnowledgeBase; folder: Folder | null }) {
+  const kbChanged = kb.id !== activeKb.value?.id;
+  if (kbChanged) {
+    activeKb.value = kb;
+    folders.value = [];
+    resetFolderNav();
+    await loadDocuments();
+  }
+  if (folder) selectFolder(folder.id);
+  else if (!kbChanged) selectFolder(null);
+}
+// 树内懒加载完成某知识库的文件夹后同步到本地（供面包屑/弹窗使用）
+function onFoldersLoaded(kbId: string, list: Folder[]) {
+  if (kbId === activeKb.value?.id) folders.value = list;
+}
+
+// 搜索：提交草稿并回到第 1 页（知识库切换已由左侧树承担）
+function applySearch() {
   Object.assign(applied, draft);
   page.value = 1;
-  if (kbChanged) {
-    resetFolderNav();
-    await Promise.all([loadFolders(), loadDocuments()]);
-  }
 }
 function resetFilters() {
-  const kb = applied.kbId;
-  Object.assign(draft, emptyFilter(), { kbId: kb });
-  Object.assign(applied, emptyFilter(), { kbId: kb });
+  Object.assign(draft, emptyFilter());
+  Object.assign(applied, emptyFilter());
   page.value = 1;
 }
 
@@ -301,6 +289,12 @@ function openEditFolder() {
   editingFolder.value = cur;
   folderDialogVisible.value = true;
 }
+// 文件夹增删改后：让左侧树失效缓存并重拉当前知识库的子树（同时回流 folders）
+async function refreshFolders() {
+  const kbId = activeKb.value?.id;
+  if (kbId) await knowledgeTreeRef.value?.refreshFolders(kbId);
+}
+
 async function onFolderSubmit(payload: FolderFormPayload) {
   folderSubmitting.value = true;
   try {
@@ -317,7 +311,7 @@ async function onFolderSubmit(payload: FolderFormPayload) {
       ElMessage.success("文件夹已创建");
     }
     folderDialogVisible.value = false;
-    await loadFolders();
+    await refreshFolders();
   } finally {
     folderSubmitting.value = false;
   }
@@ -333,7 +327,7 @@ async function deleteFolder() {
   await deleteFolderApi(cur.id);
   ElMessage.success("文件夹已删除");
   selectFolder(cur.parent_id ?? null);
-  await loadFolders();
+  await refreshFolders();
 }
 
 // 新建文件夹时默认以当前选中文件夹为上级
@@ -360,11 +354,6 @@ function openChunks(doc: RagDocument) {
   chunkDoc.value = doc;
   chunkDrawerVisible.value = true;
 }
-
-onMounted(async () => {
-  await loadKnowledgeBases();
-  await Promise.all([loadFolders(), loadDocuments()]);
-});
 </script>
 
 <template>
@@ -410,22 +399,13 @@ onMounted(async () => {
           />
         </div>
         <div class="side-card">
-          <div class="side-head">文件夹</div>
-          <el-tree
-            ref="folderTreeRef"
-            class="side-tree"
-            :data="folderTree"
-            node-key="id"
-            :props="{ label: 'name', children: 'children' }"
-            highlight-current
-            :expand-on-click-node="false"
-            @node-click="onFolderClick"
+          <div class="side-head">知识库</div>
+          <!-- 知识库/文件夹的加载与懒加载全部封装在此组件内 -->
+          <KnowledgeTree
+            ref="knowledgeTreeRef"
+            @select="onTreeSelect"
+            @folders-loaded="onFoldersLoaded"
           />
-          <el-empty v-if="!folderTree.length" description="暂无文件夹" :image-size="48">
-            <template #image>
-              <SvgIcon class="empty-icon" name="danganhe" :size="44" />
-            </template>
-          </el-empty>
         </div>
       </aside>
 
@@ -458,12 +438,6 @@ onMounted(async () => {
                   :label="o.label"
                   :value="o.value"
                 />
-              </el-select>
-            </label>
-            <label class="fi">
-              <span>AI知识库</span>
-              <el-select v-model="draft.kbId" placeholder="选择知识库">
-                <el-option v-for="b in knowledgeBases" :key="b.id" :label="b.name" :value="b.id" />
               </el-select>
             </label>
             <label class="fi">
@@ -542,7 +516,7 @@ onMounted(async () => {
     <DocumentUploadDialog
       v-model:visible="uploadDialogVisible"
       :uploading="uploading"
-      :knowledge-base="appliedKb"
+      :knowledge-base="activeKb"
       :folders="folders"
       :default-folder-id="selectedFolderId"
       @submit="onUploadSubmit"
@@ -551,7 +525,7 @@ onMounted(async () => {
       v-model:visible="folderDialogVisible"
       :record="editingFolder"
       :folders="folders"
-      :knowledge-base-id="applied.kbId"
+      :knowledge-base-id="activeKb?.id ?? ''"
       :submitting="folderSubmitting"
       :default-parent-id="folderDefaultParentId"
       @submit="onFolderSubmit"
