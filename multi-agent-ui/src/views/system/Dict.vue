@@ -421,7 +421,11 @@ onMounted(loadTypes);
 .dict-layout {
     display: grid;
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    /* 行高钉在容器高度，让两个 list-panel 各自内滚、分页固定底部 */
+    grid-template-rows: minmax(0, 1fr);
     gap: 20px;
+    height: 100%;
+    min-height: 0;
     color: #273249;
 }
 
@@ -484,6 +488,9 @@ h2 {
 @media (max-width: 960px) {
     .dict-layout {
         grid-template-columns: 1fr;
+        grid-template-rows: none;
+        /* 单列堆叠时回退自然流，避免固定高度下的双滚动条 */
+        height: auto;
     }
 }
 </style>

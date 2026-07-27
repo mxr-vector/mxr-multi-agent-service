@@ -17,6 +17,7 @@ declare module 'vue' {
     AiChatMessageList: typeof import('./src/components/AiChatPanel/components/AiChatMessageList.vue')['default']
     AiChatPanelHeader: typeof import('./src/components/AiChatPanel/components/AiChatPanelHeader.vue')['default']
     AiChatTrigger: typeof import('./src/components/AiChatPanel/components/AiChatTrigger.vue')['default']
+    DeptTreePanel: typeof import('./src/components/DeptTreePanel.vue')['default']
     DocumentCard: typeof import('./src/components/rag/DocumentCard.vue')['default']
     DocumentChunkTree: typeof import('./src/components/rag/DocumentChunkTree.vue')['default']
     DocumentTable: typeof import('./src/components/rag/DocumentTable.vue')['default']

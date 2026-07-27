@@ -2,24 +2,25 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { userApi, type User } from "@/api/system/user";
-import { deptApi, buildDeptTree, type Dept, type DeptTreeNode } from "@/api/system/dept";
+import { buildDeptTree, type Dept, type DeptTreeNode } from "@/api/system/dept";
 import { roleApi, type Role } from "@/api/system/role";
 import { confirmDanger } from "@/utils/confirm";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
+import DeptTreePanel from "@/components/DeptTreePanel.vue";
 
 const loading = ref(false);
 const list = ref<User[]>([]);
 const keyword = ref("");
-const deptFilter = ref<string | null>(null);
+// 左侧部门树选中的子树 id 集合（null 表示不过滤）
+const deptFilterIds = ref<string[] | null>(null);
 const page = ref(1);
 const size = ref(20);
 const total = ref(0);
 
-// 部门数据：筛选下拉与表单树选择共用，id→名称映射用于表格展示
+// 部门扁平列表由 DeptTreePanel 加载后通过 loaded 事件共享，表单树选择复用
 const deptList = ref<Dept[]>([]);
 const deptTree = computed<DeptTreeNode[]>(() => buildDeptTree(deptList.value));
-const deptNameMap = computed(() => new Map(deptList.value.map((d) => [d.id, d.name])));
 
 async function loadUsers() {
     loading.value = true;
@@ -28,18 +29,13 @@ async function loadUsers() {
             page: page.value,
             size: size.value,
             keyword: keyword.value.trim() || undefined,
-            dept_id: deptFilter.value ?? undefined,
+            dept_ids: deptFilterIds.value ?? undefined,
         });
         list.value = res.data?.items ?? [];
         total.value = res.data?.total ?? 0;
     } finally {
         loading.value = false;
     }
-}
-
-async function loadDepts() {
-    const res = await deptApi.list();
-    deptList.value = res.data ?? [];
 }
 
 // 关键词防抖：变更后回到第 1 页并触发服务端重载
@@ -52,11 +48,16 @@ watch(keyword, () => {
     }, 300);
 });
 
-// 部门筛选切换即时重载
-watch(deptFilter, () => {
+// 部门树选中/清除：以子树 id 集合过滤并回第 1 页
+function onDeptSelect(ids: string[] | null) {
+    deptFilterIds.value = ids;
     page.value = 1;
     loadUsers();
-});
+}
+
+function onDeptsLoaded(depts: Dept[]) {
+    deptList.value = depts;
+}
 
 // 新建 / 编辑弹窗
 const dialogVisible = ref(false);
@@ -221,6 +222,8 @@ async function submitAssignRoles() {
         await userApi.assignRoles(roleTarget.value.id, checkedRoleIds.value);
         ElMessage.success("角色已分配");
         roleDialogVisible.value = false;
+        // 角色列为服务端聚合数据，保存后重载列表保证 tag 回显实时准确
+        await loadUsers();
     } finally {
         roleSubmitting.value = false;
     }
@@ -228,62 +231,70 @@ async function submitAssignRoles() {
 
 onMounted(() => {
     loadUsers();
-    loadDepts();
 });
 </script>
 
 <template>
-    <section class="system-page">
-        <section class="content-card list-panel" v-loading="loading" element-loading-text="加载中…">
-            <div class="toolbar">
-                <div>
-                    <h2>用户管理</h2>
-                    <span>共 {{ total }} 个用户</span>
+    <section class="system-page list-page">
+        <div class="user-layout">
+            <!-- 左栏：通用部门树，选中子树驱动右侧列表过滤 -->
+            <DeptTreePanel @select="onDeptSelect" @loaded="onDeptsLoaded" />
+            <section class="content-card list-panel user-list-card" v-loading="loading" element-loading-text="加载中…">
+                <div class="toolbar">
+                    <div>
+                        <h2>用户管理</h2>
+                        <span>共 {{ total }} 个用户</span>
+                    </div>
+                    <div class="toolbar-actions">
+                        <SearchInput v-model="keyword" placeholder="搜索用户名 / 昵称" />
+                        <button class="primary-button" type="button" @click="openCreate">＋ 新建用户</button>
+                    </div>
                 </div>
-                <div class="toolbar-actions">
-                    <el-tree-select v-model="deptFilter" :data="deptTree"
-                        :props="{ label: 'name', children: 'children' }" node-key="id" check-strictly clearable
-                        placeholder="按部门筛选" style="width: 180px" />
-                    <SearchInput v-model="keyword" placeholder="搜索用户名 / 昵称" />
-                    <button class="primary-button" type="button" @click="openCreate">＋ 新建用户</button>
+                <el-table class="list-scroll" :data="list">
+                    <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
+                    <el-table-column prop="nickname" label="昵称" min-width="110" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.nickname || "—" }}</template>
+                    </el-table-column>
+                    <el-table-column label="部门" min-width="120" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.dept_name || "—" }}</template>
+                    </el-table-column>
+                    <el-table-column label="角色" min-width="150">
+                        <template #default="{ row }">
+                            <template v-if="row.roles?.length">
+                                <el-tag v-for="role in row.roles" :key="role.id" class="role-tag" size="small">
+                                    {{ role.name }}
+                                </el-tag>
+                            </template>
+                            <span v-else>—</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.email || "—" }}</template>
+                    </el-table-column>
+                    <el-table-column prop="phone" label="手机号" width="130" show-overflow-tooltip>
+                        <template #default="{ row }">{{ row.phone || "—" }}</template>
+                    </el-table-column>
+                    <el-table-column label="状态" width="80">
+                        <template #default="{ row }">
+                            <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
+                                {{ row.status === "active" ? "启用" : "停用" }}
+                            </el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="230" fixed="right">
+                        <template #default="{ row }">
+                            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+                            <el-button link type="primary" size="small" @click="openAssignRoles(row)">分配角色</el-button>
+                            <el-button link type="warning" size="small" @click="openResetPassword(row)">重置密码</el-button>
+                            <el-button link type="danger" size="small" @click="removeUser(row)">删除</el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
+                <div class="pagination-bar list-footer">
+                    <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadUsers" />
                 </div>
-            </div>
-            <el-table class="list-scroll" :data="list">
-                <el-table-column prop="username" label="用户名" min-width="120" show-overflow-tooltip />
-                <el-table-column prop="nickname" label="昵称" min-width="110" show-overflow-tooltip>
-                    <template #default="{ row }">{{ row.nickname || "—" }}</template>
-                </el-table-column>
-                <el-table-column label="部门" min-width="120" show-overflow-tooltip>
-                    <template #default="{ row }">
-                        {{ (row.dept_id && deptNameMap.get(row.dept_id)) || "—" }}
-                    </template>
-                </el-table-column>
-                <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip>
-                    <template #default="{ row }">{{ row.email || "—" }}</template>
-                </el-table-column>
-                <el-table-column prop="phone" label="手机号" width="130" show-overflow-tooltip>
-                    <template #default="{ row }">{{ row.phone || "—" }}</template>
-                </el-table-column>
-                <el-table-column label="状态" width="80">
-                    <template #default="{ row }">
-                        <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-                            {{ row.status === "active" ? "启用" : "停用" }}
-                        </el-tag>
-                    </template>
-                </el-table-column>
-                <el-table-column label="操作" width="230" fixed="right">
-                    <template #default="{ row }">
-                        <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-                        <el-button link type="primary" size="small" @click="openAssignRoles(row)">分配角色</el-button>
-                        <el-button link type="warning" size="small" @click="openResetPassword(row)">重置密码</el-button>
-                        <el-button link type="danger" size="small" @click="removeUser(row)">删除</el-button>
-                    </template>
-                </el-table-column>
-            </el-table>
-            <div class="pagination-bar list-footer">
-                <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadUsers" />
-            </div>
-        </section>
+            </section>
+        </div>
 
         <!-- 新建/编辑 弹窗 -->
         <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新建用户'" width="560px">
@@ -362,6 +373,24 @@ onMounted(() => {
     color: #273249;
 }
 
+/* 左右双栏：左部门树固定宽、右列表卡片吃满剩余；两栏各自 list-panel 内滚 */
+.user-layout {
+    display: flex;
+    flex: 1;
+    gap: 20px;
+    min-height: 0;
+}
+
+/* 仅右侧列表卡片吃满剩余宽度，避免命中同样带 content-card 类的部门树面板 */
+.user-layout>.user-list-card {
+    flex: 1;
+    min-width: 0;
+}
+
+.role-tag {
+    margin: 2px 6px 2px 0;
+}
+
 .toolbar {
     display: flex;
     align-items: center;
@@ -423,5 +452,12 @@ h2 {
     margin: 8px 0 0;
     color: #7d879a;
     font-size: 13px;
+}
+
+/* 窄屏回退：双栏改纵向堆叠，随页面自然流滚动 */
+@media (max-width: 720px) {
+    .user-layout {
+        flex-direction: column;
+    }
 }
 </style>

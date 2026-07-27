@@ -73,20 +73,44 @@ class UserService:
         page: int = 1,
         size: int = 20,
         keyword: str | None = None,
-        dept_id: uuid.UUID | None = None,
+        dept_ids: list[uuid.UUID] | None = None,
         status: str | None = None,
     ) -> PageResult:
-        """真分页返回用户列表（keyword 对 username/nickname 过滤、dept_id/status 精确）。"""
+        """
+        真分页返回用户列表（keyword 对 username/nickname 过滤、dept_ids
+        为部门子树 IN 过滤、status 精确）。列表项以当页数据批量聚合
+        dept_name（无部门为 None）与 roles=[{id, name}]（无角色为空数组），
+        全程无逐行查询（零 N+1）。
+        """
         async with get_session() as session:
             repo = UserRepository(session)
             items, total = await repo.list(
                 page=page,
                 size=size,
                 keyword=keyword,
-                dept_id=dept_id,
+                dept_ids=dept_ids,
                 status=status,
             )
-            return build_page_result([i.to_dict() for i in items], total, page, size)
+            # 当页 dept_id 集合批量查部门名映射
+            page_dept_ids = list({i.dept_id for i in items if i.dept_id is not None})
+            depts = await DeptRepository(session).list_by_ids(page_dept_ids)
+            dept_name_map = {d.id: d.name for d in depts}
+            # 当页 user_id 集合批量查角色关联并按用户分组
+            rows = await UserRoleRepository(session).list_roles_by_user_ids(
+                [i.id for i in items]
+            )
+            roles_map: dict[uuid.UUID, list[dict]] = {}
+            for user_id, role_id, role_name in rows:
+                roles_map.setdefault(user_id, []).append(
+                    {"id": format_id(role_id), "name": role_name}
+                )
+            enriched = []
+            for i in items:
+                data = i.to_dict()
+                data["dept_name"] = dept_name_map.get(i.dept_id) if i.dept_id else None
+                data["roles"] = roles_map.get(i.id, [])
+                enriched.append(data)
+            return build_page_result(enriched, total, page, size)
 
     async def get(self, user_id: uuid.UUID) -> dict:
         """按 id 获取用户（不含 password），不存在时抛出业务异常。"""

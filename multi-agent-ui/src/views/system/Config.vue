@@ -118,7 +118,7 @@ onMounted(loadConfigs);
 </script>
 
 <template>
-    <section class="system-page">
+    <section class="system-page list-page">
         <section class="content-card list-panel" v-loading="loading" element-loading-text="加载中…">
             <div class="toolbar">
                 <div>

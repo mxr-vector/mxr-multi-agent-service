@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from entity.system.role import Role
 from entity.system.user_role import UserRole
 
 
@@ -23,6 +24,23 @@ class UserRoleRepository:
         stmt = select(UserRole.role_id).where(UserRole.user_id == user_id)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_roles_by_user_ids(
+        self, user_ids: list[uuid.UUID]
+    ) -> list[tuple[uuid.UUID, uuid.UUID, str]]:
+        """
+        按用户 id 集合批量查询角色关联（JOIN sys_role 取名称），
+        返回 (user_id, role_id, role_name) 元组列表，供列表页聚合展示。
+        """
+        if not user_ids:
+            return []
+        stmt = (
+            select(UserRole.user_id, UserRole.role_id, Role.name)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(UserRole.user_id.in_(user_ids))
+        )
+        result = await self.session.execute(stmt)
+        return [(row[0], row[1], row[2]) for row in result.all()]
 
     async def delete_by_user_id(self, user_id: uuid.UUID) -> None:
         """按 user_id 清空关联（全量覆盖分配的第一步，或删除用户时清理）。"""

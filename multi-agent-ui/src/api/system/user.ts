@@ -1,6 +1,13 @@
 import request, { type ApiResult } from "@/utils/request";
 import { USER_URL, type PageResult } from "./index";
 
+/** 列表项聚合的角色（仅展示用；分配弹窗回显走 listRoleIds 实时查询） */
+export interface UserRole {
+  /** 角色 id（32 位无连字符 hex） */
+  id: string;
+  name: string;
+}
+
 /** 用户实体（对应后端 sys_user.to_dict，永不包含 password） */
 export interface User {
   id: string;
@@ -9,6 +16,10 @@ export interface User {
   nickname: string | null;
   /** 所属部门 id，可为空 */
   dept_id: string | null;
+  /** 列表接口聚合的部门名称，无部门为 null */
+  dept_name: string | null;
+  /** 列表接口聚合的角色列表，无角色为空数组 */
+  roles: UserRole[];
   email: string | null;
   phone: string | null;
   avatar: string | null;
@@ -51,8 +62,8 @@ export interface UserListParams {
   size?: number;
   /** 按用户名/昵称模糊搜索 */
   keyword?: string;
-  /** 按部门精确过滤 */
-  dept_id?: string;
+  /** 按部门集合过滤（IN 匹配，传部门子树 id 集合实现"含子部门"筛选） */
+  dept_ids?: string[];
   /** 按状态精确过滤 */
   status?: string;
 }

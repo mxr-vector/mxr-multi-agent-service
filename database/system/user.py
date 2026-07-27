@@ -54,12 +54,13 @@ class UserRepository:
         page: int = 1,
         size: int = 20,
         keyword: str | None = None,
-        dept_id: uuid.UUID | None = None,
+        dept_ids: list[uuid.UUID] | None = None,
         status: str | None = None,
     ) -> tuple[list[User], int]:
         """
         真分页列表：服务端过滤（keyword 对 username/nickname 做 ILIKE、
-        dept_id/status 精确），total 为过滤后的总数。返回 (items, total)。
+        dept_ids 为 IN 集合过滤（部门子树）、status 精确），total 为过滤后
+        的总数。返回 (items, total)。
         """
         stmt = select(User)
         if keyword:
@@ -67,8 +68,8 @@ class UserRepository:
             stmt = stmt.where(
                 User.username.ilike(pattern) | User.nickname.ilike(pattern)
             )
-        if dept_id is not None:
-            stmt = stmt.where(User.dept_id == dept_id)
+        if dept_ids:
+            stmt = stmt.where(User.dept_id.in_(dept_ids))
         if status:
             stmt = stmt.where(User.status == status)
         stmt = stmt.order_by(User.created_at.desc())

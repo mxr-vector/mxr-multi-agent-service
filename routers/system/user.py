@@ -74,12 +74,15 @@ async def list_users(
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     size: int = Query(default=20, ge=1, le=200, description="每页数量"),
     keyword: Optional[str] = Query(default=None, description="按用户名/昵称模糊搜索"),
-    dept_id: Optional[uuid.UUID] = Query(default=None, description="按部门精确过滤"),
+    dept_ids: Optional[list[uuid.UUID]] = Query(
+        default=None,
+        description="按部门过滤（可重复传参，多值 IN 匹配，用于部门子树过滤）",
+    ),
     status: Optional[str] = Query(default=None, description="按状态精确过滤"),
 ):
-    """真分页列出用户（响应不含 password）。"""
+    """真分页列出用户（响应不含 password，列表项聚合 dept_name 与 roles）。"""
     page_result = await _service.list(
-        page=page, size=size, keyword=keyword, dept_id=dept_id, status=status
+        page=page, size=size, keyword=keyword, dept_ids=dept_ids, status=status
     )
     return R.success(data=page_result)
 

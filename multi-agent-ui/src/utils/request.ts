@@ -30,6 +30,8 @@ const service = axios.create({
   baseURL: import.meta.env.VITE_APP_BASE_API,
   timeout: 15000,
   headers: { "Content-Type": "application/json;charset=utf-8" },
+  // 数组查询参数序列化为重复键（dept_ids=a&dept_ids=b），匹配 FastAPI 多值 Query
+  paramsSerializer: { indexes: null },
 });
 
 // 请求拦截器

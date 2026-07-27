@@ -1,3 +1,6 @@
+# 类体内 `list` 方法会遮蔽内建 list，延迟注解求值以保住 list[...] 写法
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 
@@ -58,6 +61,14 @@ class DeptRepository:
     async def get(self, dept_id: uuid.UUID) -> Dept | None:
         """按 id 获取单个部门，不存在返回 None。"""
         return await self.session.get(Dept, dept_id)
+
+    async def list_by_ids(self, dept_ids: list[uuid.UUID]) -> list[Dept]:
+        """按 id 集合批量查询部门（供用户列表聚合 dept_name 映射）。"""
+        if not dept_ids:
+            return []
+        stmt = select(Dept).where(Dept.id.in_(dept_ids))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def update(
         self,
