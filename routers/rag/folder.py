@@ -1,11 +1,12 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Path, Query
+from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
 
 from service.rag.folder import FolderService
 from utils.response import R
+from utils.user_context import UserContext, get_user_context
 
 # 创建路由
 router = APIRouter(prefix="/rag/folders", tags=["OpenAPI - RAG 文件夹管理"])
@@ -31,9 +32,13 @@ class FolderUpdate(BaseModel):
 
 
 @router.post("")
-async def create_folder(payload: FolderCreate = Body(...)):
-    """创建文件夹（归属指定知识库）。"""
+async def create_folder(
+    payload: FolderCreate = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """创建文件夹（归属指定知识库，须对当前用户可见；dept_id 从上下文注入）。"""
     folder = await _service.create(
+        ctx,
         name=payload.name,
         knowledge_base_id=payload.knowledge_base_id,
         parent_id=payload.parent_id,
@@ -51,9 +56,11 @@ async def list_folders(
         default=None, description="按父文件夹过滤，返回其直接子文件夹"
     ),
     keyword: Optional[str] = Query(default=None, description="按文件夹名称模糊搜索"),
+    ctx: UserContext = Depends(get_user_context),
 ):
     """分页扁平列出某知识库内的文件夹：省略 parent_id 返回全部，传入则只返回直接子文件夹；可选 keyword 过滤。"""
     page_result = await _service.list(
+        ctx,
         knowledge_base_id=knowledge_base_id,
         page=page,
         size=size,

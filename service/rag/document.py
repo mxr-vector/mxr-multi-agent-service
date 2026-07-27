@@ -9,10 +9,12 @@ from database.rag.document import DocumentRepository
 from database.rag.folder import FolderRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
+from service.rag.knowledge_base import assert_kb_visible
 from utils.file_ingest import ingest_file
 from utils.id import format_id
 from utils.logger import logger
 from utils.page import PageResult, build_page_result
+from utils.user_context import UserContext, resolve_dept_filter
 
 
 class DocumentService:
@@ -29,6 +31,7 @@ class DocumentService:
 
     async def upload(
         self,
+        ctx: UserContext,
         knowledge_base_id: uuid.UUID,
         filename: str,
         data: bytes,
@@ -39,16 +42,18 @@ class DocumentService:
         folder_id: uuid.UUID | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
-        dept_id: str = "default",
     ) -> dict:
         """
         上传文件：解析 + 两级切块 + 持久化到 PG（不向量化）。
 
+        目标知识库须对当前上下文可见（数据权限收口）；dept_id 从上下文注入
+        （机器通道 / 无部门用户兜底 'default'）。
         content_hash 未变化的重复上传是幂等 no-op；变化则新增 document_version。
         知识库不存在、不支持的文件类型均转为友好失败。
         """
         # source_uri 缺省用文件名，作为 (kb, source_uri) 的增量比对键
         effective_source_uri = source_uri or filename
+        dept_id = ctx.dept_id or "default"
 
         async with get_session() as session:
             kb_repo = KnowledgeBaseRepository(session)
@@ -56,8 +61,7 @@ class DocumentService:
             chunk_repo = ChunkRepository(session)
 
             kb = await kb_repo.get(knowledge_base_id)
-            if kb is None or kb.status == "deleted":
-                bad_except(f"知识库不存在: {knowledge_base_id}")
+            await assert_kb_visible(kb, ctx, knowledge_base_id)
 
             # 文件夹必须存在且与目标知识库一致，封死跨库悬挂引用
             if folder_id is not None:
@@ -360,16 +364,31 @@ class DocumentService:
 
     async def list(
         self,
+        ctx: UserContext,
         knowledge_base_id: uuid.UUID,
         page: int = 1,
         size: int = 20,
         status: str | None = None,
+        dept_ids: list[str] | None = None,
     ) -> PageResult:
-        """按知识库分页列出文档（排除软删除的），可选按 status 过滤。"""
+        """
+        按知识库分页列出文档（排除软删除的），可选按 status 过滤。
+        先校验知识库对当前上下文可见（不可见与不存在同文案），
+        再按 data_scope 强制部门边界：all 档尊重 dept_ids 参数，其余档忽略。
+        """
+        flt = await resolve_dept_filter(ctx, dept_ids)
+        if flt.is_empty_boundary:
+            return build_page_result([], 0, page, size)
         async with get_session() as session:
+            kb = await KnowledgeBaseRepository(session).get(knowledge_base_id)
+            await assert_kb_visible(kb, ctx, knowledge_base_id)
             repo = DocumentRepository(session)
             docs, total = await repo.list_by_kb(
-                knowledge_base_id, page=page, size=size, status=status
+                knowledge_base_id,
+                page=page,
+                size=size,
+                status=status,
+                dept_ids=flt.dept_ids,
             )
             return build_page_result([doc.to_dict() for doc in docs], total, page, size)
 

@@ -92,8 +92,9 @@ class DocumentRepository:
         page: int = 1,
         size: int = 20,
         status: str | None = None,
+        dept_ids: list[str] | None = None,
     ) -> tuple[list[Document], int]:
-        """按知识库分页列出文档，排除 status='deleted'；可选按 status 过滤。返回 (items, total)。"""
+        """按知识库分页列出文档，排除 status='deleted'；可选按 status 精确、dept_ids IN 过滤。返回 (items, total)。"""
         stmt = (
             select(Document)
             .where(Document.knowledge_base_id == knowledge_base_id)
@@ -101,6 +102,8 @@ class DocumentRepository:
         )
         if status is not None:
             stmt = stmt.where(Document.status == status)
+        if dept_ids is not None:
+            stmt = stmt.where(Document.dept_id.in_(dept_ids))
         stmt = stmt.order_by(Document.updated_at.desc())
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total

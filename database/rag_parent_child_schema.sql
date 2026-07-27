@@ -54,7 +54,7 @@ CREATE INDEX idx_rag_folders_parent ON rag.rag_folders (parent_id);
 CREATE TABLE rag.rag_knowledge_bases (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    dept_id             VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
+    dept_id             VARCHAR(64) NOT NULL DEFAULT '', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
 
     name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
     description         TEXT,

@@ -57,6 +57,8 @@ export interface DocumentListParams {
   size?: number;
   /** 按状态过滤 */
   status?: string;
+  /** 按部门集合过滤（IN 匹配，传部门子树 id 集合；仅 data_scope=all 生效） */
+  dept_ids?: string[];
 }
 
 /** 更新文档请求体（仅可编辑元数据；内容/哈希/版本/归属/状态不可变） */

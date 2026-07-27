@@ -51,6 +51,8 @@ export interface KnowledgeBaseListParams {
   size?: number;
   /** 按名称/描述模糊搜索 */
   keyword?: string;
+  /** 按部门集合过滤（IN 匹配，传部门子树 id 集合；仅 data_scope=all 生效） */
+  dept_ids?: string[];
 }
 
 /** 知识库管理 API：统一通过 knowledgeBaseApi.xx() 调用 */

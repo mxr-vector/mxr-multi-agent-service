@@ -78,10 +78,14 @@ class KnowledgeBaseRepository:
         page: int = 1,
         size: int = 20,
         keyword: str | None = None,
+        dept_ids: list[str] | None = None,
+        owner: str | None = None,
     ) -> tuple[list[KnowledgeBase], int]:
         """
         分页列出知识库，排除 status='deleted'；
-        可选按 keyword 对 name/description 做 ILIKE 模糊匹配。返回 (items, total)。
+        可选按 keyword 对 name/description 做 ILIKE 模糊匹配，
+        可选按 dept_ids IN / owner 等值过滤（数据权限边界由 service 层换算）。
+        返回 (items, total)。
         """
         stmt = select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
         if keyword:
@@ -92,6 +96,10 @@ class KnowledgeBaseRepository:
                     KnowledgeBase.description.ilike(pattern),
                 )
             )
+        if dept_ids is not None:
+            stmt = stmt.where(KnowledgeBase.dept_id.in_(dept_ids))
+        if owner is not None:
+            stmt = stmt.where(KnowledgeBase.owner == owner)
         stmt = stmt.order_by(KnowledgeBase.updated_at.desc())
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total

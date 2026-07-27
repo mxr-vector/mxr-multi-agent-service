@@ -4,10 +4,12 @@ import { ElMessage } from "element-plus";
 import { knowledgeBaseApi, type KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { statsApi, type RagStats } from "@/api/rag/stats";
 import { confirmDanger } from "@/utils/confirm";
+import { useUserStore } from "@/stores/userStore";
 import KnowledgeBaseTable from "@/components/rag/KnowledgeBaseTable.vue";
 import KnowledgeBaseFormDialog from "@/components/rag/KnowledgeBaseFormDialog.vue";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
+import DeptTreePanel from "@/components/DeptTreePanel.vue";
 import type { KnowledgeBaseFormPayload } from "@/components/rag/types";
 
 const loading = ref(false);
@@ -19,7 +21,13 @@ const page = ref(1);
 const size = ref(20);
 const total = ref(0);
 
-// 全局统计（汇总卡片数据源）
+// 部门树筛选：仅 data_scope=all 的用户展示树面板（其余档位后端强制边界）
+const userStore = useUserStore();
+const showDeptTree = ref(false);
+// 左侧部门树选中的子树 id 集合（null 表示不过滤）
+const deptFilterIds = ref<string[] | null>(null);
+
+// 全局统计（汇总卡片数据源，与列表共用部门筛选口径）
 const stats = ref<RagStats>({
     knowledge_base_count: 0,
     document_count: 0,
@@ -33,6 +41,7 @@ async function loadKnowledgeBases() {
             page: page.value,
             size: size.value,
             keyword: keyword.value.trim() || undefined,
+            dept_ids: deptFilterIds.value ?? undefined,
         });
         knowledgeBases.value = res.data?.items ?? [];
         total.value = res.data?.total ?? 0;
@@ -42,8 +51,18 @@ async function loadKnowledgeBases() {
 }
 
 async function loadStats() {
-    const res = await statsApi.overview();
+    const res = await statsApi.overview({
+        dept_ids: deptFilterIds.value ?? undefined,
+    });
     if (res.data) stats.value = res.data;
+}
+
+/** 部门树选中变化：重置页码后按新边界重查列表与统计 */
+function onDeptSelect(deptIds: string[] | null) {
+    deptFilterIds.value = deptIds;
+    page.value = 1;
+    loadKnowledgeBases();
+    loadStats();
 }
 
 // 关键词防抖：变更后回到第 1 页并触发服务端重载
@@ -109,48 +128,57 @@ async function removeKnowledgeBase(base: KnowledgeBase) {
     await loadStats();
 }
 
-onMounted(() => {
+onMounted(async () => {
     loadKnowledgeBases();
     loadStats();
+    // data_scope 懒加载（登录响应不含），仅 all 档渲染部门树筛选
+    showDeptTree.value = (await userStore.ensureDataScope()) === "all";
 });
 </script>
 
 <template>
     <section class="rag-page list-page" v-loading="loading" element-loading-text="加载中…">
-        <section class="summary-grid">
-            <article>
-                <span>知识库总数</span>
-                <strong>{{ stats.knowledge_base_count }}</strong>
-                <small>全部知识源</small>
-            </article>
-            <article>
-                <span>已收录文档</span>
-                <strong>{{ stats.document_count }}</strong>
-                <small>所有知识库合计</small>
-            </article>
-            <article>
-                <span>分块总数</span>
-                <strong>{{ stats.total_chunk_count }}</strong>
-                <small>已入库块数</small>
-            </article>
-        </section>
-        <section class="content-card list-panel">
-            <div class="toolbar">
-                <div>
-                    <h2>知识库列表</h2>
-                    <span>共 {{ total }} 个知识库</span>
-                </div>
-                <div class="toolbar-actions">
-                    <SearchInput v-model="keyword" placeholder="搜索名称 / 描述" />
-                    <button class="primary-button" type="button" @click="openCreate">＋ 新建知识库</button>
-                </div>
+        <div class="kb-layout">
+            <!-- 左栏：通用部门树（仅 data_scope=all 渲染），选中子树驱动右侧列表与统计过滤 -->
+            <DeptTreePanel v-if="showDeptTree" @select="onDeptSelect" />
+            <div class="kb-main">
+                <section class="summary-grid">
+                    <article>
+                        <span>知识库总数</span>
+                        <strong>{{ stats.knowledge_base_count }}</strong>
+                        <small>全部知识源</small>
+                    </article>
+                    <article>
+                        <span>已收录文档</span>
+                        <strong>{{ stats.document_count }}</strong>
+                        <small>所有知识库合计</small>
+                    </article>
+                    <article>
+                        <span>分块总数</span>
+                        <strong>{{ stats.total_chunk_count }}</strong>
+                        <small>已入库块数</small>
+                    </article>
+                </section>
+                <section class="content-card list-panel">
+                    <div class="toolbar">
+                        <div>
+                            <h2>知识库列表</h2>
+                            <span>共 {{ total }} 个知识库</span>
+                        </div>
+                        <div class="toolbar-actions">
+                            <SearchInput v-model="keyword" placeholder="搜索名称 / 描述" />
+                            <button class="primary-button" type="button" @click="openCreate">＋ 新建知识库</button>
+                        </div>
+                    </div>
+                    <KnowledgeBaseTable class="list-scroll" :list="knowledgeBases" @edit="openEdit"
+                        @remove="removeKnowledgeBase" />
+                    <div class="pagination-bar list-footer">
+                        <Pagination v-model:page="page" v-model:size="size" :total="total"
+                            @change="loadKnowledgeBases" />
+                    </div>
+                </section>
             </div>
-            <KnowledgeBaseTable class="list-scroll" :list="knowledgeBases" @edit="openEdit"
-                @remove="removeKnowledgeBase" />
-            <div class="pagination-bar list-footer">
-                <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadKnowledgeBases" />
-            </div>
-        </section>
+        </div>
 
         <KnowledgeBaseFormDialog v-model:visible="dialogVisible" :record="editing" :submitting="submitting"
             @submit="handleSubmit" />
@@ -161,6 +189,23 @@ onMounted(() => {
 .rag-page {
     gap: 20px;
     color: #273249;
+}
+
+/* 双栏骨架：左部门树面板（组件自带宽度约束）+ 右主列吃满剩余宽度 */
+.kb-layout {
+    display: flex;
+    flex: 1;
+    gap: 20px;
+    min-height: 0;
+}
+
+.kb-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    min-height: 0;
 }
 
 .page-header,
@@ -261,6 +306,11 @@ h2 {
 }
 
 @media (max-width: 720px) {
+
+    /* 窄屏回退：双栏改纵向堆叠，随页面自然流滚动 */
+    .kb-layout {
+        flex-direction: column;
+    }
 
     .page-header,
     .toolbar {

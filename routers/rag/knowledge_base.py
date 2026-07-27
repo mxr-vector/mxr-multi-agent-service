@@ -1,11 +1,12 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Path, Query
+from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
 
 from service.rag.knowledge_base import KnowledgeBaseService
 from utils.response import R
+from utils.user_context import UserContext, get_user_context
 
 # 创建路由
 router = APIRouter(prefix="/rag/knowledge-base", tags=["OpenAPI - RAG 知识库管理"])
@@ -41,9 +42,13 @@ class KnowledgeBaseUpdate(BaseModel):
 
 
 @router.post("")
-async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
-    """创建知识库（仅元数据，dept_id 服务端默认注入）。"""
+async def create_knowledge_base(
+    payload: KnowledgeBaseCreate = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """创建知识库（仅元数据，dept_id 从用户上下文注入，机器通道兜底 'default'）。"""
     kb = await _service.create(
+        ctx,
         name=payload.name,
         description=payload.description,
         icon=payload.icon,
@@ -61,9 +66,16 @@ async def list_knowledge_bases(
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     size: int = Query(default=20, ge=1, le=200, description="每页数量"),
     keyword: Optional[str] = Query(default=None, description="按名称/描述模糊搜索"),
+    dept_ids: Optional[list[str]] = Query(
+        default=None,
+        description="按部门过滤（可重复传参，32 位 hex；仅 data_scope=all 生效）",
+    ),
+    ctx: UserContext = Depends(get_user_context),
 ):
-    """分页列出知识库（排除软删除的），可选按 keyword 过滤。"""
-    page_result = await _service.list(page=page, size=size, keyword=keyword)
+    """分页列出知识库（排除软删除的），可选按 keyword 过滤；部门边界按 data_scope 强制。"""
+    page_result = await _service.list(
+        ctx, page=page, size=size, keyword=keyword, dept_ids=dept_ids
+    )
     return R.success(data=page_result)
 
 

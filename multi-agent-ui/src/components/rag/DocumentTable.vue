@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import type { ElTree } from "element-plus";
 import { documentApi, type RagDocument } from "@/api/rag/document";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { folderApi, type Folder } from "@/api/rag/folders";
 import { confirmDanger } from "@/utils/confirm";
+import { useUserStore } from "@/stores/userStore";
 import DocumentCard from "@/components/rag/DocumentCard.vue";
 import DocumentChunkTree from "@/components/rag/DocumentChunkTree.vue";
 import DocumentUploadDialog from "@/components/rag/DocumentUploadDialog.vue";
 import FolderFormDialog from "@/components/rag/FolderFormDialog.vue";
 import KnowledgeTree from "@/components/rag/KnowledgeTree.vue";
-import SearchInput from "@/components/SearchInput.vue";
+import DeptTreePanel from "@/components/DeptTreePanel.vue";
 import Pagination from "@/components/Pagination.vue";
 import SvgIcon from "@/components/SvgIcon.vue";
 import type { FolderFormPayload, DocumentUploadFormPayload } from "@/components/rag/types";
@@ -24,43 +24,22 @@ const syncLegend = [
     { label: "同步失败", cls: "failed" },
 ];
 
-// —— 部门树：后端暂未提供部门维度，先以静态占位数据呈现层级导航 ——
-interface DeptNode {
-    id: string;
-    label: string;
-    children?: DeptNode[];
+// —— 部门树筛选：通用 DeptTreePanel，仅 data_scope=all 渲染（其余档位后端强制边界）——
+// 部门选中仅驱动文档列表的 dept_ids 过滤，不联动知识库树状态
+const userStore = useUserStore();
+const showDeptTree = ref(false);
+const deptFilterIds = ref<string[] | null>(null);
+
+function onDeptSelect(deptIds: string[] | null) {
+    deptFilterIds.value = deptIds;
+    page.value = 1;
+    loadDocuments();
 }
-const departmentTree: DeptNode[] = [
-    {
-        id: "dept-root",
-        label: "MXR组织",
-        children: [
-            {
-                id: "dept-ky",
-                label: "开源小组",
-                children: [
-                    {
-                        id: "dept-sw",
-                        label: "声纹识别项目组",
-                        children: [
-                            { id: "dept-yx", label: "音频模型微调项目组" },
-                            { id: "dept-ocr", label: "RAG项目组" },
-                        ],
-                    },
-                    { id: "dept-yqc", label: "艺启唱项目组" },
-                    { id: "dept-ocr", label: "OCR文档识别项目组" },
-                ],
-            },
-            { id: "dept-by", label: "闭源小组" },
-        ],
-    },
-];
-const deptTreeRef = ref<InstanceType<typeof ElTree>>();
-const deptKeyword = ref("");
-function filterDept(value: string, data: DeptNode) {
-    return value ? data.label.includes(value) : true;
-}
-watch(deptKeyword, (v) => deptTreeRef.value?.filter(v));
+
+onMounted(async () => {
+    // data_scope 懒加载（登录响应不含该字段）
+    showDeptTree.value = (await userStore.ensureDataScope()) === "all";
+});
 
 // —— 数据源 ——
 // 知识库与文件夹的加载全部封装在左侧 KnowledgeTree 中（懒加载），
@@ -201,7 +180,12 @@ async function loadDocuments() {
     }
     loading.value = true;
     try {
-        const res = await documentApi.list({ knowledge_base_id: kbId, page: 1, size: 200 });
+        const res = await documentApi.list({
+            knowledge_base_id: kbId,
+            page: 1,
+            size: 200,
+            dept_ids: deptFilterIds.value ?? undefined,
+        });
         allDocuments.value = res.data?.items ?? [];
     } finally {
         loading.value = false;
@@ -412,15 +396,9 @@ function openChunks(doc: RagDocument) {
         </div>
 
         <div class="doc-layout">
-            <!-- 左侧：部门树 + 文件夹树 -->
+            <!-- 左侧：部门树（仅 data_scope=all）+ 知识库/文件夹树，两棵树并列、职责独立 -->
             <aside class="side">
-                <div class="side-card">
-                    <div class="side-head">部门</div>
-                    <SearchInput v-model="deptKeyword" placeholder="请输入部门名称" />
-                    <el-tree ref="deptTreeRef" class="side-tree" :data="departmentTree" node-key="id"
-                        :props="{ label: 'label', children: 'children' }" :filter-node-method="filterDept"
-                        highlight-current :expand-on-click-node="false" default-expand-all />
-                </div>
+                <DeptTreePanel v-if="showDeptTree" class="side-dept-panel" @select="onDeptSelect" />
                 <div class="side-card">
                     <div class="side-head">知识库</div>
                     <!-- 知识库/文件夹的加载与懒加载全部封装在此组件内 -->
@@ -626,11 +604,10 @@ function openChunks(doc: RagDocument) {
     width: 100%;
 }
 
-.side-tree {
-    max-height: 360px;
+/* 部门树面板在 240px grid 侧栏内：限高走内部滚动，避免挤压下方知识库树 */
+.side-dept-panel :deep(.dept-tree-panel__tree) {
+    max-height: 300px;
     overflow: auto;
-    font-size: 13px;
-    background: transparent;
 }
 
 /* 右侧主区 */

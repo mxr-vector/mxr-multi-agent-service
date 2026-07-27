@@ -4,7 +4,9 @@ from database.postgre_client import get_session
 from database.rag.folder import FolderRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
+from service.rag.knowledge_base import assert_kb_visible
 from utils.page import PageResult, build_page_result
+from utils.user_context import UserContext
 
 
 class FolderService:
@@ -14,26 +16,28 @@ class FolderService:
     负责编排持久层调用与业务规则：文件夹归属知识库（创建后不可变）、
     父文件夹同库校验、扁平列表、显式 updated_at 更新，
     以及带空判定守卫的物理删除。每个方法在共享会话中开启事务并提交。
+    创建/列表在接受 knowledge_base_id 时前置知识库可见性校验（数据权限收口）。
     """
 
     async def create(
         self,
+        ctx: UserContext,
         name: str,
         knowledge_base_id: uuid.UUID,
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
-        dept_id: str = "default",
     ) -> dict:
         """
-        创建文件夹并返回其数据（含数据库生成的 id；dept_id 缺省 'default'）。
+        创建文件夹并返回其数据（含数据库生成的 id）。
 
-        校验所属知识库存在且未删除；提供 parent_id 时校验父文件夹存在且同属该知识库。
+        校验所属知识库存在、未删除且对当前上下文可见；dept_id 从上下文注入
+        （机器通道 / 无部门用户兜底 'default'）；提供 parent_id 时校验父文件夹
+        存在且同属该知识库。
         """
         async with get_session() as session:
             kb_repo = KnowledgeBaseRepository(session)
             kb = await kb_repo.get(knowledge_base_id)
-            if kb is None or kb.status == "deleted":
-                bad_except(f"知识库不存在: {knowledge_base_id}")
+            await assert_kb_visible(kb, ctx, knowledge_base_id)
             repo = FolderRepository(session)
             if parent_id is not None:
                 await self._require_parent_in_kb(repo, parent_id, knowledge_base_id)
@@ -42,13 +46,14 @@ class FolderService:
                 knowledge_base_id=knowledge_base_id,
                 parent_id=parent_id,
                 sort_order=sort_order,
-                dept_id=dept_id,
+                dept_id=ctx.dept_id or "default",
             )
             await session.commit()
             return folder.to_dict()
 
     async def list(
         self,
+        ctx: UserContext,
         knowledge_base_id: uuid.UUID,
         page: int = 1,
         size: int = 20,
@@ -58,9 +63,11 @@ class FolderService:
         """
         分页返回单个知识库内的扁平文件夹列表（不做服务端树装配）；
         省略 parent_id 返回该知识库全部文件夹，传入则只返回其直接子文件夹；
-        可选按 keyword 对 name 过滤。
+        可选按 keyword 对 name 过滤。知识库须对当前上下文可见。
         """
         async with get_session() as session:
+            kb = await KnowledgeBaseRepository(session).get(knowledge_base_id)
+            await assert_kb_visible(kb, ctx, knowledge_base_id)
             repo = FolderRepository(session)
             folders, total = await repo.list(
                 knowledge_base_id=knowledge_base_id,

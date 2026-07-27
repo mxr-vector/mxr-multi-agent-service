@@ -3,11 +3,12 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Body, File, Form, Path, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Path, Query, UploadFile
 from pydantic import BaseModel
 
 from service.rag.document import DocumentService
 from utils.response import R
+from utils.user_context import UserContext, get_user_context
 
 # 创建路由
 router = APIRouter(prefix="/rag/document", tags=["OpenAPI - RAG 文档管理"])
@@ -37,7 +38,9 @@ class DocumentUpdate(BaseModel):
 async def upload_document(
     file: UploadFile = File(..., description="待上传文件（pdf/markdown/excel/docx）"),
     knowledge_base_id: uuid.UUID = Form(..., description="目标知识库 id"),
-    folder_id: Optional[uuid.UUID] = Form(default=None, description="同一知识库内的文件夹 id"),
+    folder_id: Optional[uuid.UUID] = Form(
+        default=None, description="同一知识库内的文件夹 id"
+    ),
     source_uri: Optional[str] = Form(
         default=None, description="来源标识，缺省用文件名"
     ),
@@ -52,11 +55,13 @@ async def upload_document(
     remark: Optional[str] = Form(
         default=None, description="备注，存入 metadata.remark"
     ),
+    ctx: UserContext = Depends(get_user_context),
 ):
     """上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op。"""
     data = await file.read()
     metadata = {"remark": remark} if remark else None
     doc = await _service.upload(
+        ctx,
         knowledge_base_id=knowledge_base_id,
         filename=file.filename,
         data=data,
@@ -107,10 +112,15 @@ async def list_documents(
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     size: int = Query(default=20, ge=1, le=200, description="每页数量"),
     status: Optional[str] = Query(default=None, description="按状态过滤"),
+    dept_ids: Optional[list[str]] = Query(
+        default=None,
+        description="按部门过滤（可重复传参，32 位 hex；仅 data_scope=all 生效）",
+    ),
+    ctx: UserContext = Depends(get_user_context),
 ):
-    """按知识库分页列出文档（排除软删除的），可选按 status 过滤。"""
+    """按知识库分页列出文档（排除软删除的），可选按 status 过滤；部门边界按 data_scope 强制。"""
     page_result = await _service.list(
-        knowledge_base_id, page=page, size=size, status=status
+        ctx, knowledge_base_id, page=page, size=size, status=status, dept_ids=dept_ids
     )
     return R.success(data=page_result)
 

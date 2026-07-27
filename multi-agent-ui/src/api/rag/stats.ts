@@ -11,10 +11,16 @@ export interface RagStats {
   total_chunk_count: number;
 }
 
+/** 统计查询参数 */
+export interface RagStatsParams {
+  /** 按部门集合过滤（IN 匹配，传部门子树 id 集合；仅 data_scope=all 生效） */
+  dept_ids?: string[];
+}
+
 /** RAG 统计 API：统一通过 statsApi.xx() 调用 */
 export const statsApi = {
-  /** 获取 RAG 全局统计：知识库数、文档总数、分块总数 */
-  overview() {
-    return request.get<RagStats, ApiResult<RagStats>>(STATS_URL.root);
+  /** 获取 RAG 统计：知识库数、文档总数、分块总数（口径与知识库列表部门边界一致） */
+  overview(params: RagStatsParams = {}) {
+    return request.get<RagStats, ApiResult<RagStats>>(STATS_URL.root, { params });
   },
 };
