@@ -11,7 +11,7 @@ import { confirmDanger } from "@/utils/confirm";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
 
-// ---------- 字典类型（左侧） ----------
+// ---------- 字典类型（主视图） ----------
 
 const typeLoading = ref(false);
 const typeList = ref<DictType[]>([]);
@@ -20,8 +20,8 @@ const typePage = ref(1);
 const typeSize = ref(20);
 const typeTotal = ref(0);
 
-// 当前选中的类型（右侧字典数据联动数据源）
-const selectedType = ref<DictType | null>(null);
+// 当前钻取的类型：非空时展示该类型下的字典数据视图
+const currentType = ref<DictType | null>(null);
 
 async function loadTypes() {
     typeLoading.value = true;
@@ -33,14 +33,6 @@ async function loadTypes() {
         });
         typeList.value = res.data?.items ?? [];
         typeTotal.value = res.data?.total ?? 0;
-        // 选中项不在当前页时自动纠正选中态
-        if (selectedType.value) {
-            const hit = typeList.value.find((t) => t.id === selectedType.value?.id);
-            selectedType.value = hit ?? null;
-        }
-        if (!selectedType.value && typeList.value.length) {
-            selectedType.value = typeList.value[0];
-        }
     } finally {
         typeLoading.value = false;
     }
@@ -56,14 +48,21 @@ watch(typeKeyword, () => {
     }, 300);
 });
 
-// 选中类型变化时重载右侧字典数据
-watch(selectedType, () => {
+// 点击类型键钻取进入字典数据视图
+function enterDataView(row: DictType) {
+    currentType.value = row;
     dataPage.value = 1;
-    loadDataList();
-});
+    if (dataKeyword.value) {
+        // 关键词非空时清空即可，由防抖 watcher 触发加载，避免重复请求
+        dataKeyword.value = "";
+    } else {
+        loadDataList();
+    }
+}
 
-function handleTypeRowClick(row: DictType) {
-    selectedType.value = row;
+// 返回类型列表视图
+function backToTypeList() {
+    currentType.value = null;
 }
 
 // 类型新建 / 编辑弹窗
@@ -137,11 +136,10 @@ async function removeType(row: DictType) {
     if (!confirmed) return;
     await dictTypeApi.remove(row.id);
     ElMessage.success("字典类型已删除");
-    if (selectedType.value?.id === row.id) selectedType.value = null;
     await loadTypes();
 }
 
-// ---------- 字典数据（右侧，按选中类型联动） ----------
+// ---------- 字典数据（钻取视图，按当前类型联动） ----------
 
 const dataLoading = ref(false);
 const dataList = ref<DictData[]>([]);
@@ -151,7 +149,7 @@ const dataSize = ref(20);
 const dataTotal = ref(0);
 
 async function loadDataList() {
-    if (!selectedType.value) {
+    if (!currentType.value) {
         dataList.value = [];
         dataTotal.value = 0;
         return;
@@ -161,7 +159,7 @@ async function loadDataList() {
         const res = await dictDataApi.list({
             page: dataPage.value,
             size: dataSize.value,
-            dict_type: selectedType.value.type,
+            dict_type: currentType.value.type,
             keyword: dataKeyword.value.trim() || undefined,
         });
         dataList.value = res.data?.items ?? [];
@@ -199,7 +197,7 @@ const dataRules: FormRules = {
 };
 
 function openDataCreate() {
-    if (!selectedType.value) return;
+    if (!currentType.value) return;
     editingData.value = null;
     Object.assign(dataForm, {
         label: "",
@@ -244,7 +242,7 @@ async function submitData() {
             ElMessage.success("字典数据已更新");
         } else {
             await dictDataApi.create({
-                dict_type: selectedType.value!.type,
+                dict_type: currentType.value!.type,
                 label: dataForm.label,
                 value: dataForm.value,
                 sort_order: dataForm.sort_order,
@@ -273,23 +271,29 @@ onMounted(loadTypes);
 </script>
 
 <template>
-    <section class="system-page dict-layout">
-        <!-- 左侧：字典类型 -->
-        <section class="content-card list-panel" v-loading="typeLoading" element-loading-text="加载中…">
+    <section class="system-page list-page">
+        <!-- 主视图：字典类型列表 -->
+        <section v-if="!currentType" class="content-card list-panel" v-loading="typeLoading"
+            element-loading-text="加载中…">
             <div class="toolbar">
                 <div>
-                    <h2>字典类型</h2>
-                    <span>共 {{ typeTotal }} 个类型</span>
+                    <h2>字典管理</h2>
+                    <span>共 {{ typeTotal }} 个类型，点击类型键查看字典数据</span>
                 </div>
                 <div class="toolbar-actions">
                     <SearchInput v-model="typeKeyword" placeholder="搜索名称 / 类型键" />
                     <button class="primary-button" type="button" @click="openTypeCreate">＋ 新建类型</button>
                 </div>
             </div>
-            <el-table class="list-scroll" :data="typeList" highlight-current-row :row-key="(r: DictType) => r.id"
-                :current-row-key="selectedType?.id" @row-click="handleTypeRowClick">
-                <el-table-column prop="name" label="字典名称" min-width="120" show-overflow-tooltip />
-                <el-table-column prop="type" label="类型键" min-width="140" show-overflow-tooltip />
+            <el-table class="list-scroll" :data="typeList">
+                <el-table-column prop="name" label="字典名称" min-width="140" show-overflow-tooltip />
+                <el-table-column label="类型键" min-width="180">
+                    <template #default="{ row }">
+                        <a class="type-key-link" title="点击查看字典数据" @click="enterDataView(row)">
+                            {{ row.type }}<span class="type-key-arrow">›</span>
+                        </a>
+                    </template>
+                </el-table-column>
                 <el-table-column label="状态" width="80">
                     <template #default="{ row }">
                         <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
@@ -297,10 +301,14 @@ onMounted(loadTypes);
                         </el-tag>
                     </template>
                 </el-table-column>
+                <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
+                    <template #default="{ row }">{{ row.remark || "—" }}</template>
+                </el-table-column>
+                <el-table-column prop="updated_at" label="更新时间" width="170" show-overflow-tooltip />
                 <el-table-column label="操作" width="120" fixed="right">
                     <template #default="{ row }">
-                        <el-button link type="primary" size="small" @click.stop="openTypeEdit(row)">编辑</el-button>
-                        <el-button link type="danger" size="small" @click.stop="removeType(row)">删除</el-button>
+                        <el-button link type="primary" size="small" @click="openTypeEdit(row)">编辑</el-button>
+                        <el-button link type="danger" size="small" @click="removeType(row)">删除</el-button>
                     </template>
                 </el-table-column>
             </el-table>
@@ -309,23 +317,25 @@ onMounted(loadTypes);
             </div>
         </section>
 
-        <!-- 右侧：选中类型的字典数据 -->
-        <section class="content-card list-panel" v-loading="dataLoading" element-loading-text="加载中…">
+        <!-- 钻取视图：当前类型下的字典数据 -->
+        <section v-else class="content-card list-panel" v-loading="dataLoading" element-loading-text="加载中…">
             <div class="toolbar">
-                <div>
-                    <h2>字典数据</h2>
-                    <span>{{ selectedType ? `类型键：${selectedType.type}` : "请先在左侧选择字典类型" }}</span>
+                <div class="toolbar-title">
+                    <button class="back-button" type="button" @click="backToTypeList">← 返回</button>
+                    <div>
+                        <h2>{{ currentType.name }}</h2>
+                        <span>类型键：<code class="type-key-chip">{{ currentType.type }}</code> · 共 {{ dataTotal }}
+                            条字典数据</span>
+                    </div>
                 </div>
                 <div class="toolbar-actions">
                     <SearchInput v-model="dataKeyword" placeholder="搜索标签" />
-                    <button class="primary-button" type="button" :disabled="!selectedType" @click="openDataCreate">
-                        ＋ 新建数据
-                    </button>
+                    <button class="primary-button" type="button" @click="openDataCreate">＋ 新建数据</button>
                 </div>
             </div>
             <el-table class="list-scroll" :data="dataList">
-                <el-table-column prop="label" label="标签" min-width="110" show-overflow-tooltip />
-                <el-table-column prop="value" label="键值" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="label" label="标签" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="value" label="键值" min-width="110" show-overflow-tooltip />
                 <el-table-column prop="sort_order" label="排序" width="70" />
                 <el-table-column label="默认" width="70">
                     <template #default="{ row }">
@@ -340,7 +350,7 @@ onMounted(loadTypes);
                         </el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip>
+                <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
                     <template #default="{ row }">{{ row.remark || "—" }}</template>
                 </el-table-column>
                 <el-table-column label="操作" width="120" fixed="right">
@@ -384,7 +394,7 @@ onMounted(loadTypes);
         <el-dialog v-model="dataDialogVisible" :title="editingData ? '编辑字典数据' : '新建字典数据'" width="520px">
             <el-form ref="dataFormRef" :model="dataForm" :rules="dataRules" label-width="90px">
                 <el-form-item label="所属类型">
-                    <el-input :model-value="editingData?.dict_type ?? selectedType?.type ?? ''" disabled />
+                    <el-input :model-value="editingData?.dict_type ?? currentType?.type ?? ''" disabled />
                 </el-form-item>
                 <el-form-item label="标签" prop="label">
                     <el-input v-model="dataForm.label" placeholder="如：男" maxlength="100" />
@@ -417,15 +427,7 @@ onMounted(loadTypes);
 </template>
 
 <style scoped>
-/* 左右双栏：左类型 / 右数据，窄屏退化为上下堆叠 */
-.dict-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    /* 行高钉在容器高度，让两个 list-panel 各自内滚、分页固定底部 */
-    grid-template-rows: minmax(0, 1fr);
-    gap: 20px;
-    height: 100%;
-    min-height: 0;
+.system-page {
     color: #273249;
 }
 
@@ -436,6 +438,12 @@ onMounted(loadTypes);
     gap: 16px;
     padding: 19px 20px;
     border-bottom: 1px solid #edf0f5;
+}
+
+.toolbar-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .toolbar-actions {
@@ -478,19 +486,65 @@ h2 {
     cursor: not-allowed;
 }
 
+/* 返回类型列表按钮 */
+.back-button {
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid #dfe4ee;
+    border-radius: 8px;
+    color: #526ae2;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.back-button:hover {
+    border-color: #526ae2;
+    background: #f4f6ff;
+}
+
+/* 类型键高亮：点击钻取进入该类型的字典数据 */
+.type-key-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 7px;
+    color: #526ae2;
+    background: rgb(82 106 226 / 9%);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.type-key-link:hover {
+    color: #fff;
+    background: #526ae2;
+}
+
+.type-key-arrow {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* 钻取视图副标题中的类型键徽标 */
+.type-key-chip {
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: #526ae2;
+    background: rgb(82 106 226 / 9%);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+}
+
 .pagination-bar {
     display: flex;
     justify-content: flex-end;
     padding: 16px 20px;
     border-top: 1px solid #edf0f5;
-}
-
-@media (max-width: 960px) {
-    .dict-layout {
-        grid-template-columns: 1fr;
-        grid-template-rows: none;
-        /* 单列堆叠时回退自然流，避免固定高度下的双滚动条 */
-        height: auto;
-    }
 }
 </style>
