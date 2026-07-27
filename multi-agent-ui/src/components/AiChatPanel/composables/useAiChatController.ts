@@ -197,7 +197,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     removeSelectedDb: history.removeSelectedDb,
     removeSelectedTag: history.removeSelectedTag,
     handleKnowledgeDropdownOpen: optionsLoader.handleKnowledgeDropdownOpen,
-    handleTagDropdownOpen: optionsLoader.handleTagDropdownOpen,
     canClearMessages,
     open: () => {
       if (!isPanelOpen.value) togglePanel();
