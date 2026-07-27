@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import {
     dictTypeApi,
@@ -10,12 +10,17 @@ import {
 import { confirmDanger } from "@/utils/confirm";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
+import ListPageCard from "@/components/system/ListPageCard.vue";
+import PrimaryButton from "@/components/system/PrimaryButton.vue";
+import StatusTag from "@/components/system/StatusTag.vue";
+import StatusSelect from "@/components/system/StatusSelect.vue";
+import FormDialog from "@/components/system/FormDialog.vue";
+import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 
 // ---------- 字典类型（主视图） ----------
 
 const typeLoading = ref(false);
 const typeList = ref<DictType[]>([]);
-const typeKeyword = ref("");
 const typePage = ref(1);
 const typeSize = ref(20);
 const typeTotal = ref(0);
@@ -38,14 +43,9 @@ async function loadTypes() {
     }
 }
 
-// 关键词防抖：变更后回到第 1 页并触发服务端重载
-let typeKeywordTimer: ReturnType<typeof setTimeout> | undefined;
-watch(typeKeyword, () => {
-    if (typeKeywordTimer) clearTimeout(typeKeywordTimer);
-    typeKeywordTimer = setTimeout(() => {
-        typePage.value = 1;
-        loadTypes();
-    }, 300);
+const typeKeyword = useDebouncedKeyword(() => {
+    typePage.value = 1;
+    loadTypes();
 });
 
 // 点击类型键钻取进入字典数据视图
@@ -143,7 +143,6 @@ async function removeType(row: DictType) {
 
 const dataLoading = ref(false);
 const dataList = ref<DictData[]>([]);
-const dataKeyword = ref("");
 const dataPage = ref(1);
 const dataSize = ref(20);
 const dataTotal = ref(0);
@@ -169,13 +168,9 @@ async function loadDataList() {
     }
 }
 
-let dataKeywordTimer: ReturnType<typeof setTimeout> | undefined;
-watch(dataKeyword, () => {
-    if (dataKeywordTimer) clearTimeout(dataKeywordTimer);
-    dataKeywordTimer = setTimeout(() => {
-        dataPage.value = 1;
-        loadDataList();
-    }, 300);
+const dataKeyword = useDebouncedKeyword(() => {
+    dataPage.value = 1;
+    loadDataList();
 });
 
 // 数据新建 / 编辑弹窗
@@ -273,18 +268,12 @@ onMounted(loadTypes);
 <template>
     <section class="system-page list-page">
         <!-- 主视图：字典类型列表 -->
-        <section v-if="!currentType" class="content-card list-panel" v-loading="typeLoading"
-            element-loading-text="加载中…">
-            <div class="toolbar">
-                <div>
-                    <h2>字典管理</h2>
-                    <span>共 {{ typeTotal }} 个类型，点击类型键查看字典数据</span>
-                </div>
-                <div class="toolbar-actions">
-                    <SearchInput v-model="typeKeyword" placeholder="搜索名称 / 类型键" />
-                    <button class="primary-button" type="button" @click="openTypeCreate">＋ 新建类型</button>
-                </div>
-            </div>
+        <ListPageCard v-if="!currentType" title="字典管理" :subtitle="`共 ${typeTotal} 个类型，点击类型键查看字典数据`"
+            :loading="typeLoading">
+            <template #actions>
+                <SearchInput v-model="typeKeyword" placeholder="搜索名称 / 类型键" />
+                <PrimaryButton @click="openTypeCreate">＋ 新建类型</PrimaryButton>
+            </template>
             <el-table class="list-scroll" :data="typeList">
                 <el-table-column prop="name" label="字典名称" min-width="140" show-overflow-tooltip />
                 <el-table-column label="类型键" min-width="180">
@@ -296,9 +285,7 @@ onMounted(loadTypes);
                 </el-table-column>
                 <el-table-column label="状态" width="80">
                     <template #default="{ row }">
-                        <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-                            {{ row.status === "active" ? "启用" : "停用" }}
-                        </el-tag>
+                        <StatusTag :status="row.status" />
                     </template>
                 </el-table-column>
                 <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
@@ -312,14 +299,14 @@ onMounted(loadTypes);
                     </template>
                 </el-table-column>
             </el-table>
-            <div class="pagination-bar list-footer">
+            <template #footer>
                 <Pagination v-model:page="typePage" v-model:size="typeSize" :total="typeTotal" @change="loadTypes" />
-            </div>
-        </section>
+            </template>
+        </ListPageCard>
 
         <!-- 钻取视图：当前类型下的字典数据 -->
-        <section v-else class="content-card list-panel" v-loading="dataLoading" element-loading-text="加载中…">
-            <div class="toolbar">
+        <ListPageCard v-else :loading="dataLoading">
+            <template #title>
                 <div class="toolbar-title">
                     <button class="back-button" type="button" @click="backToTypeList">← 返回</button>
                     <div>
@@ -328,11 +315,11 @@ onMounted(loadTypes);
                             条字典数据</span>
                     </div>
                 </div>
-                <div class="toolbar-actions">
-                    <SearchInput v-model="dataKeyword" placeholder="搜索标签" />
-                    <button class="primary-button" type="button" @click="openDataCreate">＋ 新建数据</button>
-                </div>
-            </div>
+            </template>
+            <template #actions>
+                <SearchInput v-model="dataKeyword" placeholder="搜索标签" />
+                <PrimaryButton @click="openDataCreate">＋ 新建数据</PrimaryButton>
+            </template>
             <el-table class="list-scroll" :data="dataList">
                 <el-table-column prop="label" label="标签" min-width="120" show-overflow-tooltip />
                 <el-table-column prop="value" label="键值" min-width="110" show-overflow-tooltip />
@@ -345,9 +332,7 @@ onMounted(loadTypes);
                 </el-table-column>
                 <el-table-column label="状态" width="80">
                     <template #default="{ row }">
-                        <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-                            {{ row.status === "active" ? "启用" : "停用" }}
-                        </el-tag>
+                        <StatusTag :status="row.status" />
                     </template>
                 </el-table-column>
                 <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
@@ -360,13 +345,14 @@ onMounted(loadTypes);
                     </template>
                 </el-table-column>
             </el-table>
-            <div class="pagination-bar list-footer">
+            <template #footer>
                 <Pagination v-model:page="dataPage" v-model:size="dataSize" :total="dataTotal" @change="loadDataList" />
-            </div>
-        </section>
+            </template>
+        </ListPageCard>
 
         <!-- 字典类型 新建/编辑 弹窗 -->
-        <el-dialog v-model="typeDialogVisible" :title="editingType ? '编辑字典类型' : '新建字典类型'" width="520px">
+        <FormDialog v-model="typeDialogVisible" :title="editingType ? '编辑字典类型' : '新建字典类型'" :submitting="typeSubmitting"
+            @submit="submitType">
             <el-form ref="typeFormRef" :model="typeForm" :rules="typeRules" label-width="90px">
                 <el-form-item label="字典名称" prop="name">
                     <el-input v-model="typeForm.name" placeholder="如：用户性别" maxlength="100" />
@@ -375,23 +361,17 @@ onMounted(loadTypes);
                     <el-input v-model="typeForm.type" placeholder="如：sys_sex（全局唯一）" maxlength="100" />
                 </el-form-item>
                 <el-form-item label="状态">
-                    <el-select v-model="typeForm.status" style="width: 100%">
-                        <el-option label="启用" value="active" />
-                        <el-option label="停用" value="disabled" />
-                    </el-select>
+                    <StatusSelect v-model="typeForm.status" />
                 </el-form-item>
                 <el-form-item label="备注">
                     <el-input v-model="typeForm.remark" type="textarea" :rows="3" placeholder="选填" />
                 </el-form-item>
             </el-form>
-            <template #footer>
-                <el-button @click="typeDialogVisible = false">取消</el-button>
-                <el-button type="primary" :loading="typeSubmitting" @click="submitType">保存</el-button>
-            </template>
-        </el-dialog>
+        </FormDialog>
 
         <!-- 字典数据 新建/编辑 弹窗 -->
-        <el-dialog v-model="dataDialogVisible" :title="editingData ? '编辑字典数据' : '新建字典数据'" width="520px">
+        <FormDialog v-model="dataDialogVisible" :title="editingData ? '编辑字典数据' : '新建字典数据'" :submitting="dataSubmitting"
+            @submit="submitData">
             <el-form ref="dataFormRef" :model="dataForm" :rules="dataRules" label-width="90px">
                 <el-form-item label="所属类型">
                     <el-input :model-value="editingData?.dict_type ?? currentType?.type ?? ''" disabled />
@@ -409,20 +389,13 @@ onMounted(loadTypes);
                     <el-switch v-model="dataForm.is_default" />
                 </el-form-item>
                 <el-form-item label="状态">
-                    <el-select v-model="dataForm.status" style="width: 100%">
-                        <el-option label="启用" value="active" />
-                        <el-option label="停用" value="disabled" />
-                    </el-select>
+                    <StatusSelect v-model="dataForm.status" />
                 </el-form-item>
                 <el-form-item label="备注">
                     <el-input v-model="dataForm.remark" type="textarea" :rows="3" placeholder="选填" />
                 </el-form-item>
             </el-form>
-            <template #footer>
-                <el-button @click="dataDialogVisible = false">取消</el-button>
-                <el-button type="primary" :loading="dataSubmitting" @click="submitData">保存</el-button>
-            </template>
-        </el-dialog>
+        </FormDialog>
     </section>
 </template>
 
@@ -431,59 +404,21 @@ onMounted(loadTypes);
     color: #273249;
 }
 
-.toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 19px 20px;
-    border-bottom: 1px solid #edf0f5;
-}
-
+/* 钻取视图自定义标题区（title 插槽内容由本组件提供样式） */
 .toolbar-title {
     display: flex;
     align-items: center;
     gap: 12px;
 }
 
-.toolbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.toolbar span {
-    color: #7d879a;
-    font-size: 12px;
-}
-
-h2 {
+.toolbar-title h2 {
     margin: 0 0 4px;
     font-size: 16px;
 }
 
-.content-card {
-    border: 1px solid #e8ebf2;
-    border-radius: 13px;
-    background: #fff;
-    box-shadow: 0 8px 24px rgb(43 56 86 / 3%);
-}
-
-.primary-button {
-    min-height: 40px;
-    padding: 0 16px;
-    border: 0;
-    border-radius: 9px;
-    color: #fff;
-    background: #526ae2;
-    box-shadow: 0 8px 16px rgb(82 106 226 / 18%);
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.primary-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+.toolbar-title span {
+    color: #7d879a;
+    font-size: 12px;
 }
 
 /* 返回类型列表按钮 */
@@ -539,12 +474,5 @@ h2 {
     background: rgb(82 106 226 / 9%);
     font-family: "JetBrains Mono", Consolas, monospace;
     font-size: 12px;
-}
-
-.pagination-bar {
-    display: flex;
-    justify-content: flex-end;
-    padding: 16px 20px;
-    border-top: 1px solid #edf0f5;
 }
 </style>

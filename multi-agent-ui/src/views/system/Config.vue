@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { configApi, type Config } from "@/api/system/config";
 import { confirmDanger } from "@/utils/confirm";
+import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
+import ListPageCard from "@/components/system/ListPageCard.vue";
+import PrimaryButton from "@/components/system/PrimaryButton.vue";
+import FormDialog from "@/components/system/FormDialog.vue";
 
 const loading = ref(false);
 const list = ref<Config[]>([]);
-const keyword = ref("");
 const page = ref(1);
 const size = ref(20);
 const total = ref(0);
@@ -29,13 +32,9 @@ async function loadConfigs() {
 }
 
 // 关键词防抖：变更后回到第 1 页并触发服务端重载
-let keywordTimer: ReturnType<typeof setTimeout> | undefined;
-watch(keyword, () => {
-    if (keywordTimer) clearTimeout(keywordTimer);
-    keywordTimer = setTimeout(() => {
-        page.value = 1;
-        loadConfigs();
-    }, 300);
+const keyword = useDebouncedKeyword(() => {
+    page.value = 1;
+    loadConfigs();
 });
 
 // 新建 / 编辑弹窗
@@ -119,17 +118,11 @@ onMounted(loadConfigs);
 
 <template>
     <section class="system-page list-page">
-        <section class="content-card list-panel" v-loading="loading" element-loading-text="加载中…">
-            <div class="toolbar">
-                <div>
-                    <h2>参数管理</h2>
-                    <span>共 {{ total }} 个参数</span>
-                </div>
-                <div class="toolbar-actions">
-                    <SearchInput v-model="keyword" placeholder="搜索名称 / 参数键" />
-                    <button class="primary-button" type="button" @click="openCreate">＋ 新建参数</button>
-                </div>
-            </div>
+        <ListPageCard title="参数管理" :subtitle="`共 ${total} 个参数`" :loading="loading">
+            <template #actions>
+                <SearchInput v-model="keyword" placeholder="搜索名称 / 参数键" />
+                <PrimaryButton @click="openCreate">＋ 新建参数</PrimaryButton>
+            </template>
             <el-table class="list-scroll" :data="list">
                 <el-table-column prop="name" label="参数名称" min-width="140" show-overflow-tooltip />
                 <el-table-column prop="key" label="参数键" min-width="200" show-overflow-tooltip />
@@ -159,13 +152,14 @@ onMounted(loadConfigs);
                     </template>
                 </el-table-column>
             </el-table>
-            <div class="pagination-bar list-footer">
+            <template #footer>
                 <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadConfigs" />
-            </div>
-        </section>
+            </template>
+        </ListPageCard>
 
         <!-- 新建/编辑 弹窗 -->
-        <el-dialog v-model="dialogVisible" :title="editing ? '编辑参数' : '新建参数'" width="520px">
+        <FormDialog v-model="dialogVisible" :title="editing ? '编辑参数' : '新建参数'" :submitting="submitting"
+            @submit="submit">
             <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
                 <el-form-item label="参数名称" prop="name">
                     <el-input v-model="form.name" placeholder="如：用户初始密码" maxlength="100" />
@@ -184,67 +178,12 @@ onMounted(loadConfigs);
                     <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="选填" />
                 </el-form-item>
             </el-form>
-            <template #footer>
-                <el-button @click="dialogVisible = false">取消</el-button>
-                <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
-            </template>
-        </el-dialog>
+        </FormDialog>
     </section>
 </template>
 
 <style scoped>
 .system-page {
     color: #273249;
-}
-
-.toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 19px 20px;
-    border-bottom: 1px solid #edf0f5;
-}
-
-.toolbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.toolbar span {
-    color: #7d879a;
-    font-size: 12px;
-}
-
-h2 {
-    margin: 0 0 4px;
-    font-size: 16px;
-}
-
-.content-card {
-    border: 1px solid #e8ebf2;
-    border-radius: 13px;
-    background: #fff;
-    box-shadow: 0 8px 24px rgb(43 56 86 / 3%);
-}
-
-.primary-button {
-    min-height: 40px;
-    padding: 0 16px;
-    border: 0;
-    border-radius: 9px;
-    color: #fff;
-    background: #526ae2;
-    box-shadow: 0 8px 16px rgb(82 106 226 / 18%);
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.pagination-bar {
-    display: flex;
-    justify-content: flex-end;
-    padding: 16px 20px;
-    border-top: 1px solid #edf0f5;
 }
 </style>

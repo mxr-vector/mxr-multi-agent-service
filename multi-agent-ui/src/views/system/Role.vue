@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref, watch } from "vue";
+import { nextTick, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElTree, type FormInstance, type FormRules } from "element-plus";
 import { roleApi, type Role } from "@/api/system/role";
 import { menuApi, buildMenuTree, type MenuTreeNode } from "@/api/system/menu";
 import { confirmDanger } from "@/utils/confirm";
+import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
+import ListPageCard from "@/components/system/ListPageCard.vue";
+import PrimaryButton from "@/components/system/PrimaryButton.vue";
+import FormDialog from "@/components/system/FormDialog.vue";
+import StatusTag from "@/components/system/StatusTag.vue";
+import StatusSelect from "@/components/system/StatusSelect.vue";
 
 const loading = ref(false);
 const list = ref<Role[]>([]);
-const keyword = ref("");
 const page = ref(1);
 const size = ref(20);
 const total = ref(0);
@@ -30,13 +35,9 @@ async function loadRoles() {
 }
 
 // 关键词防抖：变更后回到第 1 页并触发服务端重载
-let keywordTimer: ReturnType<typeof setTimeout> | undefined;
-watch(keyword, () => {
-    if (keywordTimer) clearTimeout(keywordTimer);
-    keywordTimer = setTimeout(() => {
-        page.value = 1;
-        loadRoles();
-    }, 300);
+const keyword = useDebouncedKeyword(() => {
+    page.value = 1;
+    loadRoles();
 });
 
 // 新建 / 编辑弹窗
@@ -172,26 +173,18 @@ onMounted(loadRoles);
 
 <template>
     <section class="system-page list-page">
-        <section class="content-card list-panel" v-loading="loading" element-loading-text="加载中…">
-            <div class="toolbar">
-                <div>
-                    <h2>角色管理</h2>
-                    <span>共 {{ total }} 个角色</span>
-                </div>
-                <div class="toolbar-actions">
-                    <SearchInput v-model="keyword" placeholder="搜索名称 / 角色标识" />
-                    <button class="primary-button" type="button" @click="openCreate">＋ 新建角色</button>
-                </div>
-            </div>
+        <ListPageCard title="角色管理" :subtitle="`共 ${total} 个角色`" :loading="loading">
+            <template #actions>
+                <SearchInput v-model="keyword" placeholder="搜索名称 / 角色标识" />
+                <PrimaryButton @click="openCreate">＋ 新建角色</PrimaryButton>
+            </template>
             <el-table class="list-scroll" :data="list">
                 <el-table-column prop="name" label="角色名称" min-width="130" show-overflow-tooltip />
                 <el-table-column prop="role_key" label="角色标识" min-width="130" show-overflow-tooltip />
                 <el-table-column prop="sort_order" label="排序" width="70" />
                 <el-table-column label="状态" width="80">
                     <template #default="{ row }">
-                        <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-                            {{ row.status === "active" ? "启用" : "停用" }}
-                        </el-tag>
+                        <StatusTag :status="row.status" />
                     </template>
                 </el-table-column>
                 <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
@@ -206,13 +199,14 @@ onMounted(loadRoles);
                     </template>
                 </el-table-column>
             </el-table>
-            <div class="pagination-bar list-footer">
+            <template #footer>
                 <Pagination v-model:page="page" v-model:size="size" :total="total" @change="loadRoles" />
-            </div>
-        </section>
+            </template>
+        </ListPageCard>
 
         <!-- 新建/编辑 弹窗 -->
-        <el-dialog v-model="dialogVisible" :title="editing ? '编辑角色' : '新建角色'" width="520px">
+        <FormDialog v-model="dialogVisible" :title="editing ? '编辑角色' : '新建角色'" :submitting="submitting"
+            @submit="submit">
             <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
                 <el-form-item label="角色名称" prop="name">
                     <el-input v-model="form.name" placeholder="如：管理员" maxlength="100" />
@@ -224,90 +218,29 @@ onMounted(loadRoles);
                     <el-input-number v-model="form.sort_order" :min="0" />
                 </el-form-item>
                 <el-form-item label="状态">
-                    <el-select v-model="form.status" style="width: 100%">
-                        <el-option label="启用" value="active" />
-                        <el-option label="停用" value="disabled" />
-                    </el-select>
+                    <StatusSelect v-model="form.status" />
                 </el-form-item>
                 <el-form-item label="备注">
                     <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="选填" />
                 </el-form-item>
             </el-form>
-            <template #footer>
-                <el-button @click="dialogVisible = false">取消</el-button>
-                <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
-            </template>
-        </el-dialog>
+        </FormDialog>
 
         <!-- 分配菜单 弹窗 -->
-        <el-dialog v-model="menuDialogVisible" :title="`分配菜单：${menuTarget?.name ?? ''}`" width="480px">
+        <FormDialog v-model="menuDialogVisible" :title="`分配菜单：${menuTarget?.name ?? ''}`" width="480px"
+            :submitting="menuSubmitting" @submit="submitAssignMenus">
             <div v-loading="menuLoading" class="menu-tree-wrap">
                 <el-tree ref="menuTreeRef" :data="menuTree" node-key="id" show-checkbox default-expand-all
                     :props="{ label: 'label', children: 'children' }" />
                 <p v-if="!menuLoading && !menuTree.length" class="empty-tip">暂无菜单数据</p>
             </div>
-            <template #footer>
-                <el-button @click="menuDialogVisible = false">取消</el-button>
-                <el-button type="primary" :loading="menuSubmitting" @click="submitAssignMenus">保存</el-button>
-            </template>
-        </el-dialog>
+        </FormDialog>
     </section>
 </template>
 
 <style scoped>
 .system-page {
     color: #273249;
-}
-
-.toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 19px 20px;
-    border-bottom: 1px solid #edf0f5;
-}
-
-.toolbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.toolbar span {
-    color: #7d879a;
-    font-size: 12px;
-}
-
-h2 {
-    margin: 0 0 4px;
-    font-size: 16px;
-}
-
-.content-card {
-    border: 1px solid #e8ebf2;
-    border-radius: 13px;
-    background: #fff;
-    box-shadow: 0 8px 24px rgb(43 56 86 / 3%);
-}
-
-.primary-button {
-    min-height: 40px;
-    padding: 0 16px;
-    border: 0;
-    border-radius: 9px;
-    color: #fff;
-    background: #526ae2;
-    box-shadow: 0 8px 16px rgb(82 106 226 / 18%);
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.pagination-bar {
-    display: flex;
-    justify-content: flex-end;
-    padding: 16px 20px;
-    border-top: 1px solid #edf0f5;
 }
 
 .menu-tree-wrap {

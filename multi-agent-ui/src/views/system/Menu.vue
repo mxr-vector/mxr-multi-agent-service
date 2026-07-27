@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import {
     menuApi,
@@ -9,8 +9,14 @@ import {
     type MenuTreeNode,
 } from "@/api/system/menu";
 import { confirmDanger } from "@/utils/confirm";
+import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
 import IconSelect from "@/components/IconSelect.vue";
+import ListPageCard from "@/components/system/ListPageCard.vue";
+import PrimaryButton from "@/components/system/PrimaryButton.vue";
+import FormDialog from "@/components/system/FormDialog.vue";
+import StatusTag from "@/components/system/StatusTag.vue";
+import StatusSelect from "@/components/system/StatusSelect.vue";
 
 // menu_type 展示配置：dir 目录 / menu 菜单 / button 按钮
 const MENU_TYPE_META: Record<string, { label: string; tag: "primary" | "success" | "info" }> = {
@@ -22,7 +28,6 @@ const MENU_TYPE_META: Record<string, { label: string; tag: "primary" | "success"
 const loading = ref(false);
 // 后端返回扁平列表，树由前端组装
 const flatList = ref<Menu[]>([]);
-const keyword = ref("");
 
 const treeData = computed<MenuTreeNode[]>(() => buildMenuTree(flatList.value));
 
@@ -39,11 +44,7 @@ async function loadMenus() {
 }
 
 // 关键词防抖：服务端模糊过滤后重新组树
-let keywordTimer: ReturnType<typeof setTimeout> | undefined;
-watch(keyword, () => {
-    if (keywordTimer) clearTimeout(keywordTimer);
-    keywordTimer = setTimeout(loadMenus, 300);
-});
+const keyword = useDebouncedKeyword(loadMenus);
 
 // 新建 / 编辑弹窗
 const dialogVisible = ref(false);
@@ -170,17 +171,11 @@ onMounted(loadMenus);
 
 <template>
     <section class="system-page list-page">
-        <section class="content-card list-panel" v-loading="loading" element-loading-text="加载中…">
-            <div class="toolbar">
-                <div>
-                    <h2>菜单管理</h2>
-                    <span>共 {{ flatList.length }} 个节点</span>
-                </div>
-                <div class="toolbar-actions">
-                    <SearchInput v-model="keyword" placeholder="搜索菜单名称" />
-                    <button class="primary-button" type="button" @click="openCreate()">＋ 新建菜单</button>
-                </div>
-            </div>
+        <ListPageCard title="菜单管理" :subtitle="`共 ${flatList.length} 个节点`" :loading="loading">
+            <template #actions>
+                <SearchInput v-model="keyword" placeholder="搜索菜单名称" />
+                <PrimaryButton @click="openCreate()">＋ 新建菜单</PrimaryButton>
+            </template>
             <el-table class="list-scroll" :data="treeData" row-key="id" default-expand-all
                 :tree-props="{ children: 'children' }">
                 <el-table-column prop="label" label="显示名称" min-width="200" show-overflow-tooltip />
@@ -206,9 +201,7 @@ onMounted(loadMenus);
                 </el-table-column>
                 <el-table-column label="状态" width="80">
                     <template #default="{ row }">
-                        <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-                            {{ row.status === "active" ? "启用" : "停用" }}
-                        </el-tag>
+                        <StatusTag :status="row.status" />
                     </template>
                 </el-table-column>
                 <el-table-column label="操作" width="170" fixed="right">
@@ -220,10 +213,11 @@ onMounted(loadMenus);
                     </template>
                 </el-table-column>
             </el-table>
-        </section>
+        </ListPageCard>
 
         <!-- 新建/编辑 弹窗：字段随 menu_type 三态联动 -->
-        <el-dialog v-model="dialogVisible" :title="editing ? '编辑菜单' : '新建菜单'" width="560px">
+        <FormDialog v-model="dialogVisible" :title="editing ? '编辑菜单' : '新建菜单'" width="560px" :submitting="submitting"
+            @submit="submit">
             <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
                 <el-form-item label="菜单类型">
                     <!-- menu_type 创建后不可变，编辑态禁用 -->
@@ -264,67 +258,15 @@ onMounted(loadMenus);
                     <el-input-number v-model="form.sort_order" :min="0" />
                 </el-form-item>
                 <el-form-item label="状态">
-                    <el-select v-model="form.status" style="width: 100%">
-                        <el-option label="启用" value="active" />
-                        <el-option label="停用" value="disabled" />
-                    </el-select>
+                    <StatusSelect v-model="form.status" />
                 </el-form-item>
             </el-form>
-            <template #footer>
-                <el-button @click="dialogVisible = false">取消</el-button>
-                <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
-            </template>
-        </el-dialog>
+        </FormDialog>
     </section>
 </template>
 
 <style scoped>
 .system-page {
     color: #273249;
-}
-
-.toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 19px 20px;
-    border-bottom: 1px solid #edf0f5;
-}
-
-.toolbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.toolbar span {
-    color: #7d879a;
-    font-size: 12px;
-}
-
-h2 {
-    margin: 0 0 4px;
-    font-size: 16px;
-}
-
-.content-card {
-    border: 1px solid #e8ebf2;
-    border-radius: 13px;
-    background: #fff;
-    box-shadow: 0 8px 24px rgb(43 56 86 / 3%);
-    padding-bottom: 8px;
-}
-
-.primary-button {
-    min-height: 40px;
-    padding: 0 16px;
-    border: 0;
-    border-radius: 9px;
-    color: #fff;
-    background: #526ae2;
-    box-shadow: 0 8px 16px rgb(82 106 226 / 18%);
-    font-size: 13px;
-    font-weight: 600;
 }
 </style>
