@@ -30,7 +30,7 @@ CREATE SCHEMA IF NOT EXISTS rag;
 -- ------------------------------------------------------------
 CREATE TABLE rag.rag_folders (
     id                UUID PRIMARY KEY DEFAULT uuidv7(),
-    tenant_id         VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
+    dept_id           VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
     knowledge_base_id UUID NOT NULL,           -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性, 创建后不可变
     parent_id         UUID,                    -- 逻辑关联 rag.rag_folders.id, 同一知识库内自引用, NULL 表示根文件夹
     name              TEXT NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE rag.rag_folders (
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rag_folders_tenant ON rag.rag_folders (tenant_id);
+CREATE INDEX idx_rag_folders_dept ON rag.rag_folders (dept_id);
 CREATE INDEX idx_rag_folders_kb     ON rag.rag_folders (knowledge_base_id);
 CREATE INDEX idx_rag_folders_parent ON rag.rag_folders (parent_id);
 
@@ -54,7 +54,7 @@ CREATE INDEX idx_rag_folders_parent ON rag.rag_folders (parent_id);
 CREATE TABLE rag.rag_knowledge_bases (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    tenant_id           VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
+    dept_id             VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
 
     name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
     description         TEXT,
@@ -82,7 +82,7 @@ CREATE TABLE rag.rag_knowledge_bases (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rag_kb_tenant   ON rag.rag_knowledge_bases (tenant_id);
+CREATE INDEX idx_rag_kb_dept   ON rag.rag_knowledge_bases (dept_id);
 CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE status != 'deleted';
 
 -- ------------------------------------------------------------
@@ -93,7 +93,7 @@ CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE statu
 CREATE TABLE rag.rag_documents (
     id              UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    tenant_id       VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 由业务层从上下文注入(缺省 'default')
+    dept_id         VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
 
     knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性
     folder_id       UUID,                       -- 逻辑关联 rag.rag_folders.id, 同一知识库内的文件夹, NULL 表示知识库根目录, 业务层保证存在性与同库一致性
@@ -123,7 +123,7 @@ CREATE TABLE rag.rag_documents (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- 由业务层在 UPDATE 时显式赋值, 不再用触发器自动维护
 );
 
-CREATE INDEX idx_rag_documents_tenant       ON rag.rag_documents (tenant_id);
+CREATE INDEX idx_rag_documents_dept         ON rag.rag_documents (dept_id);
 CREATE INDEX idx_rag_documents_kb           ON rag.rag_documents (knowledge_base_id);
 CREATE INDEX idx_rag_documents_folder       ON rag.rag_documents (folder_id);
 CREATE INDEX idx_rag_documents_source_hash  ON rag.rag_documents (source_uri, content_hash);
@@ -143,7 +143,7 @@ CREATE INDEX idx_rag_documents_valid_until  ON rag.rag_documents (valid_until) W
 CREATE TABLE rag.rag_chunks (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),  -- 与 Qdrant point id 保持一致, 用于命中后回查
 
-    tenant_id           VARCHAR(64) NOT NULL DEFAULT 'default', -- 多租户隔离标识, 冗余存储所属文档的 tenant_id, 由业务层注入(缺省 'default')
+    dept_id             VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 冗余存储所属文档的 dept_id, 由业务层注入
 
     document_id         UUID NOT NULL,          -- 逻辑关联 rag.rag_documents.id, 业务层保证存在性
     parent_chunk_id     UUID,                   -- 逻辑关联 rag.rag_chunks.id (自引用), 业务层保证存在性
@@ -172,7 +172,7 @@ CREATE TABLE rag.rag_chunks (
 );
 
 -- 常规查询索引 (无向量索引, 向量检索在 Qdrant 侧)
-CREATE INDEX idx_rag_chunks_tenant        ON rag.rag_chunks (tenant_id);
+CREATE INDEX idx_rag_chunks_dept          ON rag.rag_chunks (dept_id);
 CREATE INDEX idx_rag_chunks_document      ON rag.rag_chunks (document_id, document_version);
 CREATE INDEX idx_rag_chunks_parent        ON rag.rag_chunks (parent_chunk_id);
 CREATE INDEX idx_rag_chunks_level         ON rag.rag_chunks (level);

@@ -1,7 +1,7 @@
 import axios, { type InternalAxiosRequestConfig, type AxiosResponse } from "axios";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import errorCode from "@/utils/errorCode";
-import { getToken } from "@/utils/auth";
+import { getToken, removeToken } from "@/utils/auth";
 
 // 后端统一响应结构：所有接口经响应拦截器后返回 { code, msg, data }
 export interface ApiResult<T = unknown> {
@@ -10,8 +10,19 @@ export interface ApiResult<T = unknown> {
   data: T;
 }
 
-// 是否显示重新登录提示，避免 401 时重复弹窗
+// 是否已在处理 401 跳转，避免并发请求重复清 token / 重复跳转
 export const isRelogin: { show: boolean } = { show: false };
+
+/** 登录态失效统一出口：清除本地 token 并携带来源页跳转登录页 */
+function redirectToLogin() {
+  if (isRelogin.show) return;
+  isRelogin.show = true;
+  removeToken();
+  const redirect = location.pathname + location.search;
+  const query =
+    redirect && redirect !== "/login" ? `?redirect=${encodeURIComponent(redirect)}` : "";
+  location.href = `/login${query}`;
+}
 
 // 创建 axios 实例
 const service = axios.create({
@@ -49,21 +60,8 @@ service.interceptors.response.use(
       return res.data;
     }
     if (code === 401) {
-      if (!isRelogin.show) {
-        isRelogin.show = true;
-        ElMessageBox.confirm("登录状态已过期，您可以继续留在该页面，或者重新登录", "系统提示", {
-          confirmButtonText: "重新登录",
-          cancelButtonText: "取消",
-          type: "warning",
-        })
-          .then(() => {
-            isRelogin.show = false;
-            location.href = "/";
-          })
-          .catch(() => {
-            isRelogin.show = false;
-          });
-      }
+      // 业务体 401：登录态失效，清 token 并跳登录页
+      redirectToLogin();
       return Promise.reject("无效的会话，或者会话已过期，请重新登录。");
     } else if (code === 500 || code === 601 || code !== 200) {
       ElMessage({
@@ -75,7 +73,11 @@ service.interceptors.response.use(
     return Promise.resolve(res.data);
   },
   (error) => {
-    // 对响应错误做点什么
+    // 真实 HTTP 401（TokenAuthMiddleware 拒绝）：清 token 并跳登录页
+    if (error.response?.status === 401) {
+      redirectToLogin();
+      return Promise.reject(error);
+    }
     let { message } = error;
     if (message === "Network Error") {
       message = "后端接口连接异常";

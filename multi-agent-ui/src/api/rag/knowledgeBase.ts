@@ -4,7 +4,7 @@ import { KNOWLEDGE_BASE_URL, type PageResult } from "./index";
 /** 知识库实体（对应后端 rag_knowledge_bases.to_dict） */
 export interface KnowledgeBase {
   id: string;
-  tenant_id: string;
+  dept_id: string;
   name: string;
   description: string | null;
   icon: string | null;
@@ -21,7 +21,7 @@ export interface KnowledgeBase {
   updated_at: string;
 }
 
-/** 创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入；qdrant_collection 由后端由 id 派生） */
+/** 创建知识库请求体（仅元数据，不创建 Qdrant collection；dept_id 由服务端注入；qdrant_collection 由后端由 id 派生） */
 export interface KnowledgeBaseCreatePayload {
   name: string;
   description?: string | null;
@@ -33,7 +33,7 @@ export interface KnowledgeBaseCreatePayload {
   owner?: string | null;
 }
 
-/** 更新知识库请求体（仅可编辑元数据；tenant_id/qdrant_collection/embedding_* 不可变） */
+/** 更新知识库请求体（仅可编辑元数据；dept_id/qdrant_collection/embedding_* 不可变） */
 export interface KnowledgeBaseUpdatePayload {
   name?: string;
   description?: string | null;
@@ -55,7 +55,7 @@ export interface KnowledgeBaseListParams {
 
 /** 知识库管理 API：统一通过 knowledgeBaseApi.xx() 调用 */
 export const knowledgeBaseApi = {
-  /** 创建知识库（tenant_id 由服务端注入） */
+  /** 创建知识库（dept_id 由服务端注入） */
   create(payload: KnowledgeBaseCreatePayload) {
     return request.post<KnowledgeBase, ApiResult<KnowledgeBase>>(KNOWLEDGE_BASE_URL.root, payload);
   },

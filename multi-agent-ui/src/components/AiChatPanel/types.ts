@@ -1,4 +1,4 @@
-import type { ChatSource } from "@/api/datas/ai";
+import type { ChatSource } from "@/api/aichat/ai";
 
 export type MessageRole = "user" | "assistant";
 export type MessageStatus = "done" | "typing" | "error";

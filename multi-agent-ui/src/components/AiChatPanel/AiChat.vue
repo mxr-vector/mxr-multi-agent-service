@@ -44,8 +44,7 @@
                             @update:selected-tag-ids="selectedTagIds = $event" @input-ready="setInputRef"
                             @send="handleSend" @stop="stopGeneration" @clear-quote="clearQuote"
                             @remove-selected-db="removeSelectedDb" @remove-selected-tag="removeSelectedTag"
-                            @knowledge-dropdown-open="handleKnowledgeDropdownOpen"
-                            @tag-dropdown-open="handleTagDropdownOpen" />
+                            @knowledge-dropdown-open="handleKnowledgeDropdownOpen" />
                     </div>
                 </div>
             </div>
@@ -139,7 +138,6 @@ const {
     removeSelectedDb,
     removeSelectedTag,
     handleKnowledgeDropdownOpen,
-    handleTagDropdownOpen,
     canClearMessages,
     open,
     close,

@@ -26,7 +26,7 @@ class FolderRepository:
         knowledge_base_id: uuid.UUID,
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
-        tenant_id: str = "default",
+        dept_id: str = "default",
     ) -> Folder:
         """插入一条文件夹，id 由数据库 uuidv7() 生成。"""
         folder = Folder(
@@ -34,7 +34,7 @@ class FolderRepository:
             knowledge_base_id=knowledge_base_id,
             parent_id=parent_id,
             sort_order=sort_order,
-            tenant_id=tenant_id,
+            dept_id=dept_id,
         )
         self.session.add(folder)
         await self.session.flush()

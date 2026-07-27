@@ -1,4 +1,4 @@
-import type { ChatSource } from "@/api/datas/ai";
+import type { ChatSource } from "@/api/aichat/ai";
 import { DATE_LABEL_TODAY, DATE_LABEL_YESTERDAY, MSG_STATUS, WELCOME_MESSAGE } from "../constants";
 import type { ChatMessage } from "../types";
 

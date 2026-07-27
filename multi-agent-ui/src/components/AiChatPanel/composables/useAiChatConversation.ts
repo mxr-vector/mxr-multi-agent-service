@@ -1,7 +1,7 @@
 import { nextTick, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { AiChatApi, AiSessionApi } from "@/api/aichat/ai";
-import type { ChatRequestDTO, ChatStreamEvent } from "@/api/aichat/ai";
+import type { ChatserviceDTO, ChatStreamEvent } from "@/api/aichat/ai";
 import { MSG_STATUS, SSE_EVENT } from "../constants";
 import type { AiChatEmit, AiChatProps, ChatMessage, MessageStatus } from "../types";
 import {
@@ -365,7 +365,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     startTimer();
 
     try {
-      const reqData: ChatRequestDTO = {
+      const reqData: ChatserviceDTO = {
         question: content,
         kbIds: Array.from(new Set([...selectedDbIds.value, ...props.kbIds!])),
         tagIds: Array.from(

@@ -4,8 +4,8 @@ import { FOLDER_URL, type PageResult } from "./index";
 /** 文件夹实体（对应后端 rag_folders.to_dict） */
 export interface Folder {
   id: string;
-  /** 多租户隔离标识，由服务端注入（缺省 'default'），不可变 */
-  tenant_id: string;
+  /** 归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由服务端注入，不可变 */
+  dept_id: string;
   /** 所属知识库 id，创建后不可变 */
   knowledge_base_id: string;
   parent_id: string | null;

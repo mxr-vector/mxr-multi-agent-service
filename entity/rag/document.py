@@ -15,7 +15,7 @@ class Document(Base):
     父文档 ORM 模型（映射 rag_documents）。
 
     - id 由 PostgreSQL 18 的 uuidv7() 服务端默认生成，可直接与 Qdrant 关联；
-    - tenant_id 为多租户隔离标识，由业务层注入（缺省 'default'），建库后不可变；
+    - dept_id 为归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由业务层注入，建库后不可变；
     - knowledge_base_id 逻辑关联 rag_knowledge_bases.id，不加外键/relationship；
     - content_hash 为 sha256(content)，用于判断源文件是否变更（增量同步）；
     - status 取值 'pending'/'active'/'reindexing'/'deleted'，由业务层校验（无 CHECK）；
@@ -32,7 +32,7 @@ class Document(Base):
         server_default=text("uuidv7()"),
     )
 
-    tenant_id: Mapped[str] = mapped_column(
+    dept_id: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=text("'default'")
     )
 
@@ -80,7 +80,7 @@ class Document(Base):
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
             "id": format_id(self.id),
-            "tenant_id": self.tenant_id,
+            "dept_id": self.dept_id,
             "knowledge_base_id": format_id(self.knowledge_base_id),
             "folder_id": format_id(self.folder_id),
             "source_uri": self.source_uri,

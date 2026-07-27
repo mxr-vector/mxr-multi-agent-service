@@ -1,17 +1,23 @@
 /**
  * 鉴权 token 工具：集中管理请求所需的 Bearer token。
  *
- * 当前 token 为静态密钥，来源于环境变量 VITE_APP_TOKEN（对应后端 API_SECRET_KEY）。
- * 后续若接入登录体系，可在此改为从 localStorage / userStore 读取动态用户 token。
+ * token 来源于登录接口签发的 JWT，持久化在 localStorage；
+ * 由 userStore.login/logout 负责写入与清除，请求层经 getToken 读取注入。
  */
+
+const TOKEN_KEY = "Authorization";
 
 /** 获取鉴权 token（不含 Bearer 前缀），无值时返回空串 */
 export function getToken(): string {
-  return import.meta.env.VITE_APP_TOKEN ?? "";
+  return localStorage.getItem(TOKEN_KEY) ?? "";
 }
 
-/** 构造 Authorization 头部值：`Bearer <token>`，无 token 时返回空串 */
-export function getAuthorization(): string {
-  const token = getToken();
-  return token ? `Bearer ${token}` : "";
+/** 写入鉴权 token（登录成功后调用） */
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+/** 清除鉴权 token（登出或 401 失效时调用） */
+export function removeToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
 }

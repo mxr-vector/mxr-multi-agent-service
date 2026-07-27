@@ -12,14 +12,14 @@ class KnowledgeBaseService:
     知识库业务层。
 
     负责编排持久层调用与业务规则：创建时无任何 Qdrant 副作用、
-    仅元数据更新（tenant_id/qdrant_collection/embedding_* 不可变，status active↔archived
+    仅元数据更新（dept_id/qdrant_collection/embedding_* 不可变，status active↔archived
     通过同一更新路径完成）、以及软删除。
     """
 
     async def create(
         self,
         name: str,
-        tenant_id: str = "default",
+        dept_id: str = "default",
         description: str | None = None,
         icon: str | None = None,
         embedding_provider: str | None = None,
@@ -30,14 +30,14 @@ class KnowledgeBaseService:
     ) -> dict:
         """
         创建知识库（仅元数据，不创建 Qdrant collection）。
-        tenant_id 缺省为 'default'，由上层从请求上下文注入。
+        dept_id 缺省为 'default'，由上层从请求上下文注入。
         qdrant_collection 由持久层由 id 派生，不接受外部传入。
         """
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.create(
                 name=name,
-                tenant_id=tenant_id,
+                dept_id=dept_id,
                 description=description,
                 icon=icon,
                 embedding_provider=embedding_provider,
@@ -58,9 +58,7 @@ class KnowledgeBaseService:
         """分页列出知识库（排除软删除的），可选按 keyword 过滤。"""
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
-            kbs, total = await repo.list(
-                page=page, size=size, keyword=keyword
-            )
+            kbs, total = await repo.list(page=page, size=size, keyword=keyword)
             return build_page_result([kb.to_dict() for kb in kbs], total, page, size)
 
     async def get(self, kb_id: uuid.UUID) -> dict:
@@ -75,7 +73,7 @@ class KnowledgeBaseService:
     async def update(self, kb_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
         仅元数据更新（name/description/icon/visibility/owner/status）；
-        tenant_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常。
+        dept_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常。
         """
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)

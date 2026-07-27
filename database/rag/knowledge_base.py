@@ -13,7 +13,7 @@ from utils.page import paginate
 # 建库后不可变、不允许通过更新修改的字段
 _IMMUTABLE_FIELDS = frozenset(
     {
-        "tenant_id",
+        "dept_id",
         "qdrant_collection",
         "embedding_provider",
         "embedding_model",
@@ -40,7 +40,7 @@ class KnowledgeBaseRepository:
     async def create(
         self,
         name: str,
-        tenant_id: str = "default",
+        dept_id: str = "default",
         description: str | None = None,
         icon: str | None = None,
         embedding_provider: str | None = None,
@@ -60,7 +60,7 @@ class KnowledgeBaseRepository:
             id=new_id,
             name=name,
             qdrant_collection=qdrant_collection,
-            tenant_id=tenant_id,
+            dept_id=dept_id,
             description=description,
             icon=icon,
             embedding_provider=embedding_provider,

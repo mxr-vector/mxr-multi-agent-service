@@ -54,7 +54,7 @@ class DocumentRepository:
         valid_until: datetime | None = None,
         status: str = "pending",
         version: int = 1,
-        tenant_id: str = "default",
+        dept_id: str = "default",
     ) -> Document:
         """插入一条文档（默认 status='pending'，尚未向量化）。
 
@@ -72,7 +72,7 @@ class DocumentRepository:
             doc_metadata=metadata if metadata is not None else {},
             status=status,
             version=version,
-            tenant_id=tenant_id,
+            dept_id=dept_id,
         )
         if valid_from is not None:
             doc.valid_from = valid_from
@@ -168,9 +168,7 @@ class DocumentRepository:
         await self.session.flush()
         return doc
 
-    async def fetch_status(
-        self, ids: list[uuid.UUID]
-    ) -> list[tuple[uuid.UUID, str]]:
+    async def fetch_status(self, ids: list[uuid.UUID]) -> list[tuple[uuid.UUID, str]]:
         """批量查状态：单条 id = ANY(:ids) 查询返回 (id, status) 对，供前端轮询。"""
         if not ids:
             return []

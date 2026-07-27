@@ -39,7 +39,7 @@ class DocumentService:
         folder_id: uuid.UUID | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
-        tenant_id: str = "default",
+        dept_id: str = "default",
     ) -> dict:
         """
         上传文件：解析 + 两级切块 + 持久化到 PG（不向量化）。
@@ -95,7 +95,7 @@ class DocumentService:
                     doc, folder_id, valid_from, valid_until, metadata
                 )
                 await self._persist_chunk_tree(
-                    chunk_repo, doc.id, doc.version, parents, doc.tenant_id
+                    chunk_repo, doc.id, doc.version, parents, doc.dept_id
                 )
                 await kb_repo.adjust_counts(
                     kb, doc_delta=0, chunk_delta=new_leaf_count - old_leaf_count
@@ -114,10 +114,10 @@ class DocumentService:
                     folder_id=folder_id,
                     valid_from=valid_from,
                     valid_until=valid_until,
-                    tenant_id=tenant_id,
+                    dept_id=dept_id,
                 )
                 await self._persist_chunk_tree(
-                    chunk_repo, doc.id, doc.version, parents, doc.tenant_id
+                    chunk_repo, doc.id, doc.version, parents, doc.dept_id
                 )
                 await kb_repo.adjust_counts(kb, doc_delta=1, chunk_delta=new_leaf_count)
 
@@ -161,7 +161,7 @@ class DocumentService:
         document_id: uuid.UUID,
         document_version: int,
         parents: list[dict[str, Any]],
-        tenant_id: str = "default",
+        dept_id: str = "default",
     ) -> None:
         """先插 level 1 父块拿到 id，再插 level 0 叶块并回填 parent_chunk_id。"""
         parent_chunks = [
@@ -177,7 +177,7 @@ class DocumentService:
                 page_start=p["page_start"],
                 page_end=p["page_end"],
                 content_hash=p["content_hash"],
-                tenant_id=tenant_id,
+                dept_id=dept_id,
             )
             for p in parents
         ]
@@ -200,7 +200,7 @@ class DocumentService:
                         page_start=c["page_start"],
                         page_end=c["page_end"],
                         content_hash=c["content_hash"],
-                        tenant_id=tenant_id,
+                        dept_id=dept_id,
                     )
                 )
         await chunk_repo.bulk_insert(leaf_chunks)
@@ -320,7 +320,9 @@ class DocumentService:
         async with get_session() as session:
             repo = DocumentRepository(session)
             rows = await repo.fetch_status(ids)
-            return [{"id": format_id(doc_id), "status": status} for doc_id, status in rows]
+            return [
+                {"id": format_id(doc_id), "status": status} for doc_id, status in rows
+            ]
 
     async def reset_stale_reindexing(self) -> None:
         """启动清扫：把重启前残留的 reindexing 文档置为 failed（后台作业已丢失）。"""
@@ -329,7 +331,9 @@ class DocumentService:
             count = await repo.reset_stale_reindexing()
             await session.commit()
             if count:
-                logger.warning(f"[RAG] 启动清扫：{count} 个残留 reindexing 文档已置为 failed")
+                logger.warning(
+                    f"[RAG] 启动清扫：{count} 个残留 reindexing 文档已置为 failed"
+                )
 
     async def update(self, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """

@@ -15,7 +15,7 @@ class Chunk(Base):
     父子块 ORM 模型（映射 rag_chunks）。
 
     - id 由 PostgreSQL 18 的 uuidv7() 服务端默认生成，level=0 的 id 即 Qdrant point id；
-    - tenant_id 为多租户隔离标识，冗余存储所属文档的 tenant_id，由业务层注入（缺省 'default'）；
+    - dept_id 为归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），冗余存储所属文档的 dept_id，由业务层注入；
     - document_id / parent_chunk_id 逻辑关联，不加外键/relationship，业务层保证一致性；
     - document_version 冗余存储文档版本，用于重建索引时新旧版本并存/切换；
     - level=0 为叶子子块（入 Qdrant），level>=1 为父块（仅 PG，用于回写上下文）；
@@ -31,7 +31,7 @@ class Chunk(Base):
         server_default=text("uuidv7()"),
     )
 
-    tenant_id: Mapped[str] = mapped_column(
+    dept_id: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=text("'default'")
     )
 
@@ -68,7 +68,7 @@ class Chunk(Base):
         """转为可 JSON 序列化的普通字典，供统一响应回写。"""
         return {
             "id": format_id(self.id),
-            "tenant_id": self.tenant_id,
+            "dept_id": self.dept_id,
             "document_id": format_id(self.document_id),
             "parent_chunk_id": format_id(self.parent_chunk_id),
             "document_version": self.document_version,

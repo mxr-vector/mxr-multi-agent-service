@@ -98,6 +98,16 @@ class ENV_CONFIG:
         return self.require("BASE_URL")
 
     @property
+    def jwt_secret_key(self) -> str:
+        """JWT 签名密钥，与 API_SECRET_KEY 严格分离"""
+        return self.require("JWT_SECRET_KEY")
+
+    @property
+    def jwt_expire_hours(self) -> int:
+        """JWT token 有效期（小时）"""
+        return int(self.require("JWT_EXPIRE_HOURS"))
+
+    @property
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 

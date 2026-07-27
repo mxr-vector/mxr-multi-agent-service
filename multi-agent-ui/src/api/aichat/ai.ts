@@ -1,4 +1,4 @@
-import { service } from "@/utils/request";
+import service from "@/utils/request";
 import { aiUrl } from "./index";
 
 // ============================================================
@@ -6,7 +6,7 @@ import { aiUrl } from "./index";
 // ============================================================
 
 /** AI问答请求参数 */
-export interface ChatRequestDTO {
+export interface ChatserviceDTO {
   /** 用户问题内容 */
   question: string;
   /** 知识库ID列表，限定检索范围（可选） */
@@ -139,7 +139,7 @@ export type ChatStreamEventHandler = (event: ChatStreamEvent) => void;
 // SSE 辅助函数
 // ============================================================
 
-/** API 基础地址（与 request.ts 保持一致） */
+/** API 基础地址（与 service.ts 保持一致） */
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/prod-api";
 
 function parseStreamData(rawData: string): Omit<ChatStreamEvent, "event" | "rawData"> {
@@ -204,22 +204,17 @@ function parseSSEBlock(block: string): ChatStreamEvent | null {
  * @param onComplete 流结束时的回调
  * @returns 中止请求的函数
  */
-async function requestSSE(
+async function serviceSSE(
   url: string,
-  data: ChatRequestDTO,
+  data: ChatserviceDTO,
   onMessage: ChatStreamEventHandler,
   onError?: (error: Error) => void,
   onComplete?: () => void
 ): Promise<() => void> {
-  const { useUserStore } = await import("@/stores/user");
+  const { useUserStore } = await import("@/stores/userStore");
   const userStore = useUserStore();
-  await userStore.waitForInitialization();
 
-  let token = userStore.token || localStorage.getItem("token");
-  if (token === "undefined" || token === "null") {
-    token = null;
-  }
-
+  const token = userStore.token;
   if (!token) {
     window.location.replace("/login");
     throw new Error("令牌不能为空");
@@ -240,9 +235,8 @@ async function requestSSE(
     });
 
     if (response.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("username");
-      userStore.$patch({ token: "", userInfo: null });
+      // 登录凭证失效：走 store 登出流程清除本地状态并跳转登录页
+      await userStore.logout();
       window.location.replace("/login");
       throw new Error("登录凭证已失效");
     }
@@ -311,12 +305,12 @@ export const AiChatApi = {
    * @returns 中止请求的函数
    */
   chatStream(
-    data: ChatRequestDTO,
+    data: ChatserviceDTO,
     onMessage: ChatStreamEventHandler,
     onError?: (error: Error) => void,
     onComplete?: () => void
   ): Promise<() => void> {
-    return requestSSE(aiUrl.chat.stream, data, onMessage, onError, onComplete);
+    return serviceSSE(aiUrl.chat.stream, data, onMessage, onError, onComplete);
   },
 
   /**
@@ -324,7 +318,7 @@ export const AiChatApi = {
    * @returns 停止结果
    */
   stopGeneration(sessionId: string) {
-    return request(`${aiUrl.chat.stop}/${sessionId}`, { method: "POST" });
+    return service(`${aiUrl.chat.stop}/${sessionId}`, { method: "POST" });
   },
 };
 
@@ -338,7 +332,7 @@ export const AiSessionApi = {
    * @returns 当前用户的所有会话列表
    */
   getSessionList(): Promise<SessionVO[]> {
-    return request(aiUrl.session.list, {
+    return service(aiUrl.session.list, {
       method: "GET",
     });
   },
@@ -349,7 +343,7 @@ export const AiSessionApi = {
    * @returns 指定会话的所有消息历史
    */
   getSessionMessages(sessionId: string): Promise<SessionMessageVO[]> {
-    return request(`${aiUrl.session.base}/${sessionId}/messages`, {
+    return service(`${aiUrl.session.base}/${sessionId}/messages`, {
       method: "GET",
     });
   },
@@ -360,7 +354,7 @@ export const AiSessionApi = {
    * @returns 会话详情（包含摘要信息）
    */
   getSessionDetail(sessionId: string): Promise<SessionDetailVO> {
-    return request(`${aiUrl.session.base}/${sessionId}`, {
+    return service(`${aiUrl.session.base}/${sessionId}`, {
       method: "GET",
     });
   },
@@ -371,7 +365,7 @@ export const AiSessionApi = {
    * @returns 删除结果
    */
   deleteSession(sessionId: string): Promise<CommonMsgVO> {
-    return request(`${aiUrl.session.base}/${sessionId}`, {
+    return service(`${aiUrl.session.base}/${sessionId}`, {
       method: "DELETE",
     });
   },
@@ -381,7 +375,7 @@ export const AiSessionApi = {
    * @returns 删除结果
    */
   deleteAllSessions(): Promise<CommonMsgVO> {
-    return request(aiUrl.session.all, {
+    return service(aiUrl.session.all, {
       method: "DELETE",
     });
   },
@@ -391,7 +385,7 @@ export const AiSessionApi = {
    * @returns 当前用户的会话统计信息
    */
   getSessionStats(): Promise<SessionStatsVO> {
-    return request(aiUrl.session.stats, {
+    return service(aiUrl.session.stats, {
       method: "GET",
     });
   },
@@ -401,7 +395,7 @@ export const AiSessionApi = {
    * @returns 创建结果
    */
   createSession(): Promise<SessionVO> {
-    return request(aiUrl.session.create, {
+    return service(aiUrl.session.create, {
       method: "POST",
     });
   },

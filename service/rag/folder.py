@@ -22,10 +22,10 @@ class FolderService:
         knowledge_base_id: uuid.UUID,
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
-        tenant_id: str = "default",
+        dept_id: str = "default",
     ) -> dict:
         """
-        创建文件夹并返回其数据（含数据库生成的 id；tenant_id 缺省 'default'）。
+        创建文件夹并返回其数据（含数据库生成的 id；dept_id 缺省 'default'）。
 
         校验所属知识库存在且未删除；提供 parent_id 时校验父文件夹存在且同属该知识库。
         """
@@ -42,7 +42,7 @@ class FolderService:
                 knowledge_base_id=knowledge_base_id,
                 parent_id=parent_id,
                 sort_order=sort_order,
-                tenant_id=tenant_id,
+                dept_id=dept_id,
             )
             await session.commit()
             return folder.to_dict()
@@ -69,9 +69,7 @@ class FolderService:
                 parent_id=parent_id,
                 keyword=keyword,
             )
-            return build_page_result(
-                [f.to_dict() for f in folders], total, page, size
-            )
+            return build_page_result([f.to_dict() for f in folders], total, page, size)
 
     async def get(self, folder_id: uuid.UUID) -> dict:
         """按 id 获取文件夹，不存在时抛出业务异常。"""

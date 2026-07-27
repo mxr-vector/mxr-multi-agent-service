@@ -14,7 +14,7 @@ _service = KnowledgeBaseService()
 
 
 class KnowledgeBaseCreate(BaseModel):
-    """创建知识库请求体（仅元数据，不创建 Qdrant collection；tenant_id 由服务端注入）。
+    """创建知识库请求体（仅元数据，不创建 Qdrant collection；dept_id 由服务端注入）。
 
     qdrant_collection 由后端由 id 派生，不在请求体中暴露。
     """
@@ -30,7 +30,7 @@ class KnowledgeBaseCreate(BaseModel):
 
 
 class KnowledgeBaseUpdate(BaseModel):
-    """更新知识库请求体（仅可编辑元数据；tenant_id/qdrant_collection/embedding_* 不可变）。"""
+    """更新知识库请求体（仅可编辑元数据；dept_id/qdrant_collection/embedding_* 不可变）。"""
 
     name: Optional[str] = None
     description: Optional[str] = None
@@ -42,7 +42,7 @@ class KnowledgeBaseUpdate(BaseModel):
 
 @router.post("")
 async def create_knowledge_base(payload: KnowledgeBaseCreate = Body(...)):
-    """创建知识库（仅元数据，tenant_id 服务端默认注入）。"""
+    """创建知识库（仅元数据，dept_id 服务端默认注入）。"""
     kb = await _service.create(
         name=payload.name,
         description=payload.description,
@@ -63,9 +63,7 @@ async def list_knowledge_bases(
     keyword: Optional[str] = Query(default=None, description="按名称/描述模糊搜索"),
 ):
     """分页列出知识库（排除软删除的），可选按 keyword 过滤。"""
-    page_result = await _service.list(
-        page=page, size=size, keyword=keyword
-    )
+    page_result = await _service.list(page=page, size=size, keyword=keyword)
     return R.success(data=page_result)
 
 
