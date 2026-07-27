@@ -176,8 +176,8 @@ onMounted(loadMenus);
                 <SearchInput v-model="keyword" placeholder="搜索菜单名称" />
                 <PrimaryButton @click="openCreate()">＋ 新建菜单</PrimaryButton>
             </template>
-            <el-table class="list-scroll" :data="treeData" row-key="id" default-expand-all
-                :tree-props="{ children: 'children' }">
+            <!-- 默认收起，仅展示顶级节点，子级按需展开 -->
+            <el-table class="list-scroll" :data="treeData" row-key="id" :tree-props="{ children: 'children' }">
                 <el-table-column prop="label" label="显示名称" min-width="200" show-overflow-tooltip />
                 <el-table-column label="类型" width="80">
                     <template #default="{ row }">

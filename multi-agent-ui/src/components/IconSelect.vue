@@ -48,20 +48,14 @@ function pick(name: string) {
     model.value = name;
     visible.value = false;
 }
-
-function clear() {
-    model.value = "";
-    visible.value = false;
-}
 </script>
 
 <template>
     <el-popover v-model:visible="visible" :width="440" trigger="click" placement="bottom-start">
         <template #reference>
-            <el-input :model-value="model" placeholder="点击选择图标" readonly clearable @clear="model = ''"
-                @click="openPicker">
+            <el-input :model-value="model" placeholder="点击选择图标" readonly clearable @clear="model = ''">
                 <template #prefix>
-                    <SvgIcon v-if="currentIsLocal" :name="model" :size="16" />
+                    <SvgIcon v-if="currentIsLocal" :name="model" colored :size="16" />
                     <el-icon v-else-if="currentEpIcon" :size="16">
                         <component :is="currentEpIcon" />
                     </el-icon>
@@ -76,7 +70,7 @@ function clear() {
                     <div class="icon-grid">
                         <button v-for="name in filteredLocal" :key="name" type="button" class="icon-cell"
                             :class="{ active: name === model }" :title="name" @click="pick(name)">
-                            <SvgIcon :name="name" :size="18" />
+                            <SvgIcon :name="name" colored :size="18" />
                             <span class="icon-cell-name">{{ name }}</span>
                         </button>
                         <p v-if="!filteredLocal.length" class="icon-empty">未找到匹配图标</p>

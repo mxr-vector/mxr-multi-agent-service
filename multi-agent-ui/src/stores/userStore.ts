@@ -9,6 +9,8 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { authApi, type User } from "@/api/system";
 import { getToken, removeToken, setToken } from "@/utils/auth";
+import { resetDynamicRoutes } from "@/router";
+import { useMenuStore } from "@/stores/menuStore";
 
 export const useUserStore = defineStore("user", () => {
   // 初始化时从 localStorage 恢复登录态
@@ -23,7 +25,7 @@ export const useUserStore = defineStore("user", () => {
     setToken(res.data.token);
   }
 
-  /** 登出：通知服务端（失败不阻断），清除本地登录态 */
+  /** 登出：通知服务端（失败不阻断），清除本地登录态与动态路由菜单 */
   async function logout() {
     try {
       await authApi.logout();
@@ -33,6 +35,9 @@ export const useUserStore = defineStore("user", () => {
     token.value = "";
     userInfo.value = null;
     removeToken();
+    // 清空动态菜单并移除已注册的动态路由，下次登录重新拉取
+    useMenuStore().reset();
+    resetDynamicRoutes();
   }
 
   /** 拉取当前 JWT 对应的用户信息（如刷新页面后恢复 userInfo） */
