@@ -1,6 +1,4 @@
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
-import { useUserStore } from "@/stores/user";
-import { getFilePreviewUrl } from "@/utils/request";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef } from "vue";
 import { useAiChatConversation } from "./useAiChatConversation";
 import { useAiChatHistory } from "./useAiChatHistory";
 import { useAiChatOptionsLoader } from "./useAiChatOptionsLoader";
@@ -90,20 +88,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
   });
   const showQuick = computed(() => messages.value.length <= 1 && props.quickQuestions!.length > 0);
   const canClearMessages = computed(() => messages.value.length > 1);
-  const userStore = useUserStore();
-  const userAvatar = shallowRef("");
-
-  let avatarSeq = 0;
-  watch(
-    () => userStore.userInfo?.avatar,
-    async (avatar) => {
-      const seq = ++avatarSeq;
-      userAvatar.value = avatar || "";
-      const url = await getFilePreviewUrl(avatar);
-      if (seq === avatarSeq) userAvatar.value = url || avatar || "";
-    },
-    { immediate: true }
-  );
 
   function toggleHistory(): void {
     panel.showHistory.value = !panel.showHistory.value;
@@ -183,7 +167,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     selectedKnowledgeTags: history.selectedKnowledgeTags,
     selectedTagOptions: history.selectedTagOptions,
     groupedSessions: history.groupedSessions,
-    userAvatar,
     handleFabPointerDown: trigger.handleFabPointerDown,
     handleFabClick: trigger.handleFabClick,
     handleFabMouseEnter: trigger.handleFabMouseEnter,
