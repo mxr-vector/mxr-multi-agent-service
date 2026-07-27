@@ -1,9 +1,9 @@
 import { computed, nextTick, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { AiSessionApi } from "@/api/datas/ai";
-import type { SessionMessageVO, SessionVO } from "@/api/datas/ai";
-import { KnowledgeApi } from "@/api/datas/database";
-import { AiTagApi } from "@/api/datas/label";
+import { AiSessionApi } from "@/api/aichat/ai";
+import type { SessionMessageVO, SessionVO } from "@/api/aichat/ai";
+import { knowledgeBaseApi } from "@/api/rag/knowledgeBase";
+
 import {
   BACKEND_MSG_TYPE,
   MSG_STATUS,
@@ -59,30 +59,15 @@ export function useAiChatHistory(deps: UseAiChatHistoryDeps) {
 
   async function loadKnowledgeList(): Promise<void> {
     try {
-      const res: any = await KnowledgeApi.getKnowledgeList();
-      const list = res.data?.rows || res.rows || res.data || [];
-      knowledgeList.value = (Array.isArray(list) ? list : []).map((kb: any) => ({
+      const res = await knowledgeBaseApi.list({ page: 1, size: 200 });
+      const list = res.data?.items ?? [];
+      // 遗留 KnowledgeOption.value 声明为 number，而 RAG 知识库 id 为字符串；仅作展示/选中用，运行时兼容
+      knowledgeList.value = list.map((kb) => ({
         label: kb.name,
         value: kb.id,
-      }));
+      })) as unknown as KnowledgeOption[];
     } catch (error) {
       knowledgeList.value = [];
-      throw error;
-    }
-  }
-
-  async function loadTagList(): Promise<void> {
-    try {
-      const res: any = await AiTagApi.getAiTagList();
-      const list = res.data?.rows || res.rows || res.data || [];
-      tagList.value = (Array.isArray(list) ? list : [])
-        .map((tag: any) => ({
-          label: String(tag.name ?? ""),
-          value: Number(tag.id),
-        }))
-        .filter((tag: AiTagOption) => Number.isFinite(tag.value));
-    } catch (error) {
-      tagList.value = [];
       throw error;
     }
   }
@@ -259,7 +244,6 @@ export function useAiChatHistory(deps: UseAiChatHistoryDeps) {
 
   return {
     loadKnowledgeList,
-    loadTagList,
     loadSessions,
     loadSession,
     deleteSession,

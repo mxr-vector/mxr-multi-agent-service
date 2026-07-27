@@ -73,55 +73,58 @@ export interface DocumentUpdatePayload {
   last_verified_at?: string;
 }
 
-/** 上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op */
-export function uploadDocument(params: DocumentUploadParams) {
-  const form = new FormData();
-  form.append("file", params.file);
-  form.append("knowledge_base_id", params.knowledge_base_id);
-  if (params.folder_id != null) form.append("folder_id", params.folder_id);
-  if (params.source_uri != null) form.append("source_uri", params.source_uri);
-  if (params.source_system != null) form.append("source_system", params.source_system);
-  if (params.title != null) form.append("title", params.title);
-  if (params.valid_from != null) form.append("valid_from", params.valid_from);
-  if (params.valid_until != null) form.append("valid_until", params.valid_until);
-  if (params.remark != null) form.append("remark", params.remark);
-  return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.upload, form, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-}
-
 /** 批量状态查询结果项（轮询用，未知 id 不在结果中） */
 export interface DocumentStatusItem {
   id: string;
   status: string;
 }
 
-/** 单独触发向量化（异步）：置 reindexing 后立即返回，后台完成 embed/写 Qdrant */
-export function vectorizeDocument(docId: string) {
-  return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.vectorize(docId));
-}
+/** 文档管理 API：统一通过 documentApi.xx() 调用 */
+export const documentApi = {
+  /** 上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op */
+  upload(params: DocumentUploadParams) {
+    const form = new FormData();
+    form.append("file", params.file);
+    form.append("knowledge_base_id", params.knowledge_base_id);
+    if (params.folder_id != null) form.append("folder_id", params.folder_id);
+    if (params.source_uri != null) form.append("source_uri", params.source_uri);
+    if (params.source_system != null) form.append("source_system", params.source_system);
+    if (params.title != null) form.append("title", params.title);
+    if (params.valid_from != null) form.append("valid_from", params.valid_from);
+    if (params.valid_until != null) form.append("valid_until", params.valid_until);
+    if (params.remark != null) form.append("remark", params.remark);
+    return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.upload, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
 
-/** 批量查询文档向量化状态（轮询）：ids 逗号分隔，上限 200 */
-export function batchDocumentStatus(ids: string[]) {
-  return request.get<DocumentStatusItem[], ApiResult<DocumentStatusItem[]>>(DOCUMENT_URL.status, {
-    params: { ids: ids.join(",") },
-  });
-}
+  /** 单独触发向量化（异步）：置 reindexing 后立即返回，后台完成 embed/写 Qdrant */
+  vectorize(docId: string) {
+    return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.vectorize(docId));
+  },
 
-/** 按知识库分页列出文档（排除软删除的），可选按 status 过滤 */
-export function listDocuments(params: DocumentListParams) {
-  return request.get<PageResult<RagDocument>, ApiResult<PageResult<RagDocument>>>(
-    DOCUMENT_URL.root,
-    { params }
-  );
-}
+  /** 批量查询文档向量化状态（轮询）：ids 逗号分隔，上限 200 */
+  batchStatus(ids: string[]) {
+    return request.get<DocumentStatusItem[], ApiResult<DocumentStatusItem[]>>(DOCUMENT_URL.status, {
+      params: { ids: ids.join(",") },
+    });
+  },
 
-/** 按 id 获取文档 */
-export function getDocument(docId: string) {
-  return request.get<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.byId(docId));
-}
+  /** 按知识库分页列出文档（排除软删除的），可选按 status 过滤 */
+  list(params: DocumentListParams) {
+    return request.get<PageResult<RagDocument>, ApiResult<PageResult<RagDocument>>>(
+      DOCUMENT_URL.root,
+      { params }
+    );
+  },
 
-/** 仅元数据更新；不触碰内容/哈希/版本/归属/状态，不再切块或向量化 */
-export function updateDocument(docId: string, payload: DocumentUpdatePayload) {
-  return request.put<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.byId(docId), payload);
-}
+  /** 按 id 获取文档 */
+  get(docId: string) {
+    return request.get<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.byId(docId));
+  },
+
+  /** 仅元数据更新；不触碰内容/哈希/版本/归属/状态，不再切块或向量化 */
+  update(docId: string, payload: DocumentUpdatePayload) {
+    return request.put<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.byId(docId), payload);
+  },
+};

@@ -11,7 +11,10 @@ export interface RagStats {
   total_chunk_count: number;
 }
 
-/** 获取 RAG 全局统计：知识库数、文档总数、分块总数 */
-export function getRagStats() {
-  return request.get<RagStats, ApiResult<RagStats>>(STATS_URL.root);
-}
+/** RAG 统计 API：统一通过 statsApi.xx() 调用 */
+export const statsApi = {
+  /** 获取 RAG 全局统计：知识库数、文档总数、分块总数 */
+  overview() {
+    return request.get<RagStats, ApiResult<RagStats>>(STATS_URL.root);
+  },
+};

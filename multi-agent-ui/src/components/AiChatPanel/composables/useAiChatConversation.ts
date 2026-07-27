@@ -1,7 +1,7 @@
 import { nextTick, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { AiChatApi, AiSessionApi } from "@/api/datas/ai";
-import type { ChatRequestDTO, ChatStreamEvent } from "@/api/datas/ai";
+import { AiChatApi, AiSessionApi } from "@/api/aichat/ai";
+import type { ChatRequestDTO, ChatStreamEvent } from "@/api/aichat/ai";
 import { MSG_STATUS, SSE_EVENT } from "../constants";
 import type { AiChatEmit, AiChatProps, ChatMessage, MessageStatus } from "../types";
 import {

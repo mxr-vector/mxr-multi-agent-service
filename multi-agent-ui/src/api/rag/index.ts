@@ -68,7 +68,7 @@ export const STATS_URL = {
   root: `${BASE}/stats`,
 } as const;
 
-// 统一出口：业务侧可直接从 "@/api/rag" 导入功能函数与类型
+// 统一出口：业务侧可直接从 "@/api/rag" 导入 xxApi 对象（folderApi/knowledgeBaseApi/documentApi/chunkApi/statsApi）与类型
 export * from "./folders";
 export * from "./knowledgeBase";
 export * from "./document";

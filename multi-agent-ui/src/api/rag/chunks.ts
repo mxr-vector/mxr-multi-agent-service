@@ -38,12 +38,17 @@ export interface ChunkListParams {
   size?: number;
 }
 
-/** 按文档分页列出分块，可选 level/document_version 过滤，按 chunk_index 升序 */
-export function listChunks(params: ChunkListParams) {
-  return request.get<PageResult<Chunk>, ApiResult<PageResult<Chunk>>>(CHUNK_URL.root, { params });
-}
+/** 分块管理 API：统一通过 chunkApi.xx() 调用 */
+export const chunkApi = {
+  /** 按文档分页列出分块，可选 level/document_version 过滤，按 chunk_index 升序 */
+  list(params: ChunkListParams) {
+    return request.get<PageResult<Chunk>, ApiResult<PageResult<Chunk>>>(CHUNK_URL.root, {
+      params,
+    });
+  },
 
-/** 按 id 获取分块 */
-export function getChunk(chunkId: string) {
-  return request.get<Chunk, ApiResult<Chunk>>(CHUNK_URL.byId(chunkId));
-}
+  /** 按 id 获取分块 */
+  get(chunkId: string) {
+    return request.get<Chunk, ApiResult<Chunk>>(CHUNK_URL.byId(chunkId));
+  },
+};

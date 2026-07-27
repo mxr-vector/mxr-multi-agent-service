@@ -76,11 +76,6 @@ export interface FolderUpdatePayload {
   parent_id?: string | null;
 }
 
-/** 创建文件夹（归属指定知识库） */
-export function createFolder(payload: FolderCreatePayload) {
-  return request.post<Folder, ApiResult<Folder>>(FOLDER_URL.root, payload);
-}
-
 /** 分页列出文件夹参数 */
 export interface FolderListParams {
   /** 所属知识库 id，必填 */
@@ -95,24 +90,32 @@ export interface FolderListParams {
   keyword?: string;
 }
 
-/** 分页列出某知识库内的文件夹：可选按 parent_id/关键词过滤 */
-export function listFolders(params: FolderListParams) {
-  return request.get<PageResult<Folder>, ApiResult<PageResult<Folder>>>(FOLDER_URL.root, {
-    params,
-  });
-}
+/** 文件夹管理 API：统一通过 folderApi.xx() 调用 */
+export const folderApi = {
+  /** 创建文件夹（归属指定知识库） */
+  create(payload: FolderCreatePayload) {
+    return request.post<Folder, ApiResult<Folder>>(FOLDER_URL.root, payload);
+  },
 
-/** 按 id 获取文件夹 */
-export function getFolder(folderId: string) {
-  return request.get<Folder, ApiResult<Folder>>(FOLDER_URL.byId(folderId));
-}
+  /** 分页列出某知识库内的文件夹：可选按 parent_id/关键词过滤 */
+  list(params: FolderListParams) {
+    return request.get<PageResult<Folder>, ApiResult<PageResult<Folder>>>(FOLDER_URL.root, {
+      params,
+    });
+  },
 
-/** 更新文件夹的 name/sort_order/parent_id（knowledge_base_id 不可变） */
-export function updateFolder(folderId: string, payload: FolderUpdatePayload) {
-  return request.put<Folder, ApiResult<Folder>>(FOLDER_URL.byId(folderId), payload);
-}
+  /** 按 id 获取文件夹 */
+  get(folderId: string) {
+    return request.get<Folder, ApiResult<Folder>>(FOLDER_URL.byId(folderId));
+  },
 
-/** 带守卫的物理删除：仅空文件夹（无子文件夹、无文档）可删除 */
-export function deleteFolder(folderId: string) {
-  return request.delete<null, ApiResult<null>>(FOLDER_URL.byId(folderId));
-}
+  /** 更新文件夹的 name/sort_order/parent_id（knowledge_base_id 不可变） */
+  update(folderId: string, payload: FolderUpdatePayload) {
+    return request.put<Folder, ApiResult<Folder>>(FOLDER_URL.byId(folderId), payload);
+  },
+
+  /** 带守卫的物理删除：仅空文件夹（无子文件夹、无文档）可删除 */
+  remove(folderId: string) {
+    return request.delete<null, ApiResult<null>>(FOLDER_URL.byId(folderId));
+  },
+};

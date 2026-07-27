@@ -43,11 +43,6 @@ export interface KnowledgeBaseUpdatePayload {
   status?: string;
 }
 
-/** 创建知识库（tenant_id 由服务端注入） */
-export function createKnowledgeBase(payload: KnowledgeBaseCreatePayload) {
-  return request.post<KnowledgeBase, ApiResult<KnowledgeBase>>(KNOWLEDGE_BASE_URL.root, payload);
-}
-
 /** 分页列出知识库参数 */
 export interface KnowledgeBaseListParams {
   /** 页码，从 1 开始（默认 1） */
@@ -58,28 +53,36 @@ export interface KnowledgeBaseListParams {
   keyword?: string;
 }
 
-/** 分页列出知识库（排除软删除的），可选按关键词过滤 */
-export function listKnowledgeBases(params: KnowledgeBaseListParams = {}) {
-  return request.get<PageResult<KnowledgeBase>, ApiResult<PageResult<KnowledgeBase>>>(
-    KNOWLEDGE_BASE_URL.root,
-    { params }
-  );
-}
+/** 知识库管理 API：统一通过 knowledgeBaseApi.xx() 调用 */
+export const knowledgeBaseApi = {
+  /** 创建知识库（tenant_id 由服务端注入） */
+  create(payload: KnowledgeBaseCreatePayload) {
+    return request.post<KnowledgeBase, ApiResult<KnowledgeBase>>(KNOWLEDGE_BASE_URL.root, payload);
+  },
 
-/** 按 id 获取知识库 */
-export function getKnowledgeBase(kbId: string) {
-  return request.get<KnowledgeBase, ApiResult<KnowledgeBase>>(KNOWLEDGE_BASE_URL.byId(kbId));
-}
+  /** 分页列出知识库（排除软删除的），可选按关键词过滤 */
+  list(params: KnowledgeBaseListParams = {}) {
+    return request.get<PageResult<KnowledgeBase>, ApiResult<PageResult<KnowledgeBase>>>(
+      KNOWLEDGE_BASE_URL.root,
+      { params }
+    );
+  },
 
-/** 仅元数据更新（含 status active↔archived）；不可变字段不受影响 */
-export function updateKnowledgeBase(kbId: string, payload: KnowledgeBaseUpdatePayload) {
-  return request.put<KnowledgeBase, ApiResult<KnowledgeBase>>(
-    KNOWLEDGE_BASE_URL.byId(kbId),
-    payload
-  );
-}
+  /** 按 id 获取知识库 */
+  get(kbId: string) {
+    return request.get<KnowledgeBase, ApiResult<KnowledgeBase>>(KNOWLEDGE_BASE_URL.byId(kbId));
+  },
 
-/** 软删除：置 status='deleted'，随后不再出现在列表中 */
-export function deleteKnowledgeBase(kbId: string) {
-  return request.delete<null, ApiResult<null>>(KNOWLEDGE_BASE_URL.byId(kbId));
-}
+  /** 仅元数据更新（含 status active↔archived）；不可变字段不受影响 */
+  update(kbId: string, payload: KnowledgeBaseUpdatePayload) {
+    return request.put<KnowledgeBase, ApiResult<KnowledgeBase>>(
+      KNOWLEDGE_BASE_URL.byId(kbId),
+      payload
+    );
+  },
+
+  /** 软删除：置 status='deleted'，随后不再出现在列表中 */
+  remove(kbId: string) {
+    return request.delete<null, ApiResult<null>>(KNOWLEDGE_BASE_URL.byId(kbId));
+  },
+};

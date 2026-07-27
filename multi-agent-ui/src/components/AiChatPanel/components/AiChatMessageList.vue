@@ -133,7 +133,7 @@ import {
 import { nextTick, onMounted, onUnmounted, shallowRef } from "vue";
 import { MdPreview } from "@/utils/md-editor-v3";
 import { MSG_STATUS } from "../constants";
-import type { ChatSource } from "@/api/datas/ai";
+import type { ChatSource } from "@/api/aichat/ai";
 import type { ChatMessage } from "../types";
 
 defineProps<{
