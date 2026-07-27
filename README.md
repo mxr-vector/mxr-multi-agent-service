@@ -119,7 +119,7 @@ podman run -d  \
 --name qdrant \
 -p 6333:6333  \
 -p 6334:6334  \
--v qdrant_storage:$PWD/mydata/qdrant/storage \
+-v qdrant_storage:$HOME/mydata/qdrant/storage \
 -e QDRANT__SERVICE__API_KEY=95279527 \
 docker.io/qdrant/qdrant
 ```
