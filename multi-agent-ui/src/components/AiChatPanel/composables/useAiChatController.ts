@@ -84,7 +84,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
 
   const optionsLoader = useAiChatOptionsLoader({
     loadKnowledgeList: history.loadKnowledgeList,
-    loadTagList: history.loadTagList,
   });
   const showQuick = computed(() => messages.value.length <= 1 && props.quickQuestions!.length > 0);
   const canClearMessages = computed(() => messages.value.length > 1);

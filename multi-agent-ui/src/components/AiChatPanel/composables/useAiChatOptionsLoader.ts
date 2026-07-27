@@ -3,7 +3,6 @@ import type { KnowledgeLoadStatus } from "../types";
 
 interface UseAiChatOptionsLoaderDeps {
   loadKnowledgeList: () => Promise<void>;
-  loadTagList: () => Promise<void>;
 }
 
 export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
@@ -16,7 +15,6 @@ export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
   const tagLoading = computed(() => tagLoadStatus.value === "loading");
 
   let knowledgeLoadPromise: Promise<void> | null = null;
-  let tagLoadPromise: Promise<void> | null = null;
 
   async function ensureKnowledgeListLoaded(): Promise<void> {
     if (knowledgeLoadStatus.value === "loaded") return;
@@ -41,36 +39,10 @@ export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
     return knowledgeLoadPromise;
   }
 
-  async function ensureTagListLoaded(): Promise<void> {
-    if (tagLoadStatus.value === "loaded") return;
-    // Reuse the in-flight request so repeated dropdown openings do not fan out API calls.
-    if (tagLoadPromise) return tagLoadPromise;
-
-    tagLoadStatus.value = "loading";
-    tagLoadError.value = null;
-    tagLoadPromise = deps
-      .loadTagList()
-      .then(() => {
-        tagLoadStatus.value = "loaded";
-      })
-      .catch((error: unknown) => {
-        tagLoadStatus.value = "error";
-        tagLoadError.value = error instanceof Error ? error.message : "标签加载失败";
-      })
-      .finally(() => {
-        tagLoadPromise = null;
-      });
-
-    return tagLoadPromise;
-  }
-
   function handleKnowledgeDropdownOpen(): void {
     void ensureKnowledgeListLoaded();
   }
 
-  function handleTagDropdownOpen(): void {
-    void ensureTagListLoaded();
-  }
 
   return {
     knowledgeLoading,
@@ -80,6 +52,5 @@ export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
     tagLoadStatus,
     tagLoadError,
     handleKnowledgeDropdownOpen,
-    handleTagDropdownOpen,
   };
 }
