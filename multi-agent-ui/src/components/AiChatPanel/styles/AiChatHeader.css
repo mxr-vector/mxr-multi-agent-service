@@ -1,0 +1,142 @@
+/* ══ 头部 ═══════════════════════════════════════════════════ */
+.afc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 14px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%);
+}
+
+.afc-header__left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.afc-header__ava {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.afc-header__name {
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.afc-header__status {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.68rem;
+  margin: 2px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.afc-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.afc-dot--online {
+  background: #4ade80;
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.3);
+  animation: afc-blink 2s ease-in-out infinite;
+}
+
+.afc-dot--thinking {
+  background: #fbbf24;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.3);
+  animation: afc-blink 0.7s ease-in-out infinite;
+}
+
+@keyframes afc-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.afc-header__right {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.afc-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.25);
+  margin: 0 4px;
+}
+
+.afc-hbtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.72rem;
+  transition: background 0.18s;
+  line-height: 1;
+}
+
+.afc-hbtn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.afc-hbtn.is-active {
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.afc-icon-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s;
+}
+
+.afc-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.afc-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.afc-icon-btn--warn {
+  background: rgba(251, 191, 36, 0.25);
+}
+
+.afc-icon-btn--warn:hover {
+  background: rgba(251, 191, 36, 0.4);
+}

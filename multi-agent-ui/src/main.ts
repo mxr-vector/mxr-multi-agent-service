@@ -9,8 +9,16 @@ import "element-plus/theme-chalk/el-overlay.css";
 import "element-plus/theme-chalk/el-message-box.css";
 import "element-plus/theme-chalk/el-message.css";
 import "element-plus/theme-chalk/el-loading.css";
-
+import * as ElementPlusIconsVue from "@element-plus/icons-vue";
 // 列表页通用布局工具类（.list-page / .list-panel / .list-scroll / .list-footer）
 import "@/assets/styles/layout.css";
 
-createApp(App).use(router).mount("#app");
+// 引入 Element Plus 图标
+const app = createApp(App);
+
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component);
+}
+
+app.use(router);
+app.mount("#app");
