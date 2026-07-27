@@ -10,6 +10,7 @@ import {
 } from "@/api/system/menu";
 import { confirmDanger } from "@/utils/confirm";
 import SearchInput from "@/components/SearchInput.vue";
+import IconSelect from "@/components/IconSelect.vue";
 
 // menu_type 展示配置：dir 目录 / menu 菜单 / button 按钮
 const MENU_TYPE_META: Record<string, { label: string; tag: "primary" | "success" | "info" }> = {
@@ -250,7 +251,8 @@ onMounted(loadMenus);
                     <el-input v-model="form.component" placeholder="如：system/User" maxlength="200" />
                 </el-form-item>
                 <el-form-item v-if="!isButton" label="图标">
-                    <el-input v-model="form.icon" placeholder="选填，SvgIcon 图标名" maxlength="100" />
+                    <!-- 图标选择器：本地 assets/icon 图标 + Element Plus 全量图标 -->
+                    <IconSelect v-model="form.icon" />
                 </el-form-item>
                 <el-form-item v-if="isButton" label="权限标识">
                     <el-input v-model="form.perms" placeholder="如：system:user:add" maxlength="100" />
