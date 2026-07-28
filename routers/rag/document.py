@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from exception.bad_except import bad_except
 from service.rag.document import DocumentService
 from utils.env import ENV
+from utils.file_ingest import CHUNK_STRATEGIES, DEFAULT_CHUNK_STRATEGY
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
 
@@ -63,9 +64,16 @@ async def upload_document(
         default=None,
         description="归属部门（32 位 hex；仅 data_scope=all 生效，须为已存在部门）",
     ),
+    chunk_strategy: str = Form(
+        default=DEFAULT_CHUNK_STRATEGY,
+        description="分块策略：auto 自动（有结构按章节，否则字符）/ char 通用 / structure 章节（仅 md/docx/xlsx）",
+    ),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op。"""
+    """上传文件：解析 + 两级切块 + 落库（不向量化）。内容与分块策略均未变化的重复上传是幂等 no-op。"""
+    # 策略取值在入口即校验，非法值不进入文件读取/解析流程
+    if chunk_strategy not in CHUNK_STRATEGIES:
+        bad_except(f"不支持的分块策略: {chunk_strategy}（可选 auto/char/structure）")
     data = await file.read()
     # 以实际读到的字节数校验（Content-Length 可伪造），超限在解析前即拒绝
     max_bytes = ENV.upload_max_size_mb * 1024 * 1024
@@ -85,6 +93,7 @@ async def upload_document(
         valid_from=valid_from,
         valid_until=valid_until,
         dept_id=dept_id,
+        chunk_strategy=chunk_strategy,
     )
     return R.success(data=doc)
 

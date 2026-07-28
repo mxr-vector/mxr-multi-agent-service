@@ -43,6 +43,7 @@ class DocumentService:
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
         dept_id: str | None = None,
+        chunk_strategy: str = "auto",
     ) -> dict:
         """
         上传文件：解析 + 两级切块 + 持久化到 PG（不向量化）。
@@ -50,8 +51,10 @@ class DocumentService:
         目标知识库须对当前上下文可见（数据权限收口）；归属部门经
         resolve_owner_dept 换算：仅 all 档尊重显式 dept_id（须存在），
         其余档位强制本人部门（机器通道 / 无部门用户兜底空字符串）。
-        content_hash 未变化的重复上传是幂等 no-op；变化则新增 document_version。
-        知识库不存在、不支持的文件类型均转为友好失败。
+        chunk_strategy 为用户选择的切块策略（auto/char/structure），生效策略
+        （auto 归一化后）记录于 metadata.chunk_strategy；content_hash 与生效
+        策略均未变化的重复上传是幂等 no-op，任一变化则新增 document_version。
+        知识库不存在、不支持的文件类型/策略组合均转为友好失败。
         """
         # source_uri 缺省用文件名，作为 (kb, source_uri) 的增量比对键
         effective_source_uri = source_uri or filename
@@ -71,19 +74,28 @@ class DocumentService:
                     FolderRepository(session), folder_id, knowledge_base_id
                 )
 
-            # 解析 + 切块（纯预处理，不落库）；不支持类型在此抛业务异常
-            parsed = ingest_file(filename, data)
+            # 解析 + 切块（纯预处理，不落库）；不支持类型/策略组合在此抛业务异常
+            parsed = ingest_file(filename, data, chunk_strategy)
             content = parsed["content"]
             content_hash = parsed["content_hash"]
             doc_type = parsed["doc_type"]
             parents = parsed["parents"]
+            effective_strategy = parsed["effective_strategy"]
             new_leaf_count = sum(len(p["children"]) for p in parents)
+            # 生效策略随用户备注一起并入文档 metadata（新建与重传两条路径共用）
+            merged_metadata = {**(metadata or {}), "chunk_strategy": effective_strategy}
 
             existing = await doc_repo.find_by_source(
                 knowledge_base_id, effective_source_uri
             )
 
-            if existing is not None and existing.content_hash == content_hash:
+            # 幂等双条件：内容与生效策略都未变才跳过；换策略重传即触发重切
+            if (
+                existing is not None
+                and existing.content_hash == content_hash
+                and (existing.doc_metadata or {}).get("chunk_strategy", "char")
+                == effective_strategy
+            ):
                 # 未变化：幂等 no-op，不新增块、不动计数
                 logger.info(f"[RAG] 文档未变化，跳过重新切块: {effective_source_uri}")
                 return existing.to_dict()
@@ -98,7 +110,7 @@ class DocumentService:
                 )
                 # 重新上传时按用户弹窗填写的文件夹/有效期/备注覆盖旧值
                 self._apply_upload_meta(
-                    doc, folder_id, valid_from, valid_until, metadata
+                    doc, folder_id, valid_from, valid_until, merged_metadata
                 )
                 await self._persist_chunk_tree(
                     chunk_repo, doc.id, doc.version, parents, doc.dept_id
@@ -116,7 +128,7 @@ class DocumentService:
                     source_uri=effective_source_uri,
                     source_system=source_system,
                     title=title or filename,
-                    metadata=metadata,
+                    metadata=merged_metadata,
                     folder_id=folder_id,
                     valid_from=valid_from,
                     valid_until=valid_until,

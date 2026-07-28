@@ -276,6 +276,7 @@ async function onUploadSubmit(payload: DocumentUploadFormPayload) {
             valid_from: payload.valid_from,
             valid_until: payload.valid_until,
             remark: payload.remark,
+            chunk_strategy: payload.chunk_strategy,
             // 左树选中了部门时挂到所选部门（仅 data_scope=all 生效），未选中由服务端注入
             dept_id: selectedDept.value?.id ?? null,
         });
@@ -406,6 +407,10 @@ onUnmounted(stopPolling);
 // —— 查看分块（抽屉）——
 const chunkDrawerVisible = ref(false);
 const chunkDoc = ref<RagDocument | null>(null);
+// 分块策略展示：structure→章节分块，char/缺省（存量文档）→通用分块
+const chunkStrategyLabel = computed(() =>
+    chunkDoc.value?.metadata?.chunk_strategy === "structure" ? "章节分块" : "通用分块"
+);
 function openChunks(doc: RagDocument) {
     chunkDoc.value = doc;
     chunkDrawerVisible.value = true;
@@ -527,7 +532,11 @@ function openChunks(doc: RagDocument) {
         <FolderFormDialog v-model:visible="folderDialogVisible" :record="editingFolder" :folders="folders"
             :knowledge-base-id="activeKb?.id ?? ''" :submitting="folderSubmitting"
             :default-parent-id="folderDefaultParentId" @submit="onFolderSubmit" />
-        <el-drawer v-model="chunkDrawerVisible" :title="chunkDoc?.title || '文档分块'" size="640px" direction="rtl">
+        <el-drawer v-model="chunkDrawerVisible" size="640px" direction="rtl">
+            <template #header>
+                <span>{{ chunkDoc?.title || '文档分块' }}</span>
+                <el-tag size="small" type="info">{{ chunkStrategyLabel }}</el-tag>
+            </template>
             <DocumentChunkTree v-if="chunkDoc" :document-id="chunkDoc.id" :document-version="chunkDoc.version" />
         </el-drawer>
     </section>

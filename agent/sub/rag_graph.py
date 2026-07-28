@@ -12,9 +12,13 @@ point id 去重，见 agent.tools.document.hybrid_retrieve），chat 模型走 v
 - generate_answer：基于重排序后的候选生成答案，并返回结构化 `{answer, sources[]}`。
 
 入口：模块级 `graph`（已 compile），可直接 graph.invoke(...) / graph.stream(...)。
-最终状态含 `answer`（字符串）与 `sources`（每项 `{text, source, score}`）。
+初始 state 可携带 `knowledge_base_id`（hex 无连字符）以检索指定知识库的
+Qdrant 集合；缺省时转 websearch 检索（见 agent.tools.document.hybrid_retrieve，暂未实现）。
+最终状态含 `answer`（字符串）与 `sources`（每项
+`{text, source, score, chapter_title, document_id, chunk_id}`）。
 """
 
+import uuid
 from typing import List
 
 from langchain_core.messages import HumanMessage
@@ -53,6 +57,8 @@ class RagState(MessagesState):
 
     # 原始问题（首轮从首条消息提取后固定）
     question: str
+    # 目标知识库 id（hex 无连字符）；缺省时转 websearch 检索（暂未实现）
+    knowledge_base_id: str
     # 当前用于检索的查询（反思扩展后更新）
     current_query: str
     # 混合召回并按 point id 去重后的候选：{point_id, text, source, score}
@@ -90,8 +96,12 @@ def retrieve_node(state: RagState):
     """混合召回：dense + sparse + 服务端 RRF，去重后合并进状态并追加上下文消息。"""
     question = state.get("question") or state["messages"][0].content
     query = state.get("current_query") or question
+    # 知识库 id 来自初始 state（hex 字符串），每轮检索都命中同一知识库；
+    # 缺省传 None 由工具层转 websearch 检索（暂未实现）
+    kb_hex = state.get("knowledge_base_id")
+    kb_id = uuid.UUID(kb_hex) if kb_hex else None
 
-    new_docs = hybrid_retrieve(query)
+    new_docs = hybrid_retrieve(query, knowledge_base_id=kb_id)
     merged = _merge_dedup(state.get("retrieved_docs", []), new_docs)
     round_no = state.get("reflect_round", 0) + 1
 
@@ -164,6 +174,9 @@ def generate_answer(state: RagState):
             "text": doc.get("text", ""),
             "source": doc.get("source", ""),
             "score": doc.get("score"),
+            "chapter_title": doc.get("chapter_title"),
+            "document_id": doc.get("document_id"),
+            "chunk_id": doc.get("chunk_id"),
         }
         for doc in docs
     ]
@@ -206,6 +219,8 @@ graph = build_graph()
 
 
 if __name__ == "__main__":
+    # 手动冒烟需在初始 state 传入 hex 格式的 knowledge_base_id（检索指定知识库）；
+    # 不传时工具层转 websearch 检索，当前未实现，会抛 NotImplementedError。
     result = graph.invoke(
         {
             "messages": [
@@ -213,7 +228,8 @@ if __name__ == "__main__":
                     "role": "user",
                     "content": "What does Lilian Weng say about types of reward hacking?",
                 }
-            ]
+            ],
+            "knowledge_base_id": "019fa739864b7d9297a65fb8058dbaa1",
         }
     )
     print("answer:", result["answer"])

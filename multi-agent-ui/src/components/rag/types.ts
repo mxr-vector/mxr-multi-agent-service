@@ -26,4 +26,6 @@ export interface DocumentUploadFormPayload {
   valid_from?: string;
   valid_until?: string;
   remark: string;
+  /** 分块策略：auto 自动 / char 通用分块 / structure 章节分块 */
+  chunk_strategy: string;
 }

@@ -45,6 +45,8 @@ export interface DocumentUploadParams {
   valid_until?: string;
   /** 备注，存入 metadata.remark */
   remark?: string;
+  /** 分块策略：auto 自动（默认）/ char 通用 / structure 章节（仅 md/docx/xlsx）；生效策略存入 metadata.chunk_strategy */
+  chunk_strategy?: string;
   /** 归属部门（仅 data_scope=all 生效，须为已存在部门）；缺省由服务端按用户上下文注入 */
   dept_id?: string | null;
 }
@@ -97,6 +99,7 @@ export const documentApi = {
     if (params.valid_from != null) form.append("valid_from", params.valid_from);
     if (params.valid_until != null) form.append("valid_until", params.valid_until);
     if (params.remark != null) form.append("remark", params.remark);
+    if (params.chunk_strategy != null) form.append("chunk_strategy", params.chunk_strategy);
     if (params.dept_id != null) form.append("dept_id", params.dept_id);
     return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.upload, form, {
       headers: { "Content-Type": "multipart/form-data" },
