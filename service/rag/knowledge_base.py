@@ -3,8 +3,10 @@ from typing import Any
 
 from database.postgre_client import get_session
 from database.rag.knowledge_base import KnowledgeBaseRepository
+from database.system.dept import DeptRepository
 from entity.rag.knowledge_base import KnowledgeBase
 from exception.bad_except import bad_except
+from utils.id import format_id
 from utils.page import PageResult, build_page_result
 from utils.user_context import UserContext, resolve_dept_filter, resolve_owner_dept
 
@@ -92,6 +94,7 @@ class KnowledgeBaseService:
         分页列出知识库（排除软删除的），可选按 keyword 过滤。
         部门边界由 ctx.data_scope 服务端强制：all 档尊重 dept_ids 参数，
         其余档忽略参数；空集边界直接返回空页。
+        列表项以当页 dept_id 批量聚合 dept_name（未归属/无对应部门为 None，零 N+1）。
         """
         flt = await resolve_dept_filter(ctx, dept_ids)
         if flt.is_empty_boundary:
@@ -105,7 +108,42 @@ class KnowledgeBaseService:
                 dept_ids=flt.dept_ids,
                 owner=flt.owner,
             )
-            return build_page_result([kb.to_dict() for kb in kbs], total, page, size)
+            # 当页 dept_id（hex 非空）集合批量查部门名映射（与用户列表同模式）
+            page_dept_uuids = list({uuid.UUID(kb.dept_id) for kb in kbs if kb.dept_id})
+            depts = await DeptRepository(session).list_by_ids(page_dept_uuids)
+            dept_name_map = {format_id(d.id): d.name for d in depts}
+            enriched = []
+            for kb in kbs:
+                data = kb.to_dict()
+                data["dept_name"] = (
+                    dept_name_map.get(kb.dept_id) if kb.dept_id else None
+                )
+                enriched.append(data)
+            return build_page_result(enriched, total, page, size)
+
+    async def list_visible_ids(self, ctx: UserContext) -> "list[str]":
+        """
+        列出当前用户可检索的全部 active 知识库 id（hex 无连字符，不分页）。
+
+        供问答链路在用户未选择知识库时解析缺省检索范围（跨库扇出，
+        见 agent.sub.rag_graph 的 knowledge_base_ids）：部门边界由 ctx.data_scope
+        服务端强制，空集边界直接返回空列表（宁可看不见，不可看错）；
+        缺省范围只命中非私有库（visibility != 'private'），但本人为属主的
+        私有库豁免（对本人缺省可检索），他人私有库须显式选择。
+        注：返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
+        """
+        flt = await resolve_dept_filter(ctx)
+        if flt.is_empty_boundary:
+            return []
+        async with get_session() as session:
+            repo = KnowledgeBaseRepository(session)
+            ids = await repo.list_active_ids(
+                dept_ids=flt.dept_ids,
+                owner=flt.owner,
+                exclude_private=True,
+                private_owner=ctx.username,
+            )
+            return [format_id(kb_id) for kb_id in ids]
 
     async def get(self, kb_id: uuid.UUID) -> dict:
         """按 id 获取知识库，不存在时抛出业务异常。"""

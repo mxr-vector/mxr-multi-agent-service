@@ -104,6 +104,39 @@ class KnowledgeBaseRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
+    async def list_active_ids(
+        self,
+        dept_ids: "list[str] | None" = None,
+        owner: str | None = None,
+        exclude_private: bool = False,
+        private_owner: str | None = None,
+    ) -> "list[uuid.UUID]":
+        """
+        列出 status='active' 的知识库 id（不分页），供检索链路解析缺省扇出范围；
+        仅 active 参与检索（archived 已归档不进入缺省检索范围）。
+        可选按 dept_ids IN / owner 等值过滤（数据权限边界由 service 层换算）；
+        exclude_private=True 时排除 visibility='private' 的知识库，但 private_owner
+        指定的属主豁免（本人的私有库对本人缺省可检索）。
+
+        注：参数/返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
+        """
+        stmt = select(KnowledgeBase.id).where(KnowledgeBase.status == "active")
+        if dept_ids is not None:
+            stmt = stmt.where(KnowledgeBase.dept_id.in_(dept_ids))
+        if owner is not None:
+            stmt = stmt.where(KnowledgeBase.owner == owner)
+        if exclude_private:
+            not_private = KnowledgeBase.visibility != "private"
+            if private_owner is not None:
+                # 属主豁免：本人的私有库仍进入缺省检索范围
+                stmt = stmt.where(
+                    or_(not_private, KnowledgeBase.owner == private_owner)
+                )
+            else:
+                stmt = stmt.where(not_private)
+        result = await self.session.execute(stmt)
+        return [row[0] for row in result.all()]
+
     async def get(self, kb_id: uuid.UUID) -> KnowledgeBase | None:
         """按 id 获取知识库，不存在返回 None（含软删除的行也会返回，由业务层决定语义）。"""
         return await self.session.get(KnowledgeBase, kb_id)

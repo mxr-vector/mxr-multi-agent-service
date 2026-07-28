@@ -261,21 +261,28 @@ class QdrantManager:
         limit: int = 5,
         prefetch_limit: Optional[int] = None,
         with_payload: bool = True,
+        dense_vector=None,
+        sparse_vector=None,
     ):
         """
         高层混合检索：一次 Query API 调用同时发起 dense 与 sparse 预取，
         由服务端 RRF 融合排序，并按 point id 去重后返回。
 
         - dense 向量由 embedding 工厂生成，sparse 向量由 BM25 词法编码器生成；
+          两者均可由调用方预先算好传入（如多集合扇出复用同一查询向量），
+          缺省时在本方法内按 query 生成；
         - prefetch_limit 控制单通道召回广度，缺省与 limit 一致；
         - limit 为融合后保留的候选上限。
         返回去重后的 ScoredPoint 列表（含 id / score / payload）。
         """
-        from model.embeddings.factory import get_embedding_client
-        from model.sparse.bm25 import embed_query as sparse_embed_query
+        if dense_vector is None:
+            from model.embeddings.factory import get_embedding_client
 
-        dense_vector = get_embedding_client().embed_query(query)
-        sparse_vector = sparse_embed_query(query)
+            dense_vector = get_embedding_client().embed_query(query)
+        if sparse_vector is None:
+            from model.sparse.bm25 import embed_query as sparse_embed_query
+
+            sparse_vector = sparse_embed_query(query)
         prefetch_limit = prefetch_limit if prefetch_limit is not None else limit
 
         response = self.client.query_points(

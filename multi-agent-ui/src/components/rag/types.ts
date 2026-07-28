@@ -6,6 +6,8 @@ export interface KnowledgeBaseFormPayload {
   description: string;
   visibility: string;
   status: string;
+  /** 归属部门（仅新建态且 data_scope=all 可选，null 表示未选） */
+  dept_id: string | null;
 }
 
 /** 文件夹表单弹窗提交的载荷。 */

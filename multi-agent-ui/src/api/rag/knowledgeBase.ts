@@ -5,6 +5,8 @@ import { KNOWLEDGE_BASE_URL, type PageResult } from "./index";
 export interface KnowledgeBase {
   id: string;
   dept_id: string;
+  /** 归属部门名（列表接口由后端按当页 dept_id 批量聚合；未归属/无对应部门为 null） */
+  dept_name?: string | null;
   name: string;
   description: string | null;
   icon: string | null;

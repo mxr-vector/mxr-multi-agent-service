@@ -29,8 +29,10 @@ const userStore = useUserStore();
 const showDeptTree = computed(() => userStore.dataScope === "all");
 // 左侧部门树选中的子树 id 集合（null 表示不过滤）
 const deptFilterIds = ref<string[] | null>(null);
-// 左侧部门树当前选中的节点（新建知识库时作为归属部门）
+// 左侧部门树当前选中的节点（新建知识库时作为默认归属部门）
 const selectedDept = ref<Dept | null>(null);
+// 部门扁平列表（复用 DeptTreePanel loaded 事件，供新建弹窗部门树选择，免重复请求）
+const deptList = ref<Dept[]>([]);
 
 // 全局统计（汇总卡片数据源，与列表共用部门筛选口径）
 const stats = ref<RagStats>({
@@ -112,8 +114,9 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
                 name: payload.name,
                 description: payload.description || null,
                 visibility: payload.visibility,
-                // 左树选中了部门时挂到所选部门（仅 data_scope=all 生效），未选中由服务端注入
-                dept_id: selectedDept.value?.id ?? null,
+                // 优先用弹窗显式选择的归属部门（仅 data_scope=all 生效），
+                // 未选回退左树选中部门，仍未选由服务端按用户上下文注入
+                dept_id: payload.dept_id ?? selectedDept.value?.id ?? null,
             });
             ElMessage.success("知识库已创建");
         }
@@ -149,7 +152,7 @@ onMounted(() => {
     <section class="rag-page list-page" v-loading="loading" element-loading-text="加载中…">
         <div class="kb-layout">
             <!-- 左栏：通用部门树（仅 data_scope=all 渲染），选中子树驱动右侧列表与统计过滤 -->
-            <DeptTreePanel v-if="showDeptTree" @select="onDeptSelect" />
+            <DeptTreePanel v-if="showDeptTree" @select="onDeptSelect" @loaded="deptList = $event" />
             <div class="kb-main">
                 <section class="summary-grid">
                     <article>
@@ -190,6 +193,7 @@ onMounted(() => {
         </div>
 
         <KnowledgeBaseFormDialog v-model:visible="dialogVisible" :record="editing" :submitting="submitting"
+            :show-dept="showDeptTree" :dept-list="deptList" :default-dept-id="selectedDept?.id ?? null"
             @submit="handleSubmit" />
     </section>
 </template>

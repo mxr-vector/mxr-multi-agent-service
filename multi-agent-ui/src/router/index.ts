@@ -4,6 +4,7 @@ import Workspace from "@/views/Workspace.vue";
 import { getToken } from "@/utils/auth";
 import { useMenuStore } from "@/stores/menuStore";
 import { useUserStore } from "@/stores/userStore";
+import { useDictStore } from "@/stores/dictStore";
 import { navigationItems, type NavigationItem } from "./navigation";
 
 // 自动扫描 @/views 下的页面组件（登录页除外），生成 组件键 -> 异步加载函数 映射；
@@ -130,9 +131,15 @@ router.beforeEach(async (to) => {
     const dataScopeReady = useUserStore()
       .ensureDataScope()
       .catch(() => {});
+    // 同模式并行预热全局词典（状态/可见性等下拉与标签文案数据源），
+    // 失败不阻断导航（组件侧 getLabel/getOptions 有原值回退）
+    const dictReady = useDictStore()
+      .ensureLoaded()
+      .catch(() => {});
     await menuStore.loadMenus();
     registerDynamicRoutes(menuStore.dynamicItems);
     await dataScopeReady;
+    await dictReady;
     return { path: to.path, query: to.query, hash: to.hash, replace: true };
   }
   return true;
