@@ -55,6 +55,10 @@ async def upload_document(
     remark: Optional[str] = Form(
         default=None, description="备注，存入 metadata.remark"
     ),
+    dept_id: Optional[str] = Form(
+        default=None,
+        description="归属部门（32 位 hex；仅 data_scope=all 生效，须为已存在部门）",
+    ),
     ctx: UserContext = Depends(get_user_context),
 ):
     """上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op。"""
@@ -72,6 +76,7 @@ async def upload_document(
         folder_id=folder_id,
         valid_from=valid_from,
         valid_until=valid_until,
+        dept_id=dept_id,
     )
     return R.success(data=doc)
 

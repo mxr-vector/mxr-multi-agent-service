@@ -4,7 +4,7 @@ import { DOCUMENT_URL, type PageResult } from "./index";
 /** 文档实体（对应后端 rag_documents.to_dict） */
 export interface RagDocument {
   id: string;
-  /** 归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由服务端注入，不可变 */
+  /** 归属组织/部门（逻辑指向 sys_dept.id，空字符串表示未归属），由服务端注入，不可变 */
   dept_id: string;
   knowledge_base_id: string;
   folder_id: string | null;
@@ -45,6 +45,8 @@ export interface DocumentUploadParams {
   valid_until?: string;
   /** 备注，存入 metadata.remark */
   remark?: string;
+  /** 归属部门（仅 data_scope=all 生效，须为已存在部门）；缺省由服务端按用户上下文注入 */
+  dept_id?: string | null;
 }
 
 /** 分页列出文档参数 */
@@ -95,6 +97,7 @@ export const documentApi = {
     if (params.valid_from != null) form.append("valid_from", params.valid_from);
     if (params.valid_until != null) form.append("valid_until", params.valid_until);
     if (params.remark != null) form.append("remark", params.remark);
+    if (params.dept_id != null) form.append("dept_id", params.dept_id);
     return request.post<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.upload, form, {
       headers: { "Content-Type": "multipart/form-data" },
     });

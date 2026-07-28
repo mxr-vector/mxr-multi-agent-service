@@ -40,7 +40,7 @@ class KnowledgeBaseRepository:
     async def create(
         self,
         name: str,
-        dept_id: str = "default",
+        dept_id: str = "",
         description: str | None = None,
         icon: str | None = None,
         embedding_provider: str | None = None,

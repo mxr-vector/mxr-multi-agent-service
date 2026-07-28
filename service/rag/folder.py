@@ -31,7 +31,7 @@ class FolderService:
         创建文件夹并返回其数据（含数据库生成的 id）。
 
         校验所属知识库存在、未删除且对当前上下文可见；dept_id 从上下文注入
-        （机器通道 / 无部门用户兜底 'default'）；提供 parent_id 时校验父文件夹
+        （机器通道 / 无部门用户兜底空字符串）；提供 parent_id 时校验父文件夹
         存在且同属该知识库。
         """
         async with get_session() as session:
@@ -46,7 +46,7 @@ class FolderService:
                 knowledge_base_id=knowledge_base_id,
                 parent_id=parent_id,
                 sort_order=sort_order,
-                dept_id=ctx.dept_id or "default",
+                dept_id=ctx.dept_id or "",
             )
             await session.commit()
             return folder.to_dict()

@@ -3,7 +3,9 @@
 // 选中节点时向外发射该节点及其全部后代的部门 id 集合（子树过滤用），
 // 并把加载到的扁平列表通过 loaded 暴露给消费方复用，避免页面重复请求。
 import { onMounted, ref, watch } from "vue";
-import { ElTree } from "element-plus";
+// 仅作类型使用须用 import type：值导入会让 unplugin-vue-components 跳过
+// 模板中 <el-tree> 的自动解析，导致其按需样式不注入（刷新直达本页时树样式丢失）
+import type { ElTree } from "element-plus";
 import {
     deptApi,
     buildDeptTree,

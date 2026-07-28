@@ -30,7 +30,7 @@ CREATE SCHEMA IF NOT EXISTS rag;
 -- ------------------------------------------------------------
 CREATE TABLE rag.rag_folders (
     id                UUID PRIMARY KEY DEFAULT uuidv7(),
-    dept_id           VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
+    dept_id           VARCHAR(64) NOT NULL DEFAULT '', -- 归属组织/部门(逻辑指向 sys_dept.id, 空字符串表示未归属), 由业务层注入
     knowledge_base_id UUID NOT NULL,           -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性, 创建后不可变
     parent_id         UUID,                    -- 逻辑关联 rag.rag_folders.id, 同一知识库内自引用, NULL 表示根文件夹
     name              TEXT NOT NULL,
@@ -54,7 +54,7 @@ CREATE INDEX idx_rag_folders_parent ON rag.rag_folders (parent_id);
 CREATE TABLE rag.rag_knowledge_bases (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    dept_id             VARCHAR(64) NOT NULL DEFAULT '', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
+    dept_id             VARCHAR(64) NOT NULL DEFAULT '', -- 归属组织/部门(逻辑指向 sys_dept.id, 空字符串表示未归属), 由业务层注入
 
     name                TEXT NOT NULL,               -- 知识库名称, 前端展示用
     description         TEXT,
@@ -93,7 +93,7 @@ CREATE INDEX idx_rag_kb_status   ON rag.rag_knowledge_bases (status) WHERE statu
 CREATE TABLE rag.rag_documents (
     id              UUID PRIMARY KEY DEFAULT uuidv7(),
 
-    dept_id         VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 由业务层注入
+    dept_id         VARCHAR(64) NOT NULL DEFAULT '', -- 归属组织/部门(逻辑指向 sys_dept.id, 空字符串表示未归属), 由业务层注入
 
     knowledge_base_id  UUID NOT NULL,          -- 逻辑关联 rag.rag_knowledge_bases.id, 业务层保证存在性
     folder_id       UUID,                       -- 逻辑关联 rag.rag_folders.id, 同一知识库内的文件夹, NULL 表示知识库根目录, 业务层保证存在性与同库一致性
@@ -143,7 +143,7 @@ CREATE INDEX idx_rag_documents_valid_until  ON rag.rag_documents (valid_until) W
 CREATE TABLE rag.rag_chunks (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),  -- 与 Qdrant point id 保持一致, 用于命中后回查
 
-    dept_id             VARCHAR(64) NOT NULL DEFAULT 'default', -- 归属组织/部门(逻辑指向 sys_dept.id, 'default' 表示未归属), 冗余存储所属文档的 dept_id, 由业务层注入
+    dept_id             VARCHAR(64) NOT NULL DEFAULT '', -- 归属组织/部门(逻辑指向 sys_dept.id, 空字符串表示未归属), 冗余存储所属文档的 dept_id, 由业务层注入
 
     document_id         UUID NOT NULL,          -- 逻辑关联 rag.rag_documents.id, 业务层保证存在性
     parent_chunk_id     UUID,                   -- 逻辑关联 rag.rag_chunks.id (自引用), 业务层保证存在性

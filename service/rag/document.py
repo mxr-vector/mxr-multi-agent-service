@@ -14,7 +14,7 @@ from utils.file_ingest import ingest_file
 from utils.id import format_id
 from utils.logger import logger
 from utils.page import PageResult, build_page_result
-from utils.user_context import UserContext, resolve_dept_filter
+from utils.user_context import UserContext, resolve_dept_filter, resolve_owner_dept
 
 
 class DocumentService:
@@ -42,18 +42,20 @@ class DocumentService:
         folder_id: uuid.UUID | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
+        dept_id: str | None = None,
     ) -> dict:
         """
         上传文件：解析 + 两级切块 + 持久化到 PG（不向量化）。
 
-        目标知识库须对当前上下文可见（数据权限收口）；dept_id 从上下文注入
-        （机器通道 / 无部门用户兜底 'default'）。
+        目标知识库须对当前上下文可见（数据权限收口）；归属部门经
+        resolve_owner_dept 换算：仅 all 档尊重显式 dept_id（须存在），
+        其余档位强制本人部门（机器通道 / 无部门用户兜底空字符串）。
         content_hash 未变化的重复上传是幂等 no-op；变化则新增 document_version。
         知识库不存在、不支持的文件类型均转为友好失败。
         """
         # source_uri 缺省用文件名，作为 (kb, source_uri) 的增量比对键
         effective_source_uri = source_uri or filename
-        dept_id = ctx.dept_id or "default"
+        owner_dept = await resolve_owner_dept(ctx, dept_id)
 
         async with get_session() as session:
             kb_repo = KnowledgeBaseRepository(session)
@@ -118,7 +120,7 @@ class DocumentService:
                     folder_id=folder_id,
                     valid_from=valid_from,
                     valid_until=valid_until,
-                    dept_id=dept_id,
+                    dept_id=owner_dept,
                 )
                 await self._persist_chunk_tree(
                     chunk_repo, doc.id, doc.version, parents, doc.dept_id
@@ -165,7 +167,7 @@ class DocumentService:
         document_id: uuid.UUID,
         document_version: int,
         parents: list[dict[str, Any]],
-        dept_id: str = "default",
+        dept_id: str = "",
     ) -> None:
         """先插 level 1 父块拿到 id，再插 level 0 叶块并回填 parent_chunk_id。"""
         parent_chunks = [

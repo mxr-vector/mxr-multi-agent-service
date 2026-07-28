@@ -17,7 +17,7 @@ class KnowledgeBase(Base):
     - id 主键使用时间有序的 UUIDv7：正常创建路径由应用端（uuid_utils.compat.uuid7）
       生成并显式传入，以便同一事务内由 id 派生 Qdrant collection 名；
       server_default=text("uuidv7()") 保留作为底层兜底（省略 id 的直接插入仍能得到时间有序 id）；
-    - dept_id 为归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由业务层注入，建库后不可变；
+    - dept_id 为归属组织/部门（逻辑指向 sys_dept.id，空字符串表示未归属），由业务层注入，建库后不可变；
     - qdrant_collection / embedding_* 建库后不可变，避免与未来 Qdrant collection 失配；
     - status 取值 'active'/'archived'/'deleted'，删除采用软删除（status='deleted'）；
     - document_count / total_chunk_count 为冗余计数，本轮保持默认。
@@ -34,7 +34,7 @@ class KnowledgeBase(Base):
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
     dept_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=text("'default'")
+        String(64), nullable=False, server_default=text("''")
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 

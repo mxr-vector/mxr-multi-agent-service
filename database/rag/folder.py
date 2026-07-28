@@ -26,7 +26,7 @@ class FolderRepository:
         knowledge_base_id: uuid.UUID,
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
-        dept_id: str = "default",
+        dept_id: str = "",
     ) -> Folder:
         """插入一条文件夹，id 由数据库 uuidv7() 生成。"""
         folder = Folder(

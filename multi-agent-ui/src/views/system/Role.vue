@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElTree, type FormInstance, type FormRules } from "element-plus";
+// ElTree 仅作类型使用须 import type：值导入会让 unplugin-vue-components 跳过
+// 模板中 <el-tree> 的自动解析，导致其按需样式不注入（刷新直达本页时树样式丢失）
+import { ElMessage, type ElTree, type FormInstance, type FormRules } from "element-plus";
 import { roleApi, type Role } from "@/api/system/role";
 import { menuApi, buildMenuTree, type MenuTreeNode } from "@/api/system/menu";
 import { confirmDanger } from "@/utils/confirm";

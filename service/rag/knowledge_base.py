@@ -6,7 +6,7 @@ from database.rag.knowledge_base import KnowledgeBaseRepository
 from entity.rag.knowledge_base import KnowledgeBase
 from exception.bad_except import bad_except
 from utils.page import PageResult, build_page_result
-from utils.user_context import UserContext, resolve_dept_filter
+from utils.user_context import UserContext, resolve_dept_filter, resolve_owner_dept
 
 
 async def assert_kb_visible(
@@ -54,18 +54,21 @@ class KnowledgeBaseService:
         embedding_dim: int | None = None,
         visibility: str = "private",
         owner: str | None = None,
+        dept_id: str | None = None,
     ) -> dict:
         """
         创建知识库（仅元数据，不创建 Qdrant collection）。
-        dept_id 从用户上下文注入（机器通道 / 无部门用户兜底 'default'）；
+        归属部门经 resolve_owner_dept 换算：仅 all 档尊重显式 dept_id（须存在），
+        其余档位强制本人部门（机器通道 / 无部门用户兜底空字符串）；
         用户通道 owner 缺省为当前用户名。
         qdrant_collection 由持久层由 id 派生，不接受外部传入。
         """
+        owner_dept = await resolve_owner_dept(ctx, dept_id)
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.create(
                 name=name,
-                dept_id=ctx.dept_id or "default",
+                dept_id=owner_dept,
                 description=description,
                 icon=icon,
                 embedding_provider=embedding_provider,

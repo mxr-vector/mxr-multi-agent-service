@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { knowledgeBaseApi, type KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { statsApi, type RagStats } from "@/api/rag/stats";
+import type { Dept } from "@/api/system/dept";
 import { confirmDanger } from "@/utils/confirm";
 import { useUserStore } from "@/stores/userStore";
 import KnowledgeBaseTable from "@/components/rag/KnowledgeBaseTable.vue";
@@ -21,11 +22,15 @@ const page = ref(1);
 const size = ref(20);
 const total = ref(0);
 
-// 部门树筛选：仅 data_scope=all 的用户展示树面板（其余档位后端强制边界）
+// 部门树筛选：仅 data_scope=all 的用户展示树面板（其余档位后端强制边界）。
+// 用 computed 而非一次性赋值：store 已缓存 data_scope 时同步渲染，
+// 避免每次进入页面都等 /auth/me 返回后才异步插入树（概率性闪现/缺失）
 const userStore = useUserStore();
-const showDeptTree = ref(false);
+const showDeptTree = computed(() => userStore.dataScope === "all");
 // 左侧部门树选中的子树 id 集合（null 表示不过滤）
 const deptFilterIds = ref<string[] | null>(null);
+// 左侧部门树当前选中的节点（新建知识库时作为归属部门）
+const selectedDept = ref<Dept | null>(null);
 
 // 全局统计（汇总卡片数据源，与列表共用部门筛选口径）
 const stats = ref<RagStats>({
@@ -57,9 +62,10 @@ async function loadStats() {
     if (res.data) stats.value = res.data;
 }
 
-/** 部门树选中变化：重置页码后按新边界重查列表与统计 */
-function onDeptSelect(deptIds: string[] | null) {
+/** 部门树选中变化：记录选中节点、重置页码后按新边界重查列表与统计 */
+function onDeptSelect(deptIds: string[] | null, dept: Dept | null) {
     deptFilterIds.value = deptIds;
+    selectedDept.value = dept;
     page.value = 1;
     loadKnowledgeBases();
     loadStats();
@@ -106,6 +112,8 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
                 name: payload.name,
                 description: payload.description || null,
                 visibility: payload.visibility,
+                // 左树选中了部门时挂到所选部门（仅 data_scope=all 生效），未选中由服务端注入
+                dept_id: selectedDept.value?.id ?? null,
             });
             ElMessage.success("知识库已创建");
         }
@@ -128,11 +136,12 @@ async function removeKnowledgeBase(base: KnowledgeBase) {
     await loadStats();
 }
 
-onMounted(async () => {
+onMounted(() => {
     loadKnowledgeBases();
     loadStats();
-    // data_scope 懒加载（登录响应不含），仅 all 档渲染部门树筛选
-    showDeptTree.value = (await userStore.ensureDataScope()) === "all";
+    // data_scope 懒加载（登录响应不含），showDeptTree 由 computed 响应式跟随；
+    // /auth/me 失败不阻断页面主体，仅部门树入口缺失
+    userStore.ensureDataScope().catch(() => { });
 });
 </script>
 

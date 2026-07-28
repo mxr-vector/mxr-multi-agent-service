@@ -15,7 +15,7 @@ class Document(Base):
     父文档 ORM 模型（映射 rag_documents）。
 
     - id 由 PostgreSQL 18 的 uuidv7() 服务端默认生成，可直接与 Qdrant 关联；
-    - dept_id 为归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由业务层注入，建库后不可变；
+    - dept_id 为归属组织/部门（逻辑指向 sys_dept.id，空字符串表示未归属），由业务层注入，建库后不可变；
     - knowledge_base_id 逻辑关联 rag_knowledge_bases.id，不加外键/relationship；
     - content_hash 为 sha256(content)，用于判断源文件是否变更（增量同步）；
     - status 取值 'pending'/'active'/'reindexing'/'deleted'，由业务层校验（无 CHECK）；
@@ -33,7 +33,7 @@ class Document(Base):
     )
 
     dept_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=text("'default'")
+        String(64), nullable=False, server_default=text("''")
     )
 
     knowledge_base_id: Mapped[uuid.UUID] = mapped_column(

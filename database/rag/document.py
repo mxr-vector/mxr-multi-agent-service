@@ -54,7 +54,7 @@ class DocumentRepository:
         valid_until: datetime | None = None,
         status: str = "pending",
         version: int = 1,
-        dept_id: str = "default",
+        dept_id: str = "",
     ) -> Document:
         """插入一条文档（默认 status='pending'，尚未向量化）。
 

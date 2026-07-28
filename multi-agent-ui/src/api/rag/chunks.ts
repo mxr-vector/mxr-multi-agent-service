@@ -4,7 +4,7 @@ import { CHUNK_URL, type PageResult } from "./index";
 /** 分块实体（对应后端 rag_chunks.to_dict） */
 export interface Chunk {
   id: string;
-  /** 归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由服务端注入，不可变 */
+  /** 归属组织/部门（逻辑指向 sys_dept.id，空字符串表示未归属），由服务端注入，不可变 */
   dept_id: string;
   document_id: string;
   parent_chunk_id: string | null;

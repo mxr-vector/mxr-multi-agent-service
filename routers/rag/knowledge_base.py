@@ -15,8 +15,10 @@ _service = KnowledgeBaseService()
 
 
 class KnowledgeBaseCreate(BaseModel):
-    """创建知识库请求体（仅元数据，不创建 Qdrant collection；dept_id 由服务端注入）。
+    """创建知识库请求体（仅元数据，不创建 Qdrant collection）。
 
+    dept_id 可选：仅 data_scope=all 生效（须为已存在部门），
+    其余档位/缺省时由服务端按用户上下文注入。
     qdrant_collection 由后端由 id 派生，不在请求体中暴露。
     """
 
@@ -28,6 +30,7 @@ class KnowledgeBaseCreate(BaseModel):
     embedding_dim: Optional[int] = None
     visibility: str = "private"
     owner: Optional[str] = None
+    dept_id: Optional[str] = None
 
 
 class KnowledgeBaseUpdate(BaseModel):
@@ -46,7 +49,7 @@ async def create_knowledge_base(
     payload: KnowledgeBaseCreate = Body(...),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """创建知识库（仅元数据，dept_id 从用户上下文注入，机器通道兜底 'default'）。"""
+    """创建知识库（仅元数据；dept_id 仅 all 档尊重请求值，其余从用户上下文注入）。"""
     kb = await _service.create(
         ctx,
         name=payload.name,
@@ -57,6 +60,7 @@ async def create_knowledge_base(
         embedding_dim=payload.embedding_dim,
         visibility=payload.visibility,
         owner=payload.owner,
+        dept_id=payload.dept_id,
     )
     return R.success(data=kb)
 

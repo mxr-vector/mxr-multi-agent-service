@@ -120,7 +120,7 @@ class ChunkRepository:
         page_end: int | None = None,
         content_hash: str | None = None,
         metadata: dict[str, Any] | None = None,
-        dept_id: str = "default",
+        dept_id: str = "",
     ) -> Chunk:
         """构造一个未落库的 Chunk 实例，供业务层装配父子引用后批量插入。"""
         return Chunk(

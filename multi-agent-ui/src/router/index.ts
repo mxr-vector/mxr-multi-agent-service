@@ -3,6 +3,7 @@ import MainLayout from "@/layout/MainLayout.vue";
 import Workspace from "@/views/Workspace.vue";
 import { getToken } from "@/utils/auth";
 import { useMenuStore } from "@/stores/menuStore";
+import { useUserStore } from "@/stores/userStore";
 import { navigationItems, type NavigationItem } from "./navigation";
 
 // 自动扫描 @/views 下的页面组件（登录页除外），生成 组件键 -> 异步加载函数 映射；
@@ -122,8 +123,16 @@ router.beforeEach(async (to) => {
   }
   const menuStore = useMenuStore();
   if (!menuStore.loaded) {
+    // 与菜单加载并行预热 data_scope（刷新后内存态丢失）：
+    // 让依赖 dataScope 的页面（如 RAG 部门树 v-if）在挂载时即可同步判定，
+    // 避免等 /auth/me 返回后才异步插入树造成的概率性闪现/布局跳动；
+    // 失败不阻断导航（消费页仍会各自 ensureDataScope 重试）
+    const dataScopeReady = useUserStore()
+      .ensureDataScope()
+      .catch(() => {});
     await menuStore.loadMenus();
     registerDynamicRoutes(menuStore.dynamicItems);
+    await dataScopeReady;
     return { path: to.path, query: to.query, hash: to.hash, replace: true };
   }
   return true;

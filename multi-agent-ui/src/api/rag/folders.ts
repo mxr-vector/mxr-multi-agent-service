@@ -4,7 +4,7 @@ import { FOLDER_URL, type PageResult } from "./index";
 /** 文件夹实体（对应后端 rag_folders.to_dict） */
 export interface Folder {
   id: string;
-  /** 归属组织/部门（逻辑指向 sys_dept.id，'default' 表示未归属），由服务端注入，不可变 */
+  /** 归属组织/部门（逻辑指向 sys_dept.id，空字符串表示未归属），由服务端注入，不可变 */
   dept_id: string;
   /** 所属知识库 id，创建后不可变 */
   knowledge_base_id: string;

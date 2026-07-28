@@ -53,11 +53,21 @@ export const useUserStore = defineStore("user", () => {
     return res.data;
   }
 
+  /** ensureDataScope 的在途请求：并发调用共享同一次 /auth/me（单飞去重） */
+  let dataScopePromise: Promise<DataScope> | null = null;
+
   /** 确保 data_scope 已加载（登录响应不含该字段，缺失时懒拉 /auth/me） */
   async function ensureDataScope(): Promise<DataScope> {
     if (userInfo.value?.data_scope) return userInfo.value.data_scope;
-    const user = await fetchUserInfo();
-    return user.data_scope;
+    if (!dataScopePromise) {
+      dataScopePromise = fetchUserInfo()
+        .then((user) => user.data_scope)
+        .finally(() => {
+          // 成功后走缓存分支；失败允许下次重试
+          dataScopePromise = null;
+        });
+    }
+    return dataScopePromise;
   }
 
   return { token, userInfo, dataScope, login, logout, fetchUserInfo, ensureDataScope };

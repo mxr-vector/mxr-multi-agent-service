@@ -21,7 +21,7 @@ export interface KnowledgeBase {
   updated_at: string;
 }
 
-/** 创建知识库请求体（仅元数据，不创建 Qdrant collection；dept_id 由服务端注入；qdrant_collection 由后端由 id 派生） */
+/** 创建知识库请求体（仅元数据，不创建 Qdrant collection；qdrant_collection 由后端由 id 派生） */
 export interface KnowledgeBaseCreatePayload {
   name: string;
   description?: string | null;
@@ -31,6 +31,8 @@ export interface KnowledgeBaseCreatePayload {
   embedding_dim?: number | null;
   visibility?: string;
   owner?: string | null;
+  /** 归属部门（仅 data_scope=all 生效，须为已存在部门）；缺省由服务端按用户上下文注入 */
+  dept_id?: string | null;
 }
 
 /** 更新知识库请求体（仅可编辑元数据；dept_id/qdrant_collection/embedding_* 不可变） */

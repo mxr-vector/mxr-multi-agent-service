@@ -12,6 +12,7 @@ import DocumentUploadDialog from "@/components/rag/DocumentUploadDialog.vue";
 import FolderFormDialog from "@/components/rag/FolderFormDialog.vue";
 import KnowledgeTree from "@/components/rag/KnowledgeTree.vue";
 import DeptTreePanel from "@/components/DeptTreePanel.vue";
+import type { Dept } from "@/api/system/dept";
 import Pagination from "@/components/Pagination.vue";
 import SvgIcon from "@/components/SvgIcon.vue";
 import type { FolderFormPayload, DocumentUploadFormPayload } from "@/components/rag/types";
@@ -25,20 +26,26 @@ const syncLegend = [
 ];
 
 // —— 部门树筛选：通用 DeptTreePanel，仅 data_scope=all 渲染（其余档位后端强制边界）——
-// 部门选中仅驱动文档列表的 dept_ids 过滤，不联动知识库树状态
+// 部门选中仅驱动文档列表的 dept_ids 过滤，不联动知识库树状态；
+// showDeptTree 用 computed：store 已缓存 data_scope 时同步渲染，
+// 避免每次进入页面都等 /auth/me 返回后才异步插入树（概率性闪现/缺失）
 const userStore = useUserStore();
-const showDeptTree = ref(false);
+const showDeptTree = computed(() => userStore.dataScope === "all");
 const deptFilterIds = ref<string[] | null>(null);
+// 部门树当前选中的节点（上传文档时作为归属部门）
+const selectedDept = ref<Dept | null>(null);
 
-function onDeptSelect(deptIds: string[] | null) {
+function onDeptSelect(deptIds: string[] | null, dept: Dept | null) {
     deptFilterIds.value = deptIds;
+    selectedDept.value = dept;
     page.value = 1;
     loadDocuments();
 }
 
-onMounted(async () => {
-    // data_scope 懒加载（登录响应不含该字段）
-    showDeptTree.value = (await userStore.ensureDataScope()) === "all";
+onMounted(() => {
+    // data_scope 懒加载（登录响应不含），showDeptTree 由 computed 响应式跟随；
+    // /auth/me 失败不阻断页面主体，仅部门树入口缺失
+    userStore.ensureDataScope().catch(() => { });
 });
 
 // —— 数据源 ——
@@ -241,6 +248,8 @@ async function onUploadSubmit(payload: DocumentUploadFormPayload) {
             valid_from: payload.valid_from,
             valid_until: payload.valid_until,
             remark: payload.remark,
+            // 左树选中了部门时挂到所选部门（仅 data_scope=all 生效），未选中由服务端注入
+            dept_id: selectedDept.value?.id ?? null,
         });
         ElMessage.success("上传成功，已完成解析与切块");
         uploadDialogVisible.value = false;

@@ -9,6 +9,8 @@ user_context.py - 请求级用户上下文与数据权限（data_scope）解析�
   供本依赖与 /auth/me 复用。
 - `resolve_dept_filter`：把「上下文 + 前端请求的 dept_ids」换算为持久层可
   直接下推的过滤条件（部门 id 集合 / owner），非 all 档忽略前端参数。
+- `resolve_owner_dept`：换算创建/上传类写操作的归属部门，仅 all 档尊重
+  前端显式指定的部门，其余档强制本人部门。
 
 档位全序（宽 → 窄）：all > dept_and_child > dept > self。
 """
@@ -145,3 +147,28 @@ async def resolve_dept_filter(
     async with get_session() as session:
         descendants = await DeptRepository(session).list_descendant_ids(dept_uuid)
     return DeptFilter(dept_ids=[ctx.dept_id, *(format_id(d) for d in descendants)])
+
+
+async def resolve_owner_dept(
+    ctx: UserContext,
+    requested_dept_id: str | None = None,
+) -> str:
+    """
+    换算创建/上传类写操作的归属部门（32 位 hex，空字符串表示未归属）：
+
+    - all 档（含机器通道）可显式指定 requested_dept_id（须为已存在部门），
+      供前端「左树选中部门后新建」把资源挂到所选部门；
+    - 其余档位忽略前端参数，强制本人部门；
+    - 未指定 / 无部门时兜底空字符串。
+    """
+    if ctx.data_scope == "all" and requested_dept_id:
+        try:
+            dept_uuid = uuid.UUID(requested_dept_id)
+        except ValueError:
+            bad_except(f"部门 id 非法: {requested_dept_id}")
+        async with get_session() as session:
+            dept = await DeptRepository(session).get(dept_uuid)
+        if dept is None:
+            bad_except(f"部门不存在: {requested_dept_id}")
+        return format_id(dept.id)
+    return ctx.dept_id or ""
