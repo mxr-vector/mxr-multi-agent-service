@@ -50,7 +50,8 @@ class DocumentService:
 
         目标知识库须对当前上下文可见（数据权限收口）；归属部门经
         resolve_owner_dept 换算：仅 all 档尊重显式 dept_id（须存在），
-        其余档位强制本人部门（机器通道 / 无部门用户兜底空字符串）。
+        其余档位强制本人部门；换算结果为空时继承所在知识库的归属部门，
+        仍为空（存量游离库）则拒绝上传，杜绝游离文档。
         chunk_strategy 为用户选择的切块策略（auto/char/structure），生效策略
         （auto 归一化后）记录于 metadata.chunk_strategy；content_hash 与生效
         策略均未变化的重复上传是幂等 no-op，任一变化则新增 document_version。
@@ -67,6 +68,13 @@ class DocumentService:
 
             kb = await kb_repo.get(knowledge_base_id)
             await assert_kb_visible(kb, ctx, knowledge_base_id)
+
+            # 文档必须归属部门：未显式指定 / 用户无部门时继承所在知识库的归属部门
+            # （新建知识库已强制归属），仅存量游离库继承后仍为空，拒绝上传
+            if not owner_dept:
+                owner_dept = kb.dept_id or ""
+            if not owner_dept:
+                bad_except("文档必须归属部门：所在知识库未归属部门，请先选择归属部门")
 
             # 文件夹必须存在且与目标知识库一致，封死跨库悬挂引用
             if folder_id is not None:

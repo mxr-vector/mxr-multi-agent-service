@@ -17,8 +17,9 @@ _service = KnowledgeBaseService()
 class KnowledgeBaseCreate(BaseModel):
     """创建知识库请求体（仅元数据，不创建 Qdrant collection）。
 
-    dept_id 可选：仅 data_scope=all 生效（须为已存在部门），
-    其余档位/缺省时由服务端按用户上下文注入。
+    dept_id 仅 data_scope=all 生效（须为已存在部门，all 档必填），
+    其余档位由服务端强制本人部门；知识库必须归属部门，
+    无法解析出归属部门时服务端拒绝创建。
     qdrant_collection 由后端由 id 派生，不在请求体中暴露。
     """
 
@@ -49,7 +50,8 @@ async def create_knowledge_base(
     payload: KnowledgeBaseCreate = Body(...),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """创建知识库（仅元数据；dept_id 仅 all 档尊重请求值，其余从用户上下文注入）。"""
+    """创建知识库（仅元数据；dept_id 仅 all 档尊重请求值，其余从用户上下文注入；
+    归属部门不可为空，否则拒绝创建）。"""
     kb = await _service.create(
         ctx,
         name=payload.name,
@@ -103,6 +105,7 @@ async def update_knowledge_base(
 
 @router.delete("/{kb_id}")
 async def delete_knowledge_base(kb_id: uuid.UUID = Path(...)):
-    """软删除：置 status='deleted'，随后不再出现在列表中。"""
+    """带守卫的软删除：库内仍有文档或文件夹时拒绝；通过后置 status='deleted'，
+    随后不再出现在列表中。"""
     await _service.delete(kb_id)
     return R.success(msg="删除成功")

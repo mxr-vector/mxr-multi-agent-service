@@ -2,6 +2,8 @@ import uuid
 from typing import Any
 
 from database.postgre_client import get_session
+from database.rag.document import DocumentRepository
+from database.rag.folder import FolderRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from database.system.dept import DeptRepository
 from entity.rag.knowledge_base import KnowledgeBase
@@ -61,11 +63,16 @@ class KnowledgeBaseService:
         """
         创建知识库（仅元数据，不创建 Qdrant collection）。
         归属部门经 resolve_owner_dept 换算：仅 all 档尊重显式 dept_id（须存在），
-        其余档位强制本人部门（机器通道 / 无部门用户兜底空字符串）；
+        其余档位强制本人部门；知识库必须归属部门，换算结果为空
+        （all 档未选部门 / 用户无部门）时拒绝创建，杜绝游离库；
         用户通道 owner 缺省为当前用户名。
         qdrant_collection 由持久层由 id 派生，不接受外部传入。
         """
         owner_dept = await resolve_owner_dept(ctx, dept_id)
+        if not owner_dept:
+            bad_except(
+                "知识库必须归属部门：请选择归属部门，或联系管理员为当前用户配置部门"
+            )
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.create(
@@ -168,10 +175,19 @@ class KnowledgeBaseService:
             return kb.to_dict()
 
     async def delete(self, kb_id: uuid.UUID) -> None:
-        """软删除：置 status='deleted'。知识库不存在时抛出业务异常。"""
+        """
+        带守卫的软删除：置 status='deleted'。知识库不存在 / 已删除抛出业务异常；
+        库内仍存在有效文档或文件夹时拒绝删除（非空禁删，与文件夹删除守卫同模式），
+        避免文档 / 分块数据游离。
+        """
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
-            kb = await repo.soft_delete(kb_id)
-            if kb is None:
+            kb = await repo.get(kb_id)
+            if kb is None or kb.status == "deleted":
                 bad_except(f"知识库不存在: {kb_id}")
+            if await DocumentRepository(session).has_by_kb(
+                kb_id
+            ) or await FolderRepository(session).has_by_kb(kb_id):
+                bad_except("知识库内仍有文档或文件夹，请先清空后再删除")
+            await repo.soft_delete(kb_id)
             await session.commit()

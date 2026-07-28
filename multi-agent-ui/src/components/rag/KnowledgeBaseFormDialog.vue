@@ -45,9 +45,14 @@ const form = reactive<KnowledgeBaseFormPayload>({
     dept_id: null,
 });
 const isEdit = computed(() => Boolean(props.record));
-const rules: FormRules = {
+// 归属部门必填：仅新建态且 data_scope=all 展示部门选择时生效，
+// 与后端“知识库必须归属部门”守卫双重拦截，杜绝游离库
+const rules = computed<FormRules>(() => ({
     name: [{ required: true, message: "请输入知识库名称", trigger: "blur" }],
-};
+    ...(!isEdit.value && props.showDept
+        ? { dept_id: [{ required: true, message: "请选择归属部门", trigger: "change" }] }
+        : {}),
+}));
 
 const dialogVisible = computed({
     get: () => props.visible,
@@ -89,10 +94,10 @@ async function handleSubmit() {
                         :value="opt.value" />
                 </el-select>
             </el-form-item>
-            <!-- 归属部门：新建态可选（仅 data_scope=all 展示）；编辑态不可变，只读展示 -->
-            <el-form-item v-if="!isEdit && showDept" label="归属部门">
+            <!-- 归属部门：新建态必选（仅 data_scope=all 展示）；编辑态不可变，只读展示 -->
+            <el-form-item v-if="!isEdit && showDept" label="归属部门" prop="dept_id">
                 <el-tree-select v-model="form.dept_id" :data="deptTree" node-key="id"
-                    :props="{ label: 'name', children: 'children' }" check-strictly clearable placeholder="不选则为未归属"
+                    :props="{ label: 'name', children: 'children' }" check-strictly placeholder="请选择归属部门"
                     style="width: 100%" />
             </el-form-item>
             <el-form-item v-if="isEdit" label="归属部门">

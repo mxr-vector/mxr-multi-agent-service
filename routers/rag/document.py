@@ -62,7 +62,8 @@ async def upload_document(
     ),
     dept_id: Optional[str] = Form(
         default=None,
-        description="归属部门（32 位 hex；仅 data_scope=all 生效，须为已存在部门）",
+        description="归属部门（32 位 hex；仅 data_scope=all 生效，须为已存在部门；"
+        "缺省继承所在知识库的归属部门，无法解析出归属部门时拒绝上传）",
     ),
     chunk_strategy: str = Form(
         default=DEFAULT_CHUNK_STRATEGY,

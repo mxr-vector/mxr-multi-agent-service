@@ -263,6 +263,12 @@ function resetFilters() {
 // —— 新建文件（上传文档）——
 const uploadDialogVisible = ref(false);
 function openUpload() {
+    // 文档必须归属部门：all 档且左树未选部门时，存量游离库（知识库无归属部门）
+    // 无法继承归属，前置拦截；后端守卫为权威兜底，报错由响应拦截器自动 toast
+    if (showDeptTree.value && !selectedDept.value && !activeKb.value?.dept_id) {
+        ElMessage.warning("当前知识库未归属部门，请先在左侧部门树选择归属部门");
+        return;
+    }
     uploadDialogVisible.value = true;
 }
 async function onUploadSubmit(payload: DocumentUploadFormPayload) {
@@ -277,7 +283,8 @@ async function onUploadSubmit(payload: DocumentUploadFormPayload) {
             valid_until: payload.valid_until,
             remark: payload.remark,
             chunk_strategy: payload.chunk_strategy,
-            // 左树选中了部门时挂到所选部门（仅 data_scope=all 生效），未选中由服务端注入
+            // 左树选中了部门时挂到所选部门（仅 data_scope=all 生效），
+            // 未选中由服务端注入（本人部门→继承知识库归属部门，不可为空）
             dept_id: selectedDept.value?.id ?? null,
         });
         ElMessage.success("上传成功，已完成解析与切块");

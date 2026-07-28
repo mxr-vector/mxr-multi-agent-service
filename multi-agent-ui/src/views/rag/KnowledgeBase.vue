@@ -129,6 +129,14 @@ async function handleSubmit(payload: KnowledgeBaseFormPayload) {
 }
 
 async function removeKnowledgeBase(base: KnowledgeBase) {
+    // 前置内容检查：非空禁删，避免文档 / 分块数据游离；
+    // 后端为权威兜底（含文件夹检查与计数漂移场景），报错由响应拦截器自动 toast
+    if (base.document_count > 0 || base.total_chunk_count > 0) {
+        ElMessage.warning(
+            `该知识库内仍有 ${base.document_count} 份文档，请先清空后再删除`
+        );
+        return;
+    }
     const confirmed = await confirmDanger(
         `确定删除知识库「${base.name}」吗？删除后将不再出现在列表中。`
     );

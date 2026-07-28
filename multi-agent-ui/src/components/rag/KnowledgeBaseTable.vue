@@ -41,7 +41,8 @@ function statusLabel(status: string) {
                         <strong>{{ base.name }}</strong>
                         <span>{{ base.description || "暂无描述" }}</span>
                     </td>
-                    <td>{{ base.dept_name || "—" }}</td>
+                    <!-- 存量游离库（无归属部门）显式标记“未归属”，新库已由创建守卫强制归属 -->
+                    <td>{{ base.dept_name || "未归属" }}</td>
                     <td>{{ base.document_count }} 份</td>
                     <td>{{ base.total_chunk_count }}</td>
                     <td>{{ formatDateTime(base.updated_at) }}</td>

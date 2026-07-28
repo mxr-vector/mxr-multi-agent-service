@@ -120,3 +120,13 @@ class FolderRepository:
         )
         result = await self.session.execute(stmt)
         return (result.scalar_one() or 0) > 0
+
+    async def has_by_kb(self, knowledge_base_id: uuid.UUID) -> bool:
+        """知识库下是否存在任意文件夹，供删库前置守卫。"""
+        stmt = (
+            select(func.count())
+            .select_from(Folder)
+            .where(Folder.knowledge_base_id == knowledge_base_id)
+        )
+        result = await self.session.execute(stmt)
+        return (result.scalar_one() or 0) > 0

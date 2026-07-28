@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.document import Document
@@ -107,6 +107,19 @@ class DocumentRepository:
         stmt = stmt.order_by(Document.updated_at.desc())
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
+
+    async def has_by_kb(self, knowledge_base_id: uuid.UUID) -> bool:
+        """知识库下是否存在有效文档（不含已软删除的），供删库前置守卫。"""
+        stmt = (
+            select(func.count())
+            .select_from(Document)
+            .where(
+                Document.knowledge_base_id == knowledge_base_id,
+                Document.status != "deleted",
+            )
+        )
+        result = await self.session.execute(stmt)
+        return (result.scalar_one() or 0) > 0
 
     async def find_by_source(
         self, knowledge_base_id: uuid.UUID, source_uri: str
