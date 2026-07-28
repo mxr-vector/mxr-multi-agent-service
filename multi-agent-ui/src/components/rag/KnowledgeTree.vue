@@ -16,13 +16,16 @@ const props = withDefaults(
     defineProps<{
         /** 知识库列表加载完成后自动选中第一个（避免首屏空白） */
         autoSelectFirst?: boolean;
+        /** 部门过滤子树 id 集合（null 表示不过滤），变化时重载知识库列表 */
+        deptIds?: string[] | null;
     }>(),
-    { autoSelectFirst: true }
+    { autoSelectFirst: true, deptIds: null }
 );
 
 const emit = defineEmits<{
     (e: "select", payload: { kb: KnowledgeBase; folder: Folder | null }): void;
     (e: "folders-loaded", kbId: string, folders: Folder[]): void;
+    (e: "cleared"): void;
 }>();
 
 /** 树节点数据：知识库与文件夹共用一棵树，用 type 区分 */
@@ -74,7 +77,11 @@ function folderChildren(list: Folder[], parentId: string | null): TreeNodeData[]
 /** 懒加载回调：level 0 → 知识库；kb 节点 → 根文件夹；folder 节点 → 子文件夹（走缓存） */
 async function loadNode(node: Node, resolve: (data: TreeNodeData[]) => void) {
     if (node.level === 0) {
-        const res = await knowledgeBaseApi.list({ page: 1, size: 200 });
+        const res = await knowledgeBaseApi.list({
+            page: 1,
+            size: 200,
+            dept_ids: props.deptIds ?? undefined,
+        });
         knowledgeBases = res.data?.items ?? [];
         kbCount.value = knowledgeBases.length;
         resolve(
@@ -95,6 +102,8 @@ async function loadNode(node: Node, resolve: (data: TreeNodeData[]) => void) {
                 nodeById(first.id)?.expand();
             });
         }
+        // 部门过滤后无知识库：通知父组件清空当前选中态
+        if (!knowledgeBases.length) emit("cleared");
         return;
     }
     const data = node.data as unknown as TreeNodeData;
@@ -150,6 +159,21 @@ async function refreshFolders(kbId: string) {
 function setCurrentKey(key: string | null) {
     treeRef.value?.setCurrentKey(key ?? undefined);
 }
+
+// 部门筛选变化：失效文件夹缓存并重载根节点（知识库列表随部门边界变动），
+// 重置 bootstrapped 让新列表重新自动选中第一个知识库
+watch(
+    () => props.deptIds,
+    () => {
+        folderCache.clear();
+        bootstrapped = false;
+        const root = (treeRef.value as unknown as { store?: { root?: Node } })?.store?.root;
+        if (!root) return;
+        root.loaded = false;
+        root.childNodes = [];
+        root.expand();
+    }
+);
 
 defineExpose({ refreshFolders, setCurrentKey });
 </script>

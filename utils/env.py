@@ -108,6 +108,11 @@ class ENV_CONFIG:
         return int(self.require("JWT_EXPIRE_HOURS"))
 
     @property
+    def upload_max_size_mb(self) -> int:
+        """文档上传大小上限（MB），超限在解析前即拒绝"""
+        return int(self.require("UPLOAD_MAX_SIZE_MB"))
+
+    @property
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 
@@ -252,6 +257,13 @@ class ENV_CONFIG:
     def rag_reflect_round_cap(self) -> int:
         """反思循环最大检索轮数上限（默认建议 3）。"""
         return int(self.require("RAG_REFLECT_ROUND_CAP"))
+
+    @property
+    def bm25_cache_dir(self) -> Path:
+        """BM25 稀疏模型缓存目录；相对路径基于项目根解析，默认 model/hf。"""
+        raw = self.get("BM25_CACHE_DIR", "model/hf")
+        path = Path(raw)
+        return path if path.is_absolute() else self.base_path / path
 
 
 # 全局单例，其他模块直接 import config 使用

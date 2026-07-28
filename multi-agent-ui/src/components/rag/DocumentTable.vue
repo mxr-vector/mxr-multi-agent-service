@@ -26,7 +26,7 @@ const syncLegend = [
 ];
 
 // —— 部门树筛选：通用 DeptTreePanel，仅 data_scope=all 渲染（其余档位后端强制边界）——
-// 部门选中仅驱动文档列表的 dept_ids 过滤，不联动知识库树状态；
+// 部门选中驱动文档列表的 dept_ids 过滤，并联动知识库树按同一部门边界重载；
 // showDeptTree 用 computed：store 已缓存 data_scope 时同步渲染，
 // 避免每次进入页面都等 /auth/me 返回后才异步插入树（概率性闪现/缺失）
 const userStore = useUserStore();
@@ -36,11 +36,28 @@ const deptFilterIds = ref<string[] | null>(null);
 const selectedDept = ref<Dept | null>(null);
 
 function onDeptSelect(deptIds: string[] | null, dept: Dept | null) {
-    deptFilterIds.value = deptIds;
     selectedDept.value = dept;
+    // 重复点击同一部门（子树集合不变）时跳过，避免整链路无谓重刷
+    if (sameIdSet(deptIds, deptFilterIds.value)) return;
+    deptFilterIds.value = deptIds;
     page.value = 1;
-    loadDocuments();
+    // 文档重拉统一由 KnowledgeTree 重载后 emit select 驱动（onTreeSelect 消费
+    // pendingDeptReload），列表为空时走 @cleared 清空——不在此处直接重查，
+    // 避免「旧知识库 + 新部门」的一次多余请求
+    pendingDeptReload = true;
 }
+
+/** 比较两个部门 id 集合是否等价（均为子树展开集，忽略顺序） */
+function sameIdSet(a: string[] | null, b: string[] | null) {
+    if (a === b) return true;
+    if (!a || !b || a.length !== b.length) return false;
+    const set = new Set(b);
+    return a.every((id) => set.has(id));
+}
+
+// 部门边界变化后的待重拉标记：树重载会重新 emit select，
+// 即便选中的仍是同一知识库，也需按新 dept_ids 补拉一次文档
+let pendingDeptReload = false;
 
 onMounted(() => {
     // data_scope 懒加载（登录响应不含），showDeptTree 由 computed 响应式跟随；
@@ -202,10 +219,12 @@ async function loadDocuments() {
 }
 
 // —— 知识库树回调 ——
-// 树内点选知识库/文件夹：知识库变化时重置导航并重拉文档，文件夹变化只改过滤
+// 树内点选知识库/文件夹：知识库变化（或部门边界刚变化）时重置导航并重拉文档，
+// 文件夹变化只改过滤
 async function onTreeSelect({ kb, folder }: { kb: KnowledgeBase; folder: Folder | null }) {
     const kbChanged = kb.id !== activeKb.value?.id;
-    if (kbChanged) {
+    if (kbChanged || pendingDeptReload) {
+        pendingDeptReload = false;
         // 切库先停掉旧库的轮询，新列表加载完成后由 loadDocuments 重新 ensure
         stopPolling();
         activeKb.value = kb;
@@ -219,6 +238,15 @@ async function onTreeSelect({ kb, folder }: { kb: KnowledgeBase; folder: Folder 
 // 树内懒加载完成某知识库的文件夹后同步到本地（供面包屑/弹窗使用）
 function onFoldersLoaded(kbId: string, list: Folder[]) {
     if (kbId === activeKb.value?.id) folders.value = list;
+}
+// 部门过滤后无可见知识库：清空选中态与文档列表（待重拉标记一并消费）
+function onTreeCleared() {
+    pendingDeptReload = false;
+    stopPolling();
+    activeKb.value = null;
+    allDocuments.value = [];
+    folders.value = [];
+    resetFolderNav();
 }
 
 // 搜索：提交草稿并回到第 1 页（知识库切换已由左侧树承担）
@@ -410,8 +438,9 @@ function openChunks(doc: RagDocument) {
                 <DeptTreePanel v-if="showDeptTree" class="side-dept-panel" @select="onDeptSelect" />
                 <div class="side-card">
                     <div class="side-head">知识库</div>
-                    <!-- 知识库/文件夹的加载与懒加载全部封装在此组件内 -->
-                    <KnowledgeTree ref="knowledgeTreeRef" @select="onTreeSelect" @folders-loaded="onFoldersLoaded" />
+                    <!-- 知识库/文件夹的加载与懒加载全部封装在此组件内，dept-ids 变化时按部门边界重载 -->
+                    <KnowledgeTree ref="knowledgeTreeRef" :dept-ids="deptFilterIds" @select="onTreeSelect"
+                        @folders-loaded="onFoldersLoaded" @cleared="onTreeCleared" />
                 </div>
             </aside>
 

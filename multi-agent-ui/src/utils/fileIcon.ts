@@ -32,6 +32,7 @@ const EXT_TO_ICON: Record<string, string> = {
   wav: "WAV",
   flac: "FLAC",
   mp4: "MP4",
+  // txt/text 与 csv 暂无专属彩色图标资源，刻意不映射，回退到通用文件图标（wenjian）
 };
 
 export interface FileIconMeta {

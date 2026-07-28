@@ -2,7 +2,7 @@
 文件摄取工具（解析 + 分块，纯预处理，不落库、不做向量化）。
 
 职责边界（对应设计 D3）：
-- 按文件类型（pdf/markdown/excel/docx）把上传内容解析为完整 UTF-8 文本；
+- 按文件类型（pdf/markdown/excel/docx/text/csv）把上传内容解析为完整 UTF-8 文本；
 - 计算 content_hash = sha256(全文)，供增量同步判断源文件是否变更；
 - 产出两级父子块树：level 1 父块 + level 0 叶块，叶块携带 parent 引用、
   每级顺序号 chunk_index、以及相对父块的 char_start/char_end 偏移；
@@ -18,7 +18,8 @@ from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from exception.bad_except import bad_except
+from exception.bad_except import BadException, bad_except
+from utils.logger import logger
 
 # 两级切分窗口：level 1 父块给回写上下文，level 0 叶块作检索单元
 PARENT_CHUNK_SIZE = 2000
@@ -33,6 +34,8 @@ _EXTENSION_DOC_TYPE = {
     "xlsx": "excel",
     "xls": "excel",
     "docx": "docx",
+    "txt": "text",
+    "csv": "csv",
 }
 
 
@@ -101,11 +104,28 @@ def _parse_markdown(data: bytes) -> tuple[str, list[tuple[int, int, int]]]:
     return data.decode("utf-8", errors="replace"), []
 
 
+def _parse_text(data: bytes) -> tuple[str, list[tuple[int, int, int]]]:
+    """纯文本按 UTF-8 宽松解码，与 markdown 共用实现（doc_type 独立为 text）。"""
+    return _parse_markdown(data)
+
+
+def _parse_csv(data: bytes) -> tuple[str, list[tuple[int, int, int]]]:
+    """解析 csv，单元格以制表符、行以换行拼接，与 xlsx 输出同构。"""
+    import csv
+
+    text = data.decode("utf-8", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    lines = ["\t".join(row) for row in reader]
+    return "\n".join(lines), []
+
+
 _PARSERS = {
     "pdf": _parse_pdf,
     "docx": _parse_docx,
     "excel": _parse_xlsx,
     "markdown": _parse_markdown,
+    "text": _parse_text,
+    "csv": _parse_csv,
 }
 
 
@@ -171,7 +191,14 @@ def ingest_file(filename: str, data: bytes) -> dict[str, Any]:
     """
     doc_type = detect_doc_type(filename)
     parser = _PARSERS[doc_type]
-    full_text, page_ranges = parser(data)
+    # 解析异常统一转为友好业务失败：扩展名匹配但内容损坏/伪造时不穿透为 500
+    try:
+        full_text, page_ranges = parser(data)
+    except BadException:
+        raise
+    except Exception as exc:
+        logger.warning(f"文件解析失败 [{filename}] doc_type={doc_type}: {exc!r}")
+        bad_except(f"文件已损坏或与扩展名不符: {filename}")
     content_hash = _sha256(full_text)
 
     parent_splitter = RecursiveCharacterTextSplitter(

@@ -6,7 +6,9 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, File, Form, Path, Query, UploadFile
 from pydantic import BaseModel
 
+from exception.bad_except import bad_except
 from service.rag.document import DocumentService
+from utils.env import ENV
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
 
@@ -36,7 +38,9 @@ class DocumentUpdate(BaseModel):
 
 @router.post("/upload")
 async def upload_document(
-    file: UploadFile = File(..., description="待上传文件（pdf/markdown/excel/docx）"),
+    file: UploadFile = File(
+        ..., description="待上传文件（pdf/markdown/excel/docx/text/csv）"
+    ),
     knowledge_base_id: uuid.UUID = Form(..., description="目标知识库 id"),
     folder_id: Optional[uuid.UUID] = Form(
         default=None, description="同一知识库内的文件夹 id"
@@ -63,6 +67,10 @@ async def upload_document(
 ):
     """上传文件：解析 + 两级切块 + 落库（不向量化）。未变化的重复上传是幂等 no-op。"""
     data = await file.read()
+    # 以实际读到的字节数校验（Content-Length 可伪造），超限在解析前即拒绝
+    max_bytes = ENV.upload_max_size_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        bad_except(f"文件超过大小上限（{ENV.upload_max_size_mb}MB）: {file.filename}")
     metadata = {"remark": remark} if remark else None
     doc = await _service.upload(
         ctx,

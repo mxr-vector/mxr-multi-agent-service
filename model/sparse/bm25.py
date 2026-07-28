@@ -17,6 +17,8 @@ from typing import List
 
 from qdrant_client.models import SparseVector
 
+from utils.env import ENV
+
 # fastembed 支持的 BM25 词法稀疏模型标识
 BM25_MODEL_NAME = "Qdrant/bm25"
 
@@ -30,11 +32,17 @@ def _get_model():
     """
     from fastembed import SparseTextEmbedding
 
+    # 缓存目录由 BM25_CACHE_DIR 配置（默认项目内 model/hf，避免 %TEMP% 被系统清理）
+    ENV.bm25_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = str(ENV.bm25_cache_dir)
+
     try:
-        return SparseTextEmbedding(model_name=BM25_MODEL_NAME, local_files_only=True)
+        return SparseTextEmbedding(
+            model_name=BM25_MODEL_NAME, cache_dir=cache_dir, local_files_only=True
+        )
     except Exception:
         # 本地无缓存（首次部署）：联网下载，需要 HF_ENDPOINT 可达
-        return SparseTextEmbedding(model_name=BM25_MODEL_NAME)
+        return SparseTextEmbedding(model_name=BM25_MODEL_NAME, cache_dir=cache_dir)
 
 
 def _to_sparse_vector(embedding) -> SparseVector:
