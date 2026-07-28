@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { documentApi, type RagDocument } from "@/api/rag/document";
+import { documentApi, type RagDocument, type DocumentUpdatePayload } from "@/api/rag/document";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { folderApi, type Folder } from "@/api/rag/folders";
 import { confirmDanger } from "@/utils/confirm";
 import { useUserStore } from "@/stores/userStore";
 import DocumentCard from "@/components/rag/DocumentCard.vue";
 import DocumentChunkTree from "@/components/rag/DocumentChunkTree.vue";
+import DocumentDetailDialog from "@/components/rag/DocumentDetailDialog.vue";
 import DocumentUploadDialog from "@/components/rag/DocumentUploadDialog.vue";
 import FolderFormDialog from "@/components/rag/FolderFormDialog.vue";
 import KnowledgeTree from "@/components/rag/KnowledgeTree.vue";
@@ -372,6 +373,19 @@ async function handleVectorize(doc: RagDocument) {
     }
 }
 
+// —— 删除文档：二次确认后后端联动清理 PG 分块与 Qdrant 向量点 ——
+async function handleDeleteDoc(doc: RagDocument) {
+    const confirmed = await confirmDanger(
+        `确定删除文档「${doc.title || doc.source_uri || doc.id}」吗？将同步清理其全部分块与向量数据。`
+    );
+    if (!confirmed) return;
+    await documentApi.remove(doc.id);
+    ElMessage.success("文档已删除");
+    // 就地移除避免分页跳动，再静默重拉对齐服务端（含知识库计数变化）
+    allDocuments.value = allDocuments.value.filter((d) => d.id !== doc.id);
+    await loadDocuments();
+}
+
 // 轮询器：仅当列表中存在 reindexing 文档时运行单一定时器，全部终态后自动停止
 const POLL_INTERVAL = 2500;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -421,6 +435,32 @@ const chunkStrategyLabel = computed(() =>
 function openChunks(doc: RagDocument) {
     chunkDoc.value = doc;
     chunkDrawerVisible.value = true;
+}
+
+// —— 文档详情（查看 + 修改元数据）——
+const detailDialogVisible = ref(false);
+const detailDoc = ref<RagDocument | null>(null);
+const detailSubmitting = ref(false);
+function openDetail(doc: RagDocument) {
+    detailDoc.value = doc;
+    detailDialogVisible.value = true;
+}
+async function onDetailSubmit(payload: DocumentUpdatePayload) {
+    if (!detailDoc.value) return;
+    detailSubmitting.value = true;
+    try {
+        const res = await documentApi.update(detailDoc.value.id, payload);
+        ElMessage.success("文档已更新");
+        detailDialogVisible.value = false;
+        // 用服务端回传就地替换，避免全量重拉引起筛选/分页跳动
+        const updated = res.data;
+        if (updated) {
+            const idx = allDocuments.value.findIndex((d) => d.id === updated.id);
+            if (idx >= 0) allDocuments.value[idx] = updated;
+        }
+    } finally {
+        detailSubmitting.value = false;
+    }
 }
 </script>
 
@@ -518,7 +558,7 @@ function openChunks(doc: RagDocument) {
                     <div v-if="pagedDocuments.length" class="card-grid">
                         <DocumentCard v-for="doc in pagedDocuments" :key="doc.id" :document="doc"
                             :vectorizing="vectorizingId === doc.id" @open="openChunks" @view-chunks="openChunks"
-                            @vectorize="handleVectorize" />
+                            @vectorize="handleVectorize" @detail="openDetail" @delete="handleDeleteDoc" />
                     </div>
                     <el-empty v-else class="doc-empty" description="暂无文档" :image-size="110">
                         <template #image>
@@ -536,6 +576,8 @@ function openChunks(doc: RagDocument) {
         <!-- 弹窗与抽屉 -->
         <DocumentUploadDialog v-model:visible="uploadDialogVisible" :uploading="uploading" :knowledge-base="activeKb"
             :folders="folders" :default-folder-id="selectedFolderId" @submit="onUploadSubmit" />
+        <DocumentDetailDialog v-model:visible="detailDialogVisible" :submitting="detailSubmitting" :document="detailDoc"
+            :knowledge-base-name="activeKb?.name ?? ''" :folders="folders" @submit="onDetailSubmit" />
         <FolderFormDialog v-model:visible="folderDialogVisible" :record="editingFolder" :folders="folders"
             :knowledge-base-id="activeKb?.id ?? ''" :submitting="folderSubmitting"
             :default-parent-id="folderDefaultParentId" @submit="onFolderSubmit" />

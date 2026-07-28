@@ -100,6 +100,21 @@ class ChunkRepository:
         )
         await self.session.execute(stmt)
 
+    async def fetch_level0_all(self, document_id: uuid.UUID) -> list[Chunk]:
+        """取某文档全部版本的 level 0 叶块（供删除文档时收集 Qdrant point id）。"""
+        stmt = (
+            select(Chunk)
+            .where(Chunk.document_id == document_id)
+            .where(Chunk.level == 0)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def delete_by_document(self, document_id: uuid.UUID) -> None:
+        """删除某文档全部版本的全部块（删除文档时一次清干净）。"""
+        stmt = delete(Chunk).where(Chunk.document_id == document_id)
+        await self.session.execute(stmt)
+
     async def count_level0(self, document_id: uuid.UUID, document_version: int) -> int:
         """统计某文档指定版本的 level 0 叶块数量（用于计数同步）。"""
         chunks = await self.fetch_level0(document_id, document_version)

@@ -26,6 +26,7 @@ class DocumentService:
     - vectorize：请求域触发：校验 + 置 reindexing 后立即返回，真正的
       embed/写 Qdrant 由 vectorize_job 在后台任务中完成（成功 active / 失败 failed）；
     - update：仅改可编辑元数据，不触碰内容/哈希/版本/归属/状态（D6）；
+    - delete：软删文档行 + 硬删全部 PG 块与 Qdrant 向量点 + 负向同步知识库计数；
     - list/get：浏览；statuses：批量状态查询，供前端轮询。
     """
 
@@ -360,6 +361,52 @@ class DocumentService:
                 logger.warning(
                     f"[RAG] 启动清扫：{count} 个残留 reindexing 文档已置为 failed"
                 )
+
+    async def delete(self, ctx: UserContext, doc_id: uuid.UUID) -> None:
+        """
+        删除文档：硬删 Qdrant 向量点（全部版本叶块，point id 即 chunk id）→
+        硬删 PG 全部块 → 文档行置 status='deleted'（软删，与列表排除语义对齐）→
+        负向同步知识库计数。先删向量点再提交 PG，避免提交后 Qdrant 失败
+        遗留孤儿向量仍可被检索。同步中（reindexing）的文档拒绝删除，
+        避免与后台向量化作业互相踩踏。
+        """
+        from database.qdrant_client import QdrantManager
+
+        async with get_session() as session:
+            kb_repo = KnowledgeBaseRepository(session)
+            doc_repo = DocumentRepository(session)
+            chunk_repo = ChunkRepository(session)
+
+            doc = await doc_repo.get(doc_id)
+            if doc is None or doc.status == "deleted":
+                bad_except(f"文档不存在: {doc_id}")
+            if doc.status == "reindexing":
+                bad_except("文档正在同步中，请稍后再试")
+
+            kb = await kb_repo.get(doc.knowledge_base_id)
+            await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
+
+            # 计数只回冲当前版本叶块数（与 upload 的增量口径对称），
+            # 而 Qdrant 清理覆盖全部版本，兼顾未被 vectorize 清掉的旧版本点
+            current_leaf_count = await chunk_repo.count_level0(doc.id, doc.version)
+            all_leaves = await chunk_repo.fetch_level0_all(doc.id)
+            if all_leaves:
+                manager = QdrantManager(kb.qdrant_collection)
+                # 同步阻塞调用，丢进线程池避免卡死事件循环（与 vectorize_job 同模式）
+                await asyncio.to_thread(
+                    manager.delete_points, [format_id(c.id) for c in all_leaves]
+                )
+
+            await chunk_repo.delete_by_document(doc.id)
+            await doc_repo.set_status(doc, "deleted")
+            await kb_repo.adjust_counts(
+                kb, doc_delta=-1, chunk_delta=-current_leaf_count
+            )
+            await session.commit()
+            logger.info(
+                f"[RAG] 已删除文档 {doc_id}（清理 {len(all_leaves)} 个向量点，"
+                f"集合: {kb.qdrant_collection}）"
+            )
 
     async def update(self, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """

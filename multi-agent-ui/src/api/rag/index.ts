@@ -46,7 +46,7 @@ export const DOCUMENT_URL = {
   root: `${BASE}/document`,
   /** 上传（解析 + 两级切块 + 落库） */
   upload: `${BASE}/document/upload`,
-  /** 详情 / 更新 */
+  /** 详情 / 更新 / 删除 */
   byId: (id: string) => `${BASE}/document/${id}`,
   /** 单独触发向量化 */
   vectorize: (id: string) => `${BASE}/document/${id}/vectorize`,

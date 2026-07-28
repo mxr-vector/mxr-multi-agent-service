@@ -75,7 +75,8 @@ export interface DocumentUpdatePayload {
   metadata?: Record<string, unknown>;
   source_updated_at?: string;
   valid_from?: string;
-  valid_until?: string;
+  /** 显式传 null 表示清除过期时间（长期有效） */
+  valid_until?: string | null;
   last_verified_at?: string;
 }
 
@@ -134,5 +135,10 @@ export const documentApi = {
   /** 仅元数据更新；不触碰内容/哈希/版本/归属/状态，不再切块或向量化 */
   update(docId: string, payload: DocumentUpdatePayload) {
     return request.put<RagDocument, ApiResult<RagDocument>>(DOCUMENT_URL.byId(docId), payload);
+  },
+
+  /** 删除文档：硬删 Qdrant 向量点与 PG 全部分块，文档行软删后不再出现在列表中 */
+  remove(docId: string) {
+    return request.delete<null, ApiResult<null>>(DOCUMENT_URL.byId(docId));
   },
 };

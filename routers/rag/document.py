@@ -31,10 +31,12 @@ class DocumentUpdate(BaseModel):
     source_system: Optional[str] = None
     doc_type: Optional[str] = None
     metadata: Optional[dict] = None
-    source_updated_at: Optional[str] = None
-    valid_from: Optional[str] = None
-    valid_until: Optional[str] = None
-    last_verified_at: Optional[str] = None
+    # 日期字段用 datetime 接收（ISO 字符串自动解析），直传 str 会在 asyncpg 写入时报错；
+    # valid_until 显式传 null 表示清除过期时间（长期有效）
+    source_updated_at: Optional[datetime] = None
+    valid_from: Optional[datetime] = None
+    valid_until: Optional[datetime] = None
+    last_verified_at: Optional[datetime] = None
 
 
 @router.post("/upload")
@@ -164,3 +166,14 @@ async def update_document(
     changes = payload.model_dump(exclude_unset=True)
     doc = await _service.update(doc_id, changes)
     return R.success(data=doc)
+
+
+@router.delete("/{doc_id}")
+async def delete_document(
+    doc_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """删除文档：硬删 Qdrant 向量点与 PG 全部分块，文档行软删（status='deleted'），
+    并负向同步知识库计数；同步中（reindexing）的文档拒绝删除。"""
+    await _service.delete(ctx, doc_id)
+    return R.success(msg="删除成功")
