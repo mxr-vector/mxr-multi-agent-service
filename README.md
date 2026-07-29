@@ -50,6 +50,7 @@ PostgreSQL 18.0+
 Qdrant@latest
 Rocm/CUDA 显卡 16G(显存至少满足16G)
 内嵌自动下载 qdrant-bm2.5/rapidocr模型
+redis
 
 ## 1.3 RAG 系统
 

@@ -238,7 +238,6 @@ class ENV_CONFIG:
     def qdrant_https(self) -> bool:
         """是否使用 https 连接 Qdrant，默认 False"""
         return self.get_bool("QDRANT_HTTPS", False)
-
     """
     RAG 混合检索相关配置
     """
