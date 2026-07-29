@@ -16,11 +16,13 @@ export const isRelogin: { show: boolean } = { show: false };
 /** 登录态失效统一出口：清除本地 token 并携带来源页跳转登录页 */
 function redirectToLogin() {
   if (isRelogin.show) return;
-  isRelogin.show = true;
   removeToken();
+  // 已在登录页时只清 token，不再整页跳转，避免“请求 401 -> 刷新 /login -> 再请求 401”的循环；
+  // 不置位 isRelogin（登录成功后是 SPA 导航不刷新，置位会屏蔽后续真实的 401 跳转）
+  if (location.pathname === "/login") return;
+  isRelogin.show = true;
   const redirect = location.pathname + location.search;
-  const query =
-    redirect && redirect !== "/login" ? `?redirect=${encodeURIComponent(redirect)}` : "";
+  const query = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
   location.href = `/login${query}`;
 }
 
