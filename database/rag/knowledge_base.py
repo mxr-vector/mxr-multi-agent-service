@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils.compat import uuid7
 
@@ -104,36 +104,33 @@ class KnowledgeBaseRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
-    async def list_active_ids(
+    async def list_active_visible_ids(
         self,
-        dept_ids: "list[str] | None" = None,
         owner: str | None = None,
-        exclude_private: bool = False,
-        private_owner: str | None = None,
+        dept_ids: "list[str] | None" = None,
     ) -> "list[uuid.UUID]":
         """
-        列出 status='active' 的知识库 id（不分页），供检索链路解析缺省扇出范围；
-        仅 active 参与检索（archived 已归档不进入缺省检索范围）。
-        可选按 dept_ids IN / owner 等值过滤（数据权限边界由 service 层换算）；
-        exclude_private=True 时排除 visibility='private' 的知识库，但 private_owner
-        指定的属主豁免（本人的私有库对本人缺省可检索）。
+        列出当前用户缺省检索范围内的 status='active' 知识库 id（不分页，三支 OR 并集）；
+        仅 active 参与检索（archived 已归档不进入缺省检索范围）。三支：
+        - owner 支：owner == owner（本人库，含本人 private）；owner=None（机器通道）此支为空；
+        - department 支：visibility == 'department' 且 dept_id ∈ dept_ids（本人部门边界）；
+          dept_ids=None 时不限部门（all 档/机器通道），dept_ids=[] 时该支为空；
+        - public 支：visibility == 'public'（公开）。
 
         注：参数/返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
         """
         stmt = select(KnowledgeBase.id).where(KnowledgeBase.status == "active")
-        if dept_ids is not None:
-            stmt = stmt.where(KnowledgeBase.dept_id.in_(dept_ids))
+        clauses = [KnowledgeBase.visibility == "public"]
         if owner is not None:
-            stmt = stmt.where(KnowledgeBase.owner == owner)
-        if exclude_private:
-            not_private = KnowledgeBase.visibility != "private"
-            if private_owner is not None:
-                # 属主豁免：本人的私有库仍进入缺省检索范围
-                stmt = stmt.where(
-                    or_(not_private, KnowledgeBase.owner == private_owner)
-                )
-            else:
-                stmt = stmt.where(not_private)
+            clauses.append(KnowledgeBase.owner == owner)
+        dept_branch = KnowledgeBase.visibility == "department"
+        if dept_ids is None:
+            # 不限部门（all 档/机器通道）：所有 department 库均可见
+            clauses.append(dept_branch)
+        elif dept_ids:
+            clauses.append(and_(dept_branch, KnowledgeBase.dept_id.in_(dept_ids)))
+        # dept_ids == [] → department 支为空，不追加
+        stmt = stmt.where(or_(*clauses))
         result = await self.session.execute(stmt)
         return [row[0] for row in result.all()]
 

@@ -149,6 +149,30 @@ async def resolve_dept_filter(
     return DeptFilter(dept_ids=[ctx.dept_id, *(format_id(d) for d in descendants)])
 
 
+async def resolve_visible_dept_ids(ctx: UserContext) -> list[str] | None:
+    """
+    解析缺省检索范围中 department 可见性分支的部门边界（32 位 hex 列表）：
+
+    - all（含机器通道）：返回 None，表示不限部门（所有 department 库可见）；
+    - 无部门（ctx.dept_id 为 None）：返回 []，department 分支为空；
+    - dept_and_child：展开本部门子树；
+    - dept / self：仅本人部门。
+
+    仅解析 department 分支的部门口径，与 owner 分支正交（owner 分支恒用
+    ctx.username），故与 resolve_dept_filter 的属主收敛语义不同，独立成函数。
+    """
+    if ctx.data_scope == "all":
+        return None
+    if ctx.dept_id is None:
+        return []
+    if ctx.data_scope == "dept_and_child":
+        dept_uuid = uuid.UUID(ctx.dept_id)
+        async with get_session() as session:
+            descendants = await DeptRepository(session).list_descendant_ids(dept_uuid)
+        return [ctx.dept_id, *(format_id(d) for d in descendants)]
+    return [ctx.dept_id]
+
+
 async def resolve_owner_dept(
     ctx: UserContext,
     requested_dept_id: str | None = None,

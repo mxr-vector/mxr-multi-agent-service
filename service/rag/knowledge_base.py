@@ -10,7 +10,12 @@ from entity.rag.knowledge_base import KnowledgeBase
 from exception.bad_except import bad_except
 from utils.id import format_id
 from utils.page import PageResult, build_page_result
-from utils.user_context import UserContext, resolve_dept_filter, resolve_owner_dept
+from utils.user_context import (
+    UserContext,
+    resolve_dept_filter,
+    resolve_owner_dept,
+    resolve_visible_dept_ids,
+)
 
 
 async def assert_kb_visible(
@@ -133,22 +138,20 @@ class KnowledgeBaseService:
         列出当前用户可检索的全部 active 知识库 id（hex 无连字符，不分页）。
 
         供问答链路在用户未选择知识库时解析缺省检索范围（跨库扇出，
-        见 agent.sub.rag_graph 的 knowledge_base_ids）：部门边界由 ctx.data_scope
-        服务端强制，空集边界直接返回空列表（宁可看不见，不可看错）；
-        缺省范围只命中非私有库（visibility != 'private'），但本人为属主的
-        私有库豁免（对本人缺省可检索），他人私有库须显式选择。
+        见 agent.sub.rag_graph 的 knowledge_base_ids），为纯可见性三支并集：
+        - owner 支：本人库（含本人 private）；机器通道无 username 时此支为空；
+        - department 支：visibility='department' 且属本人部门边界（按 data_scope
+          展开：all 不限、dept_and_child 本部门子树、dept/self 本部门）；
+        - public 支：visibility='public'。
+        缺省“非 private”，但上述三支例外仍可检索；他人 private 须显式选择。
         注：返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
         """
-        flt = await resolve_dept_filter(ctx)
-        if flt.is_empty_boundary:
-            return []
+        dept_ids = await resolve_visible_dept_ids(ctx)
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
-            ids = await repo.list_active_ids(
-                dept_ids=flt.dept_ids,
-                owner=flt.owner,
-                exclude_private=True,
-                private_owner=ctx.username,
+            ids = await repo.list_active_visible_ids(
+                owner=ctx.username,
+                dept_ids=dept_ids,
             )
             return [format_id(kb_id) for kb_id in ids]
 

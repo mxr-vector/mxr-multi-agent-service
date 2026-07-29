@@ -13,8 +13,9 @@ point id 去重，见 agent.tools.document.hybrid_retrieve），chat 模型走 v
 
 入口：模块级 `graph`（已 compile），可直接 graph.invoke(...) / graph.stream(...)。
 初始 state 可携带 `knowledge_base_ids`（hex 无连字符列表）指定检索范围：
-前端选库时为所选知识库；未选库时由调用方在进图前解析为当前用户部门可见的
-全部知识库（见 service.rag.knowledge_base.KnowledgeBaseService.list_visible_ids），
+前端选库时为所选知识库；未选库时由调用方在进图前解析为当前用户的
+缺省可见范围（纯可见性三支并集：本人库 ∪ 本人部门 department 库 ∪ public 库，
+见 service.rag.knowledge_base.KnowledgeBaseService.list_visible_ids），
 跨多个 Qdrant 集合扇出检索。联网搜索由 `use_web_search` 方法级开关显式控制
 （暂未实现），与知识库选择解耦。
 最终状态含 `answer`（字符串）与 `sources`（每项
@@ -61,7 +62,7 @@ class RagState(MessagesState):
     # 原始问题（首轮从首条消息提取后固定）
     question: str
     # 目标知识库 id 列表（hex 无连字符）；未选库时由调用方预先解析为
-    # 当前用户部门可见的全部知识库，空列表检索结果为空
+    # 当前用户缺省可见范围（本人库 ∪ 本人部门 department 库 ∪ public 库），空列表检索结果为空
     knowledge_base_ids: List[str]
     # 联网搜索开关（方法级变量，与知识库选择解耦；暂未实现）
     use_web_search: bool
@@ -113,7 +114,7 @@ def retrieve_node(state: RagState):
         new_docs = web_search_retrieve(query)
     else:
         # 知识库 id 列表来自初始 state（hex 字符串），每轮检索都命中同一批知识库；
-        # 未选库时由调用方预先解析为部门可见全库，空列表召回为空
+        # 未选库时由调用方预先解析为缺省可见范围，空列表召回为空
         kb_ids = [uuid.UUID(kb_hex) for kb_hex in state.get("knowledge_base_ids") or []]
         new_docs = hybrid_retrieve_multi(query, kb_ids)
 
