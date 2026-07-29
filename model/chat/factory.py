@@ -34,4 +34,8 @@ def build_chat_model(
         api_key=ENV.chat_api_key,
         temperature=temperature,
         reasoning_effort=effort,
+        # 单请求超时（秒）与失败重试次数，均由 ENV 配置（缺省 60s / 2 次）。
+        # 外部 chat API 卡死不返回时按超时中断，避免 respond 节点无限等待。
+        timeout=ENV.chat_timeout,
+        max_retries=ENV.chat_max_retries,
     )

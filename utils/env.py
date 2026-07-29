@@ -177,6 +177,17 @@ class ENV_CONFIG:
     def chat_model_name(self) -> str:
         return self.require("CHAT_MODEL_NAME")
 
+    @property
+    def chat_timeout(self) -> float:
+        """Chat 模型单请求超时（秒）；流式下为相邻数据块间的读超时，
+        用于防止外部 API 卡死不返回而无限等待；默认 60。"""
+        return float(self.get("CHAT_TIMEOUT", 60))
+
+    @property
+    def chat_max_retries(self) -> int:
+        """Chat 模型请求失败自动重试次数（仅连接错误/429/5xx，不含 4xx）；默认 2。"""
+        return int(self.get("CHAT_MAX_RETRIES", 2))
+
     """
     Rewrite / Compression 模型相关配置（vLLM OpenAI 兼容接口）
     与 chat 模型区分：专用于问题改写、上下文压缩等辅助任务，便于各司其职。
