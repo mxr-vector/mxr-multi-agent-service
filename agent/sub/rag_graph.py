@@ -26,7 +26,7 @@ point id 去重，见 agent.tools.document.hybrid_retrieve）。
 
 import asyncio
 import uuid
-from typing import List
+from typing import List, Literal
 
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -49,7 +49,9 @@ rewrite_model = build_compression_model()
 class SufficiencyGrade(BaseModel):
     """用二值分数标记累积检索上下文是否足以回答问题。"""
 
-    binary_score: str = Field(
+    # Literal 枚举约束：在 tool schema 中转为 enum，强制模型只能输出 yes/no，
+    # 避免小模型在自由字符串字段里填入多余内容导致判定失效
+    binary_score: Literal["yes", "no"] = Field(
         description=(
             f"Sufficiency score: '{GradeScore.YES.value}' if the context is "
             f"sufficient to answer, or '{GradeScore.NO.value}' if more retrieval is needed"
@@ -148,8 +150,8 @@ async def reflect_node(state: RagState):
 
     context = _join_context(docs)
     prompt = REFLECT_PROMPT.format(question=question, context=context)
-    # 结构化输出走 function_calling（工具调用）：模型在思考模式下同样支持 tool_choice，
-    # 由模型强制返回二值 SufficiencyGrade，避免文本解析的不确定性
+    # 结构化输出走 function_calling（强制 tool_choice）：云 API 与本地 vLLM 通用，
+    # 本地 vLLM 需启动时带 --enable-auto-tool-choice --tool-call-parser hermes（Qwen 系）
     verdict = await grader_model.with_structured_output(
         SufficiencyGrade, method="function_calling"
     ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])

@@ -102,17 +102,21 @@ vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --trust-remote-code \
     --api-key 95279527
 
-# chat model 可以使用 cloud 兼容openai接口
+# compress model  可以使用 cloud 兼容openai接口
+# 关于 工具调用 https://docs.vllm.com.cn/en/latest/features/tool_calling/
+# --tool-call-parser hermes  or --tool-call-parser openai
 vllm serve ./models/chat/Qwen3.5-2B \
     --host 0.0.0.0 \
     --port 9528 \
     --served-model-name Qwen3.5-2B \
     --dtype half \
-    --gpu-memory-utilization 0.80 \
+    --gpu-memory-utilization 0.60 \
     --max-model-len 8192 \
     --max-num-seqs 1 \
     --max-num-batched-tokens 8192 \
     --trust-remote-code \
+    --enable-auto-tool-choice \
+    --tool-call-parser hermes \
     --api-key 95279527
 
 
