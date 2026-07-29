@@ -3,23 +3,22 @@
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import AiChat from "./components/AiChatPanel/AiChat.vue";
 import { computed, onMounted } from "vue";
-import {useRoute} from "vue-router";
+import { useRoute } from "vue-router";
 
 const locale = zhCn;
 const router = useRoute();
 
 const aiChatHiddenPaths = ["/login", "/register"];
-const showAiChat = computed(() => !router.meta?.hideAiChat && !aiChatHiddenPaths.includes(router.path));
+const showAiChat = computed(
+  () => !router.meta?.hideAiChat && !aiChatHiddenPaths.includes(router.path)
+);
 
-onMounted(() => {
-    
-});
-
+onMounted(() => {});
 </script>
 
 <template>
   <!-- ai聊天组件 -->
-  <AiChat v-if="showAiChat"/>
+  <AiChat v-if="showAiChat" />
   <!-- 路由组件 -->
   <el-config-provider :locale="locale">
     <RouterView />

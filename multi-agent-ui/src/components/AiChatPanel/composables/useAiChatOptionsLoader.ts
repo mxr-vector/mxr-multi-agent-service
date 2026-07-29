@@ -43,7 +43,6 @@ export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
     void ensureKnowledgeListLoaded();
   }
 
-
   return {
     knowledgeLoading,
     knowledgeLoadStatus,

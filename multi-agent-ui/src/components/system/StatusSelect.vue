@@ -12,7 +12,7 @@ const options = computed(() => dictStore.getOptions("status"));
 </script>
 
 <template>
-    <el-select v-model="model" style="width: 100%">
-        <el-option v-for="opt in options" :key="opt.value" :label="opt.label" :value="opt.value" />
-    </el-select>
+  <el-select v-model="model" style="width: 100%">
+    <el-option v-for="opt in options" :key="opt.value" :label="opt.label" :value="opt.value" />
+  </el-select>
 </template>

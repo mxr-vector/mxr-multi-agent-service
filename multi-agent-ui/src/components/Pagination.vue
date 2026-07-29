@@ -1,5 +1,4 @@
 <script setup lang="ts">
-
 // 各列表页共用的服务端分页控件：统一布局、每页选项与中文文案（共 X 条 / X条/页）。
 const props = withDefaults(
   defineProps<{
@@ -34,14 +33,14 @@ function onSizeChange(next: number) {
 </script>
 
 <template>
-    <el-pagination
-      background
-      layout="total, sizes, prev, pager, next"
-      :total="props.total"
-      :current-page="props.page"
-      :page-size="props.size"
-      :page-sizes="props.pageSizes"
-      @current-change="onCurrentChange"
-      @size-change="onSizeChange"
-    />
+  <el-pagination
+    background
+    layout="total, sizes, prev, pager, next"
+    :total="props.total"
+    :current-page="props.page"
+    :page-size="props.size"
+    :page-sizes="props.pageSizes"
+    @current-change="onCurrentChange"
+    @size-change="onSizeChange"
+  />
 </template>

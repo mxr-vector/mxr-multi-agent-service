@@ -12,7 +12,7 @@ const label = computed(() => dictStore.getLabel("status", props.status));
 </script>
 
 <template>
-    <el-tag :type="status === 'active' ? 'success' : 'info'" size="small">
-        {{ label }}
-    </el-tag>
+  <el-tag :type="status === 'active' ? 'success' : 'info'" size="small">
+    {{ label }}
+  </el-tag>
 </template>
