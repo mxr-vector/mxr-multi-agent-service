@@ -95,20 +95,20 @@ vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --served-model-name Qwen3-Embedding-0.6B \
     --runner pooling \
     --dtype auto \
-    --gpu-memory-utilization 0.5 \
+    --gpu-memory-utilization 0.4 \
     --max-model-len 4096 \
     --max-num-seqs 1 \
     --max-num-batched-tokens 4096 \
     --trust-remote-code \
     --api-key 95279527
 
-# chat model
-vllm serve /models/chat/Qwen3.5-2B \
+# chat model 可以使用 cloud 兼容openai接口
+vllm serve ./models/chat/Qwen3.5-2B \
     --host 0.0.0.0 \
     --port 9528 \
     --served-model-name Qwen3.5-2B \
     --dtype half \
-    --gpu-memory-utilization 0.90 \
+    --gpu-memory-utilization 0.80 \
     --max-model-len 8192 \
     --max-num-seqs 1 \
     --max-num-batched-tokens 8192 \

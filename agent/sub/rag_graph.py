@@ -148,8 +148,8 @@ async def reflect_node(state: RagState):
 
     context = _join_context(docs)
     prompt = REFLECT_PROMPT.format(question=question, context=context)
-    # 结构化输出显式走 function_calling：json_schema 形态的 response_format
-    # 在 vLLM / DeepSeek 等 OpenAI 兼容端普遍不可用，而工具调用兼容性最广
+    # 结构化输出走 function_calling（工具调用）：模型在思考模式下同样支持 tool_choice，
+    # 由模型强制返回二值 SufficiencyGrade，避免文本解析的不确定性
     verdict = await grader_model.with_structured_output(
         SufficiencyGrade, method="function_calling"
     ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
