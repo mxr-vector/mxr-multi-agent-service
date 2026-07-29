@@ -8,11 +8,8 @@ interface UseAiChatOptionsLoaderDeps {
 export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
   const knowledgeLoadStatus = ref<KnowledgeLoadStatus>("idle");
   const knowledgeLoadError = ref<string | null>(null);
-  const tagLoadStatus = ref<KnowledgeLoadStatus>("idle");
-  const tagLoadError = ref<string | null>(null);
 
   const knowledgeLoading = computed(() => knowledgeLoadStatus.value === "loading");
-  const tagLoading = computed(() => tagLoadStatus.value === "loading");
 
   let knowledgeLoadPromise: Promise<void> | null = null;
 
@@ -47,9 +44,6 @@ export function useAiChatOptionsLoader(deps: UseAiChatOptionsLoaderDeps) {
     knowledgeLoading,
     knowledgeLoadStatus,
     knowledgeLoadError,
-    tagLoading,
-    tagLoadStatus,
-    tagLoadError,
     handleKnowledgeDropdownOpen,
   };
 }

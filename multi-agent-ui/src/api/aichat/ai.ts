@@ -1,136 +1,136 @@
-import service from "@/utils/request";
-import { aiUrl } from "./index";
+import request, { type ApiResult } from "@/utils/request";
+import { getToken } from "@/utils/auth";
+import type { PageResult } from "@/api/rag";
+import { CHAT_URL, SESSION_URL } from "./index";
 
 // ============================================================
-// 类型定义
+// 类型定义（对齐后端 routers/chat 契约，字段一律 snake_case）
 // ============================================================
 
-/** AI问答请求参数 */
-export interface ChatserviceDTO {
+/** 流式问答请求体（POST /chat/completions） */
+export interface ChatCompletionPayload {
   /** 用户问题内容 */
   question: string;
-  /** 知识库ID列表，限定检索范围（可选） */
-  kbIds?: number[];
-  /** 标签ID列表，限定检索范围（可选） */
-  tagIds?: number[];
-  /** 返回相似文档数量（可选，默认10） */
-  topK?: number;
-  /** 相似度阈值（可选，默认0.5） */
-  similarityThreshold?: number;
-  /** 是否返回思考过程（可选，默认false） */
-  showThinking?: boolean;
-  /** 是否返回引用来源（可选，默认true） */
-  showSources?: boolean;
-  /** 会话ID，用于多轮对话（可选，不传自动生成） */
-  sessionId?: string;
-  /** 是否清除会话历史（可选，默认false） */
-  clearHistory?: boolean;
-  /** 最大历史消息数（可选，默认20） */
-  maxHistory?: number;
+  /** 会话ID（hex 无连字符）；缺省时后端自动建会话并在首个 think 帧回传 */
+  session_id?: string;
+  /** 消息级检索范围（知识库 hex id 列表）；缺省按当前用户可见范围解析 */
+  kb_ids?: string[];
+  /** 联网搜索开关（后端暂未实现，固定透传） */
+  use_web_search?: boolean;
+  /** 思考强度（词典 reasoning_effort 维护取值）；缺省用后端默认 */
+  reasoning_effort?: string;
 }
 
-/** 引用来源信息 */
+/** 引用来源（后端 sources 富化结构，见 service/rag/chat.py::_enrich_sources） */
 export interface ChatSource {
-  /** 来源序号，对应回答中的 [index] */
+  /** 引用序号（1 起），对应回答正文中的 [n] 角标 */
   index: number;
-  /** 文档ID */
-  documentId: number;
-  /** 文档名称 */
-  documentName: string;
-  /** 知识库ID */
-  kbId: number;
-  /** 知识库名称 */
-  kbName: string;
-  /** 相似度分数 */
-  similarityScore: number;
-  /** 引用内容 */
-  content: string;
-  /** 引用内容片段（兼容旧字段） */
-  contentSnippet?: string;
+  /** 引用内容片段 */
+  text: string;
+  /** 原始来源标识（文件名等） */
+  source: string;
+  /** rerank 得分 */
+  score: number | null;
+  /** 知识库ID（hex） */
+  knowledge_base_id: string | null;
+  /** 章节标题 */
+  chapter_title: string | null;
+  /** 文档ID（hex） */
+  document_id: string | null;
+  /** 分块ID */
+  chunk_id: string | null;
+  /** 起始页码 */
+  page_start: number | null;
+  /** 结束页码 */
+  page_end: number | null;
+  /** 文档名（实体已删时为 null） */
+  document_name: string | null;
+  /** 知识库名（实体已删时为 null） */
+  kb_name: string | null;
+  /** 相似度百分比（0-100 整数） */
+  similarity_percent: number | null;
+  /** 相似度分级 high/medium/low */
+  similarity_level: string | null;
 }
 
-/** AI问答响应结果 */
-export interface ChatResponseVO {
-  /** AI回答内容 */
-  answer: string;
-  /** 思考过程（仅showThinking=true时返回） */
-  thinking?: string;
-  /** 引用来源列表 */
-  sources?: ChatSource[];
-  /** 是否有知识库检索结果 */
-  hasKbResult: boolean;
-  /** 会话ID，用于后续多轮对话 */
-  sessionId: string;
-}
-
-/** 会话信息 */
-export interface SessionVO {
-  /** 会话ID */
-  sessionId: string;
-  /** 用户ID */
-  userId: string | number;
-  /** 会话标题 */
-  title?: string;
+/** 会话信息（对应后端 ChatSession.to_dict） */
+export interface ChatSessionVO {
+  /** 会话ID（hex 无连字符） */
+  id: string;
+  /** 属主用户ID */
+  user_id: string;
+  /** 会话标题（首轮问答后由摘要任务回填） */
+  title: string;
   /** 消息数量 */
-  messageCount: number;
-  /** 会话摘要内容 */
-  summary?: string | null;
+  message_count: number;
+  /** 最后消息时间 */
+  last_message_at: string | null;
+  /** 状态 active/deleted */
+  status: string;
   /** 创建时间 */
-  createTime: string;
-  /** 最后访问时间 */
-  lastAccessTime: string;
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
 }
 
-/** 会话详情 */
-export interface SessionDetailVO extends SessionVO {
-  /** 会话摘要内容 */
-  summary: string;
-}
+/** 消息终态生命周期 */
+export type ChatMessageStatus = "generating" | "done" | "stopped" | "failed";
 
-/** 消息历史记录 */
-export interface SessionMessageVO {
-  /** 消息ID */
-  id: number;
-  /** 消息类型：USER/ASSISTANT */
-  messageType: "USER" | "ASSISTANT";
+/** 会话消息（对应后端 ChatMessage.to_dict） */
+export interface ChatMessageVO {
+  /** 消息ID（hex） */
+  id: string;
+  /** 会话ID（hex） */
+  session_id: string;
+  /** 消息角色 */
+  role: "user" | "assistant";
   /** 消息内容 */
   content: string;
+  /** 思考过程（仅 assistant 消息） */
+  thinking: string | null;
   /** 引用来源列表 */
-  sources?: ChatSource[];
-  /** 消息序号 */
+  sources: ChatSource[];
+  /** 消息级检索范围快照（仅 user 消息） */
+  kb_ids: string[] | null;
+  /** 推理复杂度指标（仅 assistant 消息） */
+  metrics: Record<string, unknown> | null;
+  /** 会话内单调序号 */
   sequence: number;
+  /** 消息状态 */
+  status: ChatMessageStatus;
+  /** 失败原因 */
+  error: string | null;
   /** 创建时间 */
-  createTime: string;
+  created_at: string;
 }
 
-/** 会话统计信息 */
-export interface SessionStatsVO {
-  /** 总会话数 */
-  totalSessions: number;
-  /** 总消息数 */
-  totalMessages: number;
+/** SSE 事件名（对应后端 SseEvent 枚举） */
+export type ChatSseEventName = "think" | "answer" | "sources" | "done" | "error";
+
+/** done 帧数据 */
+export interface ChatDonePayload {
+  session_id: string;
+  message_id: string;
+  status: ChatMessageStatus;
+  metrics: Record<string, unknown>;
 }
 
-/** 通用操作响应 */
-export interface CommonMsgVO {
-  /** 提示消息 */
-  msg: string;
-}
-
-/** 聊天流式事件 */
+/** 聊天流式事件（已按事件类型解析 data） */
 export interface ChatStreamEvent {
   /** SSE event 名称 */
-  event: "think" | "answer" | "message" | "sources" | "done" | "reset" | string;
-  /** 从 data 中解析出的文本 */
-  text: string;
-  /** 原始 data 内容 */
-  rawData: string;
-  /** 后端事件时间戳 */
-  timestamp?: number;
-  /** 后端会话ID */
-  sessionId?: string;
-  /** 解析后的 data */
-  data?: unknown;
+  event: ChatSseEventName;
+  /** think 帧的进展文本 */
+  text?: string;
+  /** answer 帧的答案增量 */
+  delta?: string;
+  /** think/done 帧携带的会话ID */
+  session_id?: string;
+  /** sources 帧的来源列表 */
+  sources?: ChatSource[];
+  /** done 帧数据 */
+  done?: ChatDonePayload;
+  /** error 帧的错误信息 */
+  msg?: string;
 }
 
 export type ChatStreamEventHandler = (event: ChatStreamEvent) => void;
@@ -139,87 +139,74 @@ export type ChatStreamEventHandler = (event: ChatStreamEvent) => void;
 // SSE 辅助函数
 // ============================================================
 
-/** API 基础地址（与 service.ts 保持一致） */
-const API_BASE_URL = import.meta.env.VITE_API_URL || "/prod-api";
+/** API 基础地址（与 utils/request.ts 的 baseURL 保持一致） */
+const API_BASE_URL: string = import.meta.env.VITE_APP_BASE_API || "";
 
-function parseStreamData(rawData: string): Omit<ChatStreamEvent, "event" | "rawData"> {
-  if (!rawData) return { text: "" };
-
-  try {
-    const data = JSON.parse(rawData);
-    if (typeof data === "string") return { text: data, data };
-    if (data && typeof data === "object") {
-      const payload = data as Record<string, unknown>;
-      return {
-        text: String(payload.text ?? payload.answer ?? payload.content ?? payload.delta ?? ""),
-        timestamp: typeof payload.timestamp === "number" ? payload.timestamp : undefined,
-        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
-        data,
-      };
-    }
-    return { text: String(data), data };
-  } catch {
-    return { text: rawData };
-  }
-}
-
+/** 把 SSE 帧的 event + data(JSON) 解析为类型化事件 */
 function parseSSEBlock(block: string): ChatStreamEvent | null {
   const lines = block.split(/\r?\n/);
-  let eventName = "message";
+  let eventName = "";
   const dataLines: string[] = [];
 
   for (const line of lines) {
     if (!line || line.startsWith(":")) continue;
-
     if (line.startsWith("event:")) {
       eventName = line.slice(6).trim();
       continue;
     }
-
     if (line.startsWith("data:")) {
       dataLines.push(line.slice(5).trimStart());
     }
   }
 
-  if (!eventName && !dataLines.length) return null;
+  if (!eventName) return null;
 
-  const rawData = dataLines.join("\n");
-  if (rawData === "[DONE]") {
-    return { event: "done", text: "", rawData };
+  let data: unknown = null;
+  try {
+    data = dataLines.length ? JSON.parse(dataLines.join("\n")) : null;
+  } catch {
+    data = null;
   }
 
-  return {
-    event: eventName,
-    rawData,
-    ...parseStreamData(rawData),
-  };
+  switch (eventName as ChatSseEventName) {
+    case "think": {
+      const payload = (data ?? {}) as { text?: string; session_id?: string };
+      return { event: "think", text: payload.text ?? "", session_id: payload.session_id };
+    }
+    case "answer": {
+      const payload = (data ?? {}) as { delta?: string };
+      return { event: "answer", delta: payload.delta ?? "" };
+    }
+    case "sources":
+      return { event: "sources", sources: Array.isArray(data) ? (data as ChatSource[]) : [] };
+    case "done": {
+      const payload = data as ChatDonePayload;
+      return { event: "done", done: payload, session_id: payload?.session_id };
+    }
+    case "error": {
+      const payload = (data ?? {}) as { msg?: string };
+      return { event: "error", msg: payload.msg ?? "回答生成失败，请稍后重试" };
+    }
+    default:
+      return null;
+  }
 }
 
 /**
- * 发起 SSE 流式请求
- * @param url 请求路径
- * @param data 请求体数据
- * @param onMessage 收到流式事件时的回调
- * @param onError 发生错误时的回调
- * @param onComplete 流结束时的回调
+ * 发起 SSE 流式请求。
+ *
+ * 后端在进入流之前的业务拒绝（如同会话生成互斥）会返回 JSON 统一响应
+ * 而非 event-stream，此时解析 {code, msg} 并抛出 msg。
+ *
  * @returns 中止请求的函数
  */
-async function serviceSSE(
+async function requestSSE(
   url: string,
-  data: ChatserviceDTO,
+  data: ChatCompletionPayload,
   onMessage: ChatStreamEventHandler,
   onError?: (error: Error) => void,
   onComplete?: () => void
 ): Promise<() => void> {
-  const { useUserStore } = await import("@/stores/userStore");
-  const userStore = useUserStore();
-
-  const token = userStore.token;
-  if (!token) {
-    window.location.replace("/login");
-    throw new Error("令牌不能为空");
-  }
-
   const controller = new AbortController();
 
   try {
@@ -227,7 +214,7 @@ async function serviceSSE(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token.trim()}`,
+        Authorization: `Bearer ${getToken()}`,
         Accept: "text/event-stream",
       },
       body: JSON.stringify(data),
@@ -235,10 +222,15 @@ async function serviceSSE(
     });
 
     if (response.status === 401) {
-      // 登录凭证失效：走 store 登出流程清除本地状态并跳转登录页
-      await userStore.logout();
       window.location.replace("/login");
       throw new Error("登录凭证已失效");
+    }
+
+    // 非流式响应：业务异常走统一响应结构 {code, msg}
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/event-stream")) {
+      const result = (await response.json().catch(() => null)) as ApiResult | null;
+      throw new Error(result?.msg || `HTTP error! status: ${response.status}`);
     }
 
     if (!response.ok) {
@@ -297,7 +289,7 @@ async function serviceSSE(
 
 export const AiChatApi = {
   /**
-   * 流式问答（SSE），通过请求体中的 showThinking 参数控制是否返回思考过程
+   * 流式问答（SSE）
    * @param data 问答请求参数
    * @param onMessage 收到流式事件时的回调
    * @param onError 发生错误时的回调
@@ -305,98 +297,50 @@ export const AiChatApi = {
    * @returns 中止请求的函数
    */
   chatStream(
-    data: ChatserviceDTO,
+    data: ChatCompletionPayload,
     onMessage: ChatStreamEventHandler,
     onError?: (error: Error) => void,
     onComplete?: () => void
   ): Promise<() => void> {
-    return serviceSSE(aiUrl.chat.stream, data, onMessage, onError, onComplete);
+    return requestSSE(CHAT_URL.completions, data, onMessage, onError, onComplete);
   },
 
-  /**
-   * 停止生成
-   * @returns 停止结果
-   */
-  stopGeneration(sessionId: string) {
-    return service(`${aiUrl.chat.stop}/${sessionId}`, { method: "POST" });
+  /** 停止生成：取消该会话在途生成任务（无在途任务幂等成功） */
+  stop(sessionId: string) {
+    return request.post<{ cancelled: boolean }, ApiResult<{ cancelled: boolean }>>(
+      CHAT_URL.stop(sessionId)
+    );
   },
 };
 
 // ============================================================
-// AI 会话 API
+// AI 问答会话 API
 // ============================================================
 
 export const AiSessionApi = {
-  /**
-   * 获取会话列表
-   * @returns 当前用户的所有会话列表
-   */
-  getSessionList(): Promise<SessionVO[]> {
-    return service(aiUrl.session.list, {
-      method: "GET",
-    });
+  /** 分页列出本人会话，按最后消息时间倒序 */
+  list(page = 1, size = 20) {
+    return request.get<PageResult<ChatSessionVO>, ApiResult<PageResult<ChatSessionVO>>>(
+      SESSION_URL.root,
+      { params: { page, size } }
+    );
   },
 
-  /**
-   * 获取会话消息历史
-   * @param sessionId 会话ID
-   * @returns 指定会话的所有消息历史
-   */
-  getSessionMessages(sessionId: string): Promise<SessionMessageVO[]> {
-    return service(`${aiUrl.session.base}/${sessionId}/messages`, {
-      method: "GET",
-    });
+  /** 会话消息历史，按 sequence 升序分页 */
+  messages(sessionId: string, page = 1, size = 50) {
+    return request.get<PageResult<ChatMessageVO>, ApiResult<PageResult<ChatMessageVO>>>(
+      SESSION_URL.messages(sessionId),
+      { params: { page, size } }
+    );
   },
 
-  /**
-   * 获取会话详情
-   * @param sessionId 会话ID
-   * @returns 会话详情（包含摘要信息）
-   */
-  getSessionDetail(sessionId: string): Promise<SessionDetailVO> {
-    return service(`${aiUrl.session.base}/${sessionId}`, {
-      method: "GET",
-    });
+  /** 删除指定会话（软删 + 清理 checkpoint） */
+  remove(sessionId: string) {
+    return request.delete<null, ApiResult<null>>(SESSION_URL.byId(sessionId));
   },
 
-  /**
-   * 删除指定会话
-   * @param sessionId 会话ID
-   * @returns 删除结果
-   */
-  deleteSession(sessionId: string): Promise<CommonMsgVO> {
-    return service(`${aiUrl.session.base}/${sessionId}`, {
-      method: "DELETE",
-    });
-  },
-
-  /**
-   * 删除所有会话
-   * @returns 删除结果
-   */
-  deleteAllSessions(): Promise<CommonMsgVO> {
-    return service(aiUrl.session.all, {
-      method: "DELETE",
-    });
-  },
-
-  /**
-   * 获取会话统计
-   * @returns 当前用户的会话统计信息
-   */
-  getSessionStats(): Promise<SessionStatsVO> {
-    return service(aiUrl.session.stats, {
-      method: "GET",
-    });
-  },
-
-  /**
-   * 创建会话
-   * @returns 创建结果
-   */
-  createSession(): Promise<SessionVO> {
-    return service(aiUrl.session.create, {
-      method: "POST",
-    });
+  /** 清空本人全部会话 */
+  removeAll() {
+    return request.delete<{ deleted: number }, ApiResult<{ deleted: number }>>(SESSION_URL.root);
   },
 };

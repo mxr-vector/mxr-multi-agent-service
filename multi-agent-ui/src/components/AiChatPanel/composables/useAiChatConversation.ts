@@ -1,7 +1,7 @@
 import { nextTick, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { AiChatApi, AiSessionApi } from "@/api/aichat/ai";
-import type { ChatserviceDTO, ChatStreamEvent } from "@/api/aichat/ai";
+import { AiChatApi, AiSessionApi } from "@/api/aichat";
+import type { ChatCompletionPayload, ChatStreamEvent } from "@/api/aichat";
 import { MSG_STATUS, SSE_EVENT } from "../constants";
 import type { AiChatEmit, AiChatProps, ChatMessage, MessageStatus } from "../types";
 import {
@@ -18,6 +18,8 @@ const BOTTOM_BUTTON_DISTANCE = 12;
 const SEND_STATUS_SPACE_MIN = 96;
 const SEND_STATUS_SPACE_MAX = 180;
 const SEND_STATUS_SPACE_RATIO = 0.28;
+// done 后延迟刷新会话列表的等待（首轮标题摘要异步回填）
+const TITLE_REFRESH_DELAY = 3000;
 
 interface UseAiChatConversationDeps {
   props: Readonly<AiChatProps>;
@@ -30,9 +32,8 @@ interface UseAiChatConversationDeps {
   unreadCount: Ref<number>;
   elapsedSeconds: Ref<number>;
   showScrollToBottom: Ref<boolean>;
-  deepThinking: Ref<boolean>;
-  selectedDbIds: Ref<number[]>;
-  selectedTagIds: Ref<number[]>;
+  reasoningEffort: Ref<string | null>;
+  selectedDbIds: Ref<string[]>;
   quotedMessage: Ref<ChatMessage | null>;
   copiedMessageId: Ref<string | null>;
   currentSessionId: Ref<string | null>;
@@ -40,7 +41,6 @@ interface UseAiChatConversationDeps {
   thinkingExpanded: Map<string, boolean>;
   thinkingTouched: Set<string>;
   loadSessions: () => Promise<void>;
-  handleCreateSession: () => Promise<void>;
 }
 
 interface StreamingBuffer {
@@ -61,9 +61,8 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     unreadCount,
     elapsedSeconds,
     showScrollToBottom,
-    deepThinking,
+    reasoningEffort,
     selectedDbIds,
-    selectedTagIds,
     quotedMessage,
     copiedMessageId,
     currentSessionId,
@@ -71,13 +70,13 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     thinkingExpanded,
     thinkingTouched,
     loadSessions,
-    handleCreateSession,
   } = deps;
 
   const abortFnRef = { value: null as (() => void) | null };
   const streamingBuffers = new Map<string, StreamingBuffer>();
   let timerInterval: ReturnType<typeof setInterval> | null = null;
   let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+  let titleRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   let boundScrollWrap: HTMLElement | null = null;
   let anchorRafId: number | null = null;
   let scrollRafId: number | null = null;
@@ -292,50 +291,52 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
   }
 
   function handleStreamEvent(event: ChatStreamEvent, aiMsg: ChatMessage): void {
-    if (event.sessionId && !currentSessionId.value) {
-      currentSessionId.value = event.sessionId;
+    // 自动建会话场景：首个 think 帧 / done 帧回传 session_id
+    if (event.session_id && !currentSessionId.value) {
+      currentSessionId.value = event.session_id;
     }
 
     if (event.event === SSE_EVENT.THINK) {
-      queueStreamingFlush(aiMsg, "thinking", event.text);
+      if (event.text) {
+        // think 帧为整句进展文本，换行分隔逐条追加
+        const buffer = getStreamingBuffer(aiMsg);
+        const separator = aiMsg.thinking || buffer.thinking ? "\n" : "";
+        queueStreamingFlush(aiMsg, "thinking", separator + event.text);
+      }
+      return;
+    }
+
+    if (event.event === SSE_EVENT.ANSWER) {
+      queueStreamingFlush(aiMsg, "answer", event.delta ?? "");
       return;
     }
 
     if (event.event === SSE_EVENT.SOURCES) {
-      aiMsg.sources = normalizeSources(event.data);
+      aiMsg.sources = normalizeSources(event.sources);
       return;
     }
 
-    if (event.event === SSE_EVENT.ANSWER || event.event === SSE_EVENT.MESSAGE) {
-      queueStreamingFlush(aiMsg, "answer", event.text);
-      return;
-    }
-
-    if (event.event === SSE_EVENT.RESET) {
+    if (event.event === SSE_EVENT.ERROR) {
       flushStreamingBuffer(aiMsg);
-      aiMsg.content = event.text || event.rawData;
-      aiMsg.status = MSG_STATUS.DONE;
-      finishGeneration(aiMsg, { refreshSessions: true });
+      aiMsg.content = event.msg || "回答生成失败，请稍后重试";
+      finishGeneration(aiMsg, { status: MSG_STATUS.ERROR });
+      return;
+    }
+
+    if (event.event === SSE_EVENT.DONE) {
+      // 流紧接着结束，收尾统一由 onComplete 的 finishGeneration 处理；
+      // 这里仅预约延迟刷新，等首轮标题摘要异步回填
+      if (titleRefreshTimer) clearTimeout(titleRefreshTimer);
+      titleRefreshTimer = setTimeout(() => {
+        titleRefreshTimer = null;
+        loadSessions().catch(() => {});
+      }, TITLE_REFRESH_DELAY);
     }
   }
 
-  async function send(text?: string, options?: { forceDeepThinking?: boolean }): Promise<void> {
+  async function send(text?: string): Promise<void> {
     const content = (text ?? inputText.value).trim();
     if (!content || isLoading.value) return;
-
-    if (!currentSessionId.value) {
-      try {
-        const res: any = await AiSessionApi.createSession();
-        const rawData = res.data ?? res;
-        const sessionId = typeof rawData === "string" ? rawData : rawData?.sessionId;
-        if (sessionId) {
-          currentSessionId.value = sessionId;
-        }
-      } catch {
-        ElMessage.error("创建会话失败");
-        return;
-      }
-    }
 
     const userMsg: ChatMessage = {
       id: uid(),
@@ -365,20 +366,15 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     startTimer();
 
     try {
-      const reqData: ChatserviceDTO = {
+      // 检索范围：面板内选中知识库 ∪ 宿主传入的固定范围；空时不传，
+      // 由后端按当前用户缺省可见范围解析
+      const kbIds = Array.from(new Set([...selectedDbIds.value, ...(props.kbIds ?? [])]));
+      const reqData: ChatCompletionPayload = {
         question: content,
-        kbIds: Array.from(new Set([...selectedDbIds.value, ...props.kbIds!])),
-        tagIds: Array.from(
-          new Set(
-            [...selectedTagIds.value, ...(props.tagIds ?? [])]
-              .map((id) => Number(id))
-              .filter(Number.isFinite)
-          )
-        ),
-        topK: props.topK!,
-        similarityThreshold: props.similarityThreshold!,
-        showThinking: options?.forceDeepThinking || deepThinking.value,
-        sessionId: currentSessionId.value || undefined,
+        session_id: currentSessionId.value || undefined,
+        kb_ids: kbIds.length ? kbIds : undefined,
+        use_web_search: false,
+        reasoning_effort: reasoningEffort.value || undefined,
       };
 
       const abortFn = await AiChatApi.chatStream(
@@ -411,14 +407,24 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
   }
 
   function stopGeneration(): void {
-    abortFnRef.value?.();
-    if (currentSessionId.value) {
-      AiChatApi.stopGeneration(currentSessionId.value).catch(() => {});
+    const sessionId = currentSessionId.value;
+    const finishLatest = (): void => {
+      const latest = messages.value[messages.value.length - 1];
+      if (latest?.role === "assistant" && latest.status === MSG_STATUS.TYPING) {
+        finishGeneration(latest);
+      }
+    };
+    if (!sessionId) {
+      abortFnRef.value?.();
+      finishLatest();
+      return;
     }
-    const latest = messages.value[messages.value.length - 1];
-    if (latest?.role === "assistant" && latest.status === MSG_STATUS.TYPING) {
-      finishGeneration(latest);
-    }
+    // 后端取消在途任务后会以 done(stopped) 帧正常收尾，无需本地中断；
+    // stop 请求失败时回退为本地 abort
+    AiChatApi.stop(sessionId).catch(() => {
+      abortFnRef.value?.();
+      finishLatest();
+    });
   }
 
   async function handleSend(text?: string): Promise<void> {
@@ -448,7 +454,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
         type: "warning",
       });
       if (currentSessionId.value) {
-        await AiSessionApi.deleteSession(currentSessionId.value);
+        await AiSessionApi.remove(currentSessionId.value);
       }
       messages.value = [makeWelcome()];
       currentSessionId.value = null;
@@ -457,7 +463,6 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       thinkingTouched.clear();
       updateScrollToBottomVisibility();
       await loadSessions();
-      await handleCreateSession();
     } catch {}
   }
 
@@ -532,7 +537,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     if (!userMsg) return;
     const userContent = userMsg.content;
     messages.value.splice(idx);
-    void send(userContent, { forceDeepThinking: true });
+    void send(userContent);
   }
 
   function quoteMessage(msg: ChatMessage): void {
@@ -553,6 +558,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
   function cleanupConversation(): void {
     if (timerInterval) clearInterval(timerInterval);
     if (copiedTimer) clearTimeout(copiedTimer);
+    if (titleRefreshTimer) clearTimeout(titleRefreshTimer);
     cancelStreamingFlush();
     cancelScheduledScroll();
     cancelScheduledAnchor();

@@ -11,11 +11,14 @@ from langchain_openai import ChatOpenAI
 from utils.env import ENV
 
 
-def build_chat_model(temperature: float = 2) -> ChatOpenAI:
-    """按 ENV 构造指向 vLLM 的 OpenAI 兼容 chat model。"""
+def build_chat_model(
+    temperature: float = 2, reasoning_effort: str = "medium"
+) -> ChatOpenAI:
+    """按 ENV 构造指向 vLLM 的 OpenAI 兼容 chat model；reasoning_effort 控制思考强度。"""
     return ChatOpenAI(
         model=ENV.chat_model_name,
         base_url=ENV.chat_api_url,
         api_key=ENV.chat_api_key,
         temperature=temperature,
+        reasoning_effort=reasoning_effort,
     )

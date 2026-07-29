@@ -1,18 +1,13 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef } from "vue";
+import { useDictStore } from "@/stores/dictStore";
 import { useAiChatConversation } from "./useAiChatConversation";
 import { useAiChatHistory } from "./useAiChatHistory";
 import { useAiChatOptionsLoader } from "./useAiChatOptionsLoader";
 import { useAiChatPanelLayout } from "./useAiChatPanelLayout";
 import { useAiChatTriggerPosition } from "./useAiChatTriggerPosition";
 import { makeWelcome } from "../utils/chatMessage";
-import type {
-  AiChatEmit,
-  AiChatProps,
-  AiTagOption,
-  ChatMessage,
-  ChatSession,
-  KnowledgeOption,
-} from "../types";
+import { REASONING_EFFORT_DICT_TYPE } from "../constants";
+import type { AiChatEmit, AiChatProps, ChatMessage, ChatSession, KnowledgeOption } from "../types";
 
 export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEmit) {
   const scrollbarRef = shallowRef<any>(null);
@@ -27,17 +22,33 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
   const isPanelOpen = shallowRef<boolean>(false);
   const elapsedSeconds = shallowRef<number>(0);
   const showScrollToBottom = shallowRef<boolean>(false);
-  const deepThinking = shallowRef<boolean>(false);
-  const selectedDbIds = ref<number[]>([]);
-  const selectedTagIds = ref<number[]>([]);
+  const selectedDbIds = ref<string[]>([]);
   const knowledgeList = ref<KnowledgeOption[]>([]);
-  const tagList = ref<AiTagOption[]>([]);
   const sessions = ref<ChatSession[]>([]);
   const currentSessionId = ref<string | null>(null);
   const copiedMessageId = ref<string | null>(null);
   const quotedMessage = ref<ChatMessage | null>(null);
   const trigger = useAiChatTriggerPosition(props, isPanelOpen, togglePanel);
   const panel = useAiChatPanelLayout(trigger.triggerPosition, isPanelOpen);
+
+  // 思考强度：选项来自词典 reasoning_effort（字典管理页维护，无硬编码回退）
+  const dictStore = useDictStore();
+  const reasoningEffort = ref<string | null>(null);
+  const reasoningOptions = computed(() =>
+    dictStore
+      .getOptions(REASONING_EFFORT_DICT_TYPE)
+      .map((d) => ({ label: d.label, value: d.value }))
+  );
+  dictStore
+    .ensureLoaded()
+    .then(() => {
+      // 初始选中词典默认项；无默认项时不传，由后端用缺省强度
+      if (reasoningEffort.value === null) {
+        reasoningEffort.value =
+          dictStore.getOptions(REASONING_EFFORT_DICT_TYPE).find((d) => d.is_default)?.value ?? null;
+      }
+    })
+    .catch(() => {});
 
   let history!: ReturnType<typeof useAiChatHistory>;
   const conversation = useAiChatConversation({
@@ -51,9 +62,8 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     unreadCount,
     elapsedSeconds,
     showScrollToBottom,
-    deepThinking,
+    reasoningEffort,
     selectedDbIds,
-    selectedTagIds,
     quotedMessage,
     copiedMessageId,
     currentSessionId,
@@ -61,7 +71,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     thinkingExpanded,
     thinkingTouched,
     loadSessions: () => history.loadSessions(),
-    handleCreateSession: () => history.handleCreateSession(),
   });
 
   history = useAiChatHistory({
@@ -69,9 +78,7 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     inputText,
     quotedMessage,
     selectedDbIds,
-    selectedTagIds,
     knowledgeList,
-    tagList,
     sessions,
     currentSessionId,
     thinkingExpanded,
@@ -97,12 +104,8 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     if (isPanelOpen.value) {
       unreadCount.value = 0;
       await history.loadSessions();
-      if (!isLoading.value && !currentSessionId.value) {
-        if (sessions.value.length > 0) {
-          await history.loadSession(sessions.value[0]!);
-        } else {
-          await history.handleCreateSession();
-        }
+      if (!isLoading.value && !currentSessionId.value && sessions.value.length > 0) {
+        await history.loadSession(sessions.value[0]!);
       }
       nextTick(() => {
         conversation.bindScrollWrap();
@@ -146,17 +149,13 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     showScrollToBottom,
     messages,
     inputText,
-    deepThinking,
+    reasoningEffort,
+    reasoningOptions,
     selectedDbIds,
-    selectedTagIds,
     knowledgeList,
-    tagList,
     knowledgeLoading: optionsLoader.knowledgeLoading,
     knowledgeLoadStatus: optionsLoader.knowledgeLoadStatus,
     knowledgeLoadError: optionsLoader.knowledgeLoadError,
-    tagLoading: optionsLoader.tagLoading,
-    tagLoadStatus: optionsLoader.tagLoadStatus,
-    tagLoadError: optionsLoader.tagLoadError,
     sessions,
     currentSessionId,
     triggerStyle: trigger.triggerStyle,
@@ -164,7 +163,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     panelStyle: panel.panelStyle,
     showQuick,
     selectedKnowledgeTags: history.selectedKnowledgeTags,
-    selectedTagOptions: history.selectedTagOptions,
     groupedSessions: history.groupedSessions,
     handleFabPointerDown: trigger.handleFabPointerDown,
     handleFabClick: trigger.handleFabClick,
@@ -178,7 +176,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     toggleMaximize: panel.toggleMaximize,
     handleLoadSession: history.handleLoadSession,
     handleNewSession: history.handleNewSession,
-    handleCreateSession: history.handleCreateSession,
     handleDeleteAllSessions: history.handleDeleteAllSessions,
     deleteSession: history.deleteSession,
     toggleThinking: conversation.toggleThinking,
@@ -195,7 +192,6 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     clearQuote: conversation.clearQuote,
     getQuotePreviewContent: conversation.getQuotePreviewContent,
     removeSelectedDb: history.removeSelectedDb,
-    removeSelectedTag: history.removeSelectedTag,
     handleKnowledgeDropdownOpen: optionsLoader.handleKnowledgeDropdownOpen,
     canClearMessages,
     open: () => {

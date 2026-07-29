@@ -4,18 +4,16 @@ export const SESSION_TITLE_ELLIPSIS = "…";
 export const DATE_LABEL_TODAY = "今天";
 export const DATE_LABEL_YESTERDAY = "昨天";
 
+/** 词典类型键：思考强度等级（字典管理页维护，前端不做硬编码回退） */
+export const REASONING_EFFORT_DICT_TYPE = "reasoning_effort";
+
+/** SSE 事件名（对应后端 agent.constants.enums.chat.SseEvent） */
 export const SSE_EVENT = {
   THINK: "think",
   ANSWER: "answer",
-  MESSAGE: "message",
   SOURCES: "sources",
-  RESET: "reset",
   DONE: "done",
-} as const;
-
-export const BACKEND_MSG_TYPE = {
-  USER: "USER",
-  ASSISTANT: "ASSISTANT",
+  ERROR: "error",
 } as const;
 
 export const MSG_STATUS = {

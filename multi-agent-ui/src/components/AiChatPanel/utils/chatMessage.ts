@@ -1,11 +1,10 @@
-import type { ChatSource } from "@/api/aichat/ai";
+import type { ChatSource } from "@/api/aichat";
 import { DATE_LABEL_TODAY, DATE_LABEL_YESTERDAY, MSG_STATUS, WELCOME_MESSAGE } from "../constants";
 import type { ChatMessage } from "../types";
 
 const SOURCE_REF_PATTERN = /(?:\[([0-9０-９]+)\]|【([0-9０-９]+)】)/g;
 const FENCED_CODE_BLOCK_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 const SENTENCE_BOUNDARY_PATTERN = /[。！？!?；;\n]/;
-const THINK_TAG_PATTERN = /<\/?think>/gi;
 
 export const uid = (): string => Math.random().toString(36).slice(2, 9);
 
@@ -31,11 +30,10 @@ export const makeWelcome = (): ChatMessage => ({
   content: WELCOME_MESSAGE,
 });
 
+/** 归一化后端 sources 列表（SSE sources 帧 / 消息历史的 sources 字段） */
 export function normalizeSources(data: unknown): ChatSource[] {
-  if (!data || typeof data !== "object") return [];
-  const sources = (data as { sources?: unknown }).sources;
-  if (!Array.isArray(sources)) return [];
-  return sources
+  if (!Array.isArray(data)) return [];
+  return data
     .map((source): ChatSource | null => {
       if (!source || typeof source !== "object") return null;
       const item = source as Record<string, unknown>;
@@ -43,13 +41,21 @@ export function normalizeSources(data: unknown): ChatSource[] {
       if (!Number.isFinite(index)) return null;
       return {
         index,
-        documentId: Number(item.documentId) || 0,
-        documentName: String(item.documentName ?? ""),
-        kbId: Number(item.kbId) || 0,
-        kbName: String(item.kbName ?? ""),
-        similarityScore: Number(item.similarityScore) || 0,
-        content: String(item.content ?? item.contentSnippet ?? ""),
-        contentSnippet: typeof item.contentSnippet === "string" ? item.contentSnippet : undefined,
+        text: String(item.text ?? ""),
+        source: String(item.source ?? ""),
+        score: typeof item.score === "number" ? item.score : null,
+        knowledge_base_id:
+          typeof item.knowledge_base_id === "string" ? item.knowledge_base_id : null,
+        chapter_title: typeof item.chapter_title === "string" ? item.chapter_title : null,
+        document_id: typeof item.document_id === "string" ? item.document_id : null,
+        chunk_id: item.chunk_id != null ? String(item.chunk_id) : null,
+        page_start: typeof item.page_start === "number" ? item.page_start : null,
+        page_end: typeof item.page_end === "number" ? item.page_end : null,
+        document_name: typeof item.document_name === "string" ? item.document_name : null,
+        kb_name: typeof item.kb_name === "string" ? item.kb_name : null,
+        similarity_percent:
+          typeof item.similarity_percent === "number" ? item.similarity_percent : null,
+        similarity_level: typeof item.similarity_level === "string" ? item.similarity_level : null,
       };
     })
     .filter((source): source is ChatSource => Boolean(source));
@@ -58,52 +64,6 @@ export function normalizeSources(data: unknown): ChatSource[] {
 export function getMessageSourceMarkdown(msg: ChatMessage): string {
   if (!msg.content) return "";
   return formatSourceRefsOutsideCodeBlocks(msg.content);
-}
-
-export function splitThinkContent(content: string): { content: string; thinking?: string } {
-  if (!THINK_TAG_PATTERN.test(content)) return { content };
-  THINK_TAG_PATTERN.lastIndex = 0;
-
-  let visibleContent = "";
-  const thinkingParts: string[] = [];
-  let cursor = 0;
-  let thinkingStart: number | null = null;
-
-  for (const match of content.matchAll(THINK_TAG_PATTERN)) {
-    const tag = match[0].toLowerCase();
-    const index = match.index ?? 0;
-
-    if (tag === "<think>") {
-      if (thinkingStart === null) {
-        visibleContent += content.slice(cursor, index);
-        thinkingStart = index + match[0].length;
-      }
-      cursor = index + match[0].length;
-      continue;
-    }
-
-    if (thinkingStart !== null) {
-      const thinking = content.slice(thinkingStart, index).trim();
-      if (thinking) thinkingParts.push(thinking);
-      thinkingStart = null;
-    } else {
-      visibleContent += content.slice(cursor, index);
-    }
-    cursor = index + match[0].length;
-  }
-
-  if (thinkingStart !== null) {
-    const thinking = content.slice(thinkingStart).trim();
-    if (thinking) thinkingParts.push(thinking);
-  } else {
-    visibleContent += content.slice(cursor);
-  }
-
-  const thinking = thinkingParts.join("\n\n");
-  return {
-    content: visibleContent.trim(),
-    ...(thinking ? { thinking } : {}),
-  };
 }
 
 function formatSourceRefsOutsideCodeBlocks(content: string): string {

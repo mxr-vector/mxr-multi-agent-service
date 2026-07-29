@@ -1,4 +1,4 @@
-import type { ChatSource } from "@/api/aichat/ai";
+import type { ChatSource } from "@/api/aichat";
 
 export type MessageRole = "user" | "assistant";
 export type MessageStatus = "done" | "typing" | "error";
@@ -20,21 +20,17 @@ export interface ChatSession {
   createdAt: number;
 }
 
-export type KnowledgeOption = { label: string; value: number };
-export type AiTagOption = { label: string; value: number };
+export type KnowledgeOption = { label: string; value: string };
 export type KnowledgeLoadStatus = "idle" | "loading" | "loaded" | "error";
 
 export interface AiChatProps {
   title?: string;
   placeholder?: string;
   quickQuestions?: string[];
-  databases?: { label: string; value: string }[];
   right?: number;
   bottom?: number;
-  kbIds?: number[];
-  tagIds?: number[];
-  topK?: number;
-  similarityThreshold?: number;
+  /** 固定携带的知识库检索范围（hex id 列表），与面板内选中的知识库合并 */
+  kbIds?: string[];
 }
 
 export type AiChatEmit = {

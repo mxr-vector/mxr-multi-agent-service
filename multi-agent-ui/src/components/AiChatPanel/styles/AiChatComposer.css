@@ -90,6 +90,17 @@
   border-radius: 10px;
 }
 
+/* 思考强度等级下拉（词典 reasoning_effort 驱动） */
+.afc-effort-select {
+  width: 108px;
+  flex-shrink: 0;
+}
+
+.afc-effort-select .el-select__wrapper {
+  min-height: 36px;
+  border-radius: 10px;
+}
+
 .afc-db-picker {
   display: flex;
   align-items: center;

@@ -29,13 +29,16 @@ class ChatCompletionRequest(BaseModel):
     - session_id 缺省时服务端自动创建会话，并在首个 think 帧回传其 id；
     - kb_ids 为消息级检索范围（hex 无连字符列表），缺省按当前用户
       缺省可见范围解析；
-    - use_web_search 联网搜索开关（暂未实现，透传给图）。
+    - use_web_search 联网搜索开关（暂未实现，透传给图）；
+    - reasoning_effort 思考强度（词典 reasoning_effort 维护取值，
+      缺省用模型工厂默认值）。
     """
 
     question: str
     session_id: Optional[uuid.UUID] = None
     kb_ids: Optional[list[str]] = None
     use_web_search: bool = False
+    reasoning_effort: Optional[str] = None
 
 
 @router.post("/completions")
@@ -50,6 +53,7 @@ async def chat_completions(
         session_id=payload.session_id,
         kb_ids=payload.kb_ids,
         use_web_search=payload.use_web_search,
+        reasoning_effort=payload.reasoning_effort,
     )
     return StreamingResponse(
         frames,

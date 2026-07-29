@@ -248,6 +248,7 @@ class ChatCompletionService:
         session_id: uuid.UUID | None = None,
         kb_ids: list[str] | None = None,
         use_web_search: bool = False,
+        reasoning_effort: str | None = None,
     ):
         """
         发起一轮流式问答，返回 SSE 帧异步生成器。
@@ -325,6 +326,7 @@ class ChatCompletionService:
                 question=question,
                 kb_ids=resolved_kb_ids,
                 use_web_search=use_web_search,
+                reasoning_effort=reasoning_effort,
                 is_first_turn=is_first_turn,
             )
         )
@@ -356,6 +358,7 @@ class ChatCompletionService:
         question: str,
         kb_ids: list[str],
         use_web_search: bool,
+        reasoning_effort: str | None,
         is_first_turn: bool,
     ) -> None:
         """图执行协程：astream 事件映射为 SSE 帧入队，终态落库并发收尾帧。"""
@@ -383,6 +386,7 @@ class ChatCompletionService:
                 "question": question,
                 "kb_ids": kb_ids,
                 "use_web_search": use_web_search,
+                "reasoning_effort": reasoning_effort,
             }
             # 首帧回传 session_id（自动建会话场景前端由此拿到会话 id）
             _put(SseEvent.THINK, {"text": "正在理解问题...", "session_id": session_hex})

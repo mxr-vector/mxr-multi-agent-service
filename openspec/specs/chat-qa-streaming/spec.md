@@ -6,7 +6,9 @@ TBD - created by archiving change add-ai-chat-qa. Update Purpose after archive.
 ### Requirement: SSE 流式问答端点
 系统 SHALL 提供 `POST /chat/completions` 端点，请求体含 `question`（必填）、
 `session_id`（可选，hex 无连字符）、`kb_ids`（可选，hex 列表）、
-`use_web_search`（可选）。响应 SHALL 为 `text/event-stream`，每帧 MUST 携带
+`use_web_search`（可选）、`reasoning_effort`（可选，思考强度，透传至
+对话生成模型；缺省时使用模型工厂默认值）。响应 SHALL 为
+`text/event-stream`，每帧 MUST 携带
 标准 SSE 三字段 `id`（会话内单调递增的事件序号）、`event`、`data`（JSON）。
 事件类型 SHALL 为：`think`（检索/反思进展文本）、`answer`（答案增量 token，
 `data.delta`）、`sources`（结构化来源列表）、`done`（终帧，含

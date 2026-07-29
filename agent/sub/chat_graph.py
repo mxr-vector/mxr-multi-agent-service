@@ -19,7 +19,8 @@ Chat 问答父图（LangGraph）—— 多轮编排 + 检索子图 + 流式生�
 入口：`get_chat_graph()` 惰性单例（依赖 lifespan 已装配的 checkpointer，
 模块 import 期不建连不编译）。调用时 config 须携带
 `{"configurable": {"thread_id": session_id_hex}}`；每轮输入 state 为
-`{messages: [HumanMessage(question)], question, kb_ids, use_web_search}`。
+`{messages: [HumanMessage(question)], question, kb_ids, use_web_search,
+reasoning_effort}`。
 终态含 `answer`（字符串）与 `sources`（每项
 `{text, source, score, knowledge_base_id, chapter_title, document_id, chunk_id}`）。
 """
@@ -59,6 +60,8 @@ class ChatState(MessagesState):
     kb_ids: List[str]
     # 联网搜索开关（透传给检索子图，暂未实现）
     use_web_search: bool
+    # 本轮思考强度（reasoning_effort，缺省用模块级默认模型）
+    reasoning_effort: str | None
     # 检索子图产出的重排序候选
     reranked_docs: List[dict]
     # 推理复杂度指标（子图检索指标 + 父图 token/耗时/模型，服务层补齐耗时）
@@ -172,9 +175,14 @@ async def respond_node(state: ChatState):
     )
 
     prompt = RESPOND_PROMPT.format(history=history, question=question, context=context)
-    response = await response_model.ainvoke(
-        [{"role": ChatRole.USER.value, "content": prompt}]
+    # 携带思考强度时按请求构造本轮模型，否则沿用模块级默认模型
+    reasoning_effort = state.get("reasoning_effort")
+    model = (
+        build_chat_model(reasoning_effort=reasoning_effort)
+        if reasoning_effort
+        else response_model
     )
+    response = await model.ainvoke([{"role": ChatRole.USER.value, "content": prompt}])
     sources = [
         {
             "index": idx,
