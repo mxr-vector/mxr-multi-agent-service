@@ -1,27 +1,30 @@
 """
-Agentic RAG 图（LangGraph）—— 混合召回 + 反思 + 重排序架构。
+Agentic RAG 检索子图（LangGraph）—— 混合召回 + 反思 + 重排序。
+
+本图为纯检索管线，作为 chat 父图（agent.sub.chat_graph）的子图在节点内调用：
+不生成答案、不调用对话生成模型，终态输出为重排序候选 `reranked_docs`
+（每项保留完整溯源字段），答案生成与 sources 对外暴露由父图 respond 节点负责。
 
 检索层使用项目的 Qdrant 混合检索（dense 语义 + sparse BM25 关键词，服务端 RRF 融合、
-point id 去重，见 agent.tools.document.hybrid_retrieve），chat 模型走 vLLM OpenAI 兼容接口。
+point id 去重，见 agent.tools.document.hybrid_retrieve）。
 
-节点：
-- retrieve：混合召回并把去重候选合并进 `retrieved_docs` 结构化状态，同时追加一条上下文消息；
+节点（全部 async，同步 IO 经 asyncio.to_thread 包装）：
+- retrieve：混合召回并把去重候选合并进 `retrieved_docs` 结构化状态；
 - reflect：LLM 判断累积上下文是否足以回答；充分或达到轮数上限则进入重排序，
   否则扩展查询并回到检索（轮数上限 ENV.rag_reflect_round_cap）；
-- rerank：反思循环结束后运行一次，用 rerank client 对去重候选打分并裁剪到 top-k；
-- generate_answer：基于重排序后的候选生成答案，并返回结构化 `{answer, sources[]}`。
+- rerank：反思循环结束后运行一次，用 rerank client 对去重候选打分并裁剪到 top-k。
 
-入口：模块级 `graph`（已 compile），可直接 graph.invoke(...) / graph.stream(...)。
-初始 state 可携带 `knowledge_base_ids`（hex 无连字符列表）指定检索范围：
+入口：模块级 `graph`（已 compile，无 checkpointer——由父图传播持久化边界）。
+初始 state 须携带 `question` 与 `knowledge_base_ids`（hex 无连字符列表）：
 前端选库时为所选知识库；未选库时由调用方在进图前解析为当前用户的
-缺省可见范围（纯可见性三支并集：本人库 ∪ 本人部门 department 库 ∪ public 库，
-见 service.rag.knowledge_base.KnowledgeBaseService.list_visible_ids），
+缺省可见范围（见 service.rag.knowledge_base.KnowledgeBaseService.list_visible_ids），
 跨多个 Qdrant 集合扇出检索。联网搜索由 `use_web_search` 方法级开关显式控制
 （暂未实现），与知识库选择解耦。
-最终状态含 `answer`（字符串）与 `sources`（每项
-`{text, source, score, knowledge_base_id, chapter_title, document_id, chunk_id}`）。
+最终状态含 `reranked_docs`（每项
+`{point_id, knowledge_base_id, text, source, score, chapter_title, document_id, chunk_id}`）。
 """
 
+import asyncio
 import uuid
 from typing import List
 
@@ -30,18 +33,16 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from pydantic import BaseModel, Field
 
 from agent.constants.enums.rag import GradeScore, MessageRole, RagNode
-from agent.prompts.rag import GENERATE_PROMPT, REFLECT_PROMPT, REWRITE_PROMPT
+from agent.prompts.rag import REFLECT_PROMPT, REWRITE_PROMPT
 from agent.tools.document import hybrid_retrieve_multi, web_search_retrieve
-from model.chat.factory import build_chat_model
 from model.compression.factory import build_compression_model
 from model.rerank.factory import get_rerank_client
 from utils.env import ENV
 
-# 对话生成模型
-response_model = build_chat_model()
-# LLM 二值仲裁评分模型（用于反思判断上下文是否充分）
-grader_model = build_chat_model()
-# 改写/扩展类辅助任务使用独立模型，与对话模型各司其职。
+# LLM 二值仲裁评分模型（用于反思判断上下文是否充分）——判断/改写类辅助任务
+# 统一走 rewrite/compression 模型，本子图不引用对话生成模型（答案生成在父图）。
+grader_model = build_compression_model()
+# 改写/扩展类辅助任务模型
 rewrite_model = build_compression_model()
 
 
@@ -74,11 +75,10 @@ class RagState(MessagesState):
     reflect_round: int
     # 反思判定：上下文是否充分（或达到轮数上限，可进入重排序）
     reflect_sufficient: bool
-    # 重排序并裁剪到 top-k 后的候选
+    # 重排序并裁剪到 top-k 后的候选（本子图的终态输出）
     reranked_docs: List[dict]
-    # 最终答案与结构化来源
-    answer: str
-    sources: List[dict]
+    # 检索复杂度指标（供上层汇总）：{reflect_rounds, retrieved_count, reranked_count}
+    metrics: dict
 
 
 # ---------- 辅助 ----------
@@ -104,19 +104,23 @@ def _join_context(docs: List[dict]) -> str:
 
 
 # ---------- 节点 ----------
-def retrieve_node(state: RagState):
-    """混合召回：dense + sparse + 服务端 RRF，跨库扇出去重后合并进状态并追加上下文消息。"""
+async def retrieve_node(state: RagState):
+    """混合召回：dense + sparse + 服务端 RRF，跨库扇出去重后合并进状态并追加上下文消息。
+
+    检索链路为同步 IO（Qdrant/embedding，内部自带线程池扇出），
+    经 asyncio.to_thread 包装避免阻塞事件循环。
+    """
     question = state.get("question") or state["messages"][0].content
     query = state.get("current_query") or question
 
     if state.get("use_web_search"):
         # 联网搜索由方法级开关显式触发，与知识库选择解耦（暂未实现）
-        new_docs = web_search_retrieve(query)
+        new_docs = await asyncio.to_thread(web_search_retrieve, query)
     else:
         # 知识库 id 列表来自初始 state（hex 字符串），每轮检索都命中同一批知识库；
         # 未选库时由调用方预先解析为缺省可见范围，空列表召回为空
         kb_ids = [uuid.UUID(kb_hex) for kb_hex in state.get("knowledge_base_ids") or []]
-        new_docs = hybrid_retrieve_multi(query, kb_ids)
+        new_docs = await asyncio.to_thread(hybrid_retrieve_multi, query, kb_ids)
 
     merged = _merge_dedup(state.get("retrieved_docs", []), new_docs)
     round_no = state.get("reflect_round", 0) + 1
@@ -132,16 +136,23 @@ def retrieve_node(state: RagState):
     }
 
 
-def reflect_node(state: RagState):
+async def reflect_node(state: RagState):
     """判断累积上下文是否充分：充分或达轮数上限则进入重排序，否则扩展查询继续检索。"""
     question = state["question"]
-    context = _join_context(state.get("retrieved_docs", []))
+    docs = state.get("retrieved_docs", [])
     round_no = state.get("reflect_round", 0)
 
+    # 无任何候选（可见库为空/全部检索失败）：反思无意义，直接进入重排序收尾
+    if not docs:
+        return {"reflect_sufficient": True}
+
+    context = _join_context(docs)
     prompt = REFLECT_PROMPT.format(question=question, context=context)
-    verdict = grader_model.with_structured_output(SufficiencyGrade).invoke(
-        [{"role": MessageRole.USER.value, "content": prompt}]
-    )
+    # 结构化输出显式走 function_calling：json_schema 形态的 response_format
+    # 在 vLLM / DeepSeek 等 OpenAI 兼容端普遍不可用，而工具调用兼容性最广
+    verdict = await grader_model.with_structured_output(
+        SufficiencyGrade, method="function_calling"
+    ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
     sufficient = verdict.binary_score == GradeScore.YES.value
 
     # 上下文充分，或已达到最大检索轮数上限，进入重排序。
@@ -149,7 +160,7 @@ def reflect_node(state: RagState):
         return {"reflect_sufficient": True}
 
     # 上下文不足且仍在轮数内：扩展/改写查询后回到检索（轮数由 retrieve_node 累加）。
-    response = rewrite_model.invoke(
+    response = await rewrite_model.ainvoke(
         [
             {
                 "role": MessageRole.USER.value,
@@ -160,44 +171,39 @@ def reflect_node(state: RagState):
     return {"reflect_sufficient": False, "current_query": response.content}
 
 
-def rerank_node(state: RagState):
-    """反思循环结束后运行一次：对去重候选打分并裁剪到 top-k（按相关性排序）。"""
-    docs = state.get("retrieved_docs", [])
-    if not docs:
-        return {"reranked_docs": []}
+async def rerank_node(state: RagState):
+    """反思循环结束后运行一次：对去重候选打分并裁剪到 top-k（按相关性排序）。
 
-    results = get_rerank_client().rerank(
+    rerank client 为同步 HTTP 调用，经 asyncio.to_thread 包装；
+    终态同时产出检索复杂度 metrics（轮数/候选量/重排后候选量）。
+    """
+    docs = state.get("retrieved_docs", [])
+    round_no = state.get("reflect_round", 0)
+    if not docs:
+        return {
+            "reranked_docs": [],
+            "metrics": {
+                "reflect_rounds": round_no,
+                "retrieved_count": 0,
+                "reranked_count": 0,
+            },
+        }
+
+    results = await asyncio.to_thread(
+        get_rerank_client().rerank,
         state["question"],
         [doc.get("text", "") for doc in docs],
         top_n=ENV.rag_final_top_k,
     )
     reranked = [{**docs[result.index], "score": result.score} for result in results]
-    return {"reranked_docs": reranked}
-
-
-def generate_answer(state: RagState):
-    """基于重排序后的候选生成最终答案，并返回结构化 {answer, sources[]}。"""
-    question = state["question"]
-    docs = state.get("reranked_docs", [])
-    context = _join_context(docs)
-
-    prompt = GENERATE_PROMPT.format(question=question, context=context)
-    response = response_model.invoke(
-        [{"role": MessageRole.USER.value, "content": prompt}]
-    )
-    sources = [
-        {
-            "text": doc.get("text", ""),
-            "source": doc.get("source", ""),
-            "score": doc.get("score"),
-            "knowledge_base_id": doc.get("knowledge_base_id"),
-            "chapter_title": doc.get("chapter_title"),
-            "document_id": doc.get("document_id"),
-            "chunk_id": doc.get("chunk_id"),
-        }
-        for doc in docs
-    ]
-    return {"messages": [response], "answer": response.content, "sources": sources}
+    return {
+        "reranked_docs": reranked,
+        "metrics": {
+            "reflect_rounds": round_no,
+            "retrieved_count": len(docs),
+            "reranked_count": len(reranked),
+        },
+    }
 
 
 def route_after_reflect(state: RagState) -> str:
@@ -214,7 +220,6 @@ def build_graph():
     workflow.add_node(RagNode.RETRIEVE.value, retrieve_node)
     workflow.add_node(RagNode.REFLECT.value, reflect_node)
     workflow.add_node(RagNode.RERANK.value, rerank_node)
-    workflow.add_node(RagNode.GENERATE_ANSWER.value, generate_answer)
 
     workflow.add_edge(START, RagNode.RETRIEVE.value)
     workflow.add_edge(RagNode.RETRIEVE.value, RagNode.REFLECT.value)
@@ -226,8 +231,7 @@ def build_graph():
             RagNode.RETRIEVE.value: RagNode.RETRIEVE.value,
         },
     )
-    workflow.add_edge(RagNode.RERANK.value, RagNode.GENERATE_ANSWER.value)
-    workflow.add_edge(RagNode.GENERATE_ANSWER.value, END)
+    workflow.add_edge(RagNode.RERANK.value, END)
 
     return workflow.compile()
 
@@ -238,17 +242,20 @@ graph = build_graph()
 if __name__ == "__main__":
     # 手动冒烟需在初始 state 传入 hex 格式的 knowledge_base_ids 列表（可跨多个知识库）；
     # use_web_search=True 时走联网搜索通道，当前未实现，会抛 NotImplementedError。
-    result = graph.invoke(
-        {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "What does Lilian Weng say about types of reward hacking?",
-                }
-            ],
-            "knowledge_base_ids": ["019fa739864b7d9297a65fb8058dbaa1"],
-        }
-    )
-    print("answer:", result["answer"])
-    for source in result["sources"]:
-        print(source)
+    async def _smoke():
+        result = await graph.ainvoke(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "What does Lilian Weng say about types of reward hacking?",
+                    }
+                ],
+                "question": "What does Lilian Weng say about types of reward hacking?",
+                "knowledge_base_ids": ["019fa739864b7d9297a65fb8058dbaa1"],
+            }
+        )
+        for doc in result["reranked_docs"]:
+            print(doc)
+
+    asyncio.run(_smoke())

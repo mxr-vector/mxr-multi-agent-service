@@ -39,6 +39,21 @@ class PostgresConfig:
             f"/{self.database}"
         )
 
+    @cached_property
+    def psycopg_async_connection(self) -> str:
+        """
+        psycopg 原生连接串（无 SQLAlchemy 方言前缀）。
+
+        供 LangGraph AsyncPostgresSaver 的 psycopg_pool.AsyncConnectionPool 使用，
+        psycopg 不识别 postgresql+xxx:// 形态，须用原生 postgresql:// URI。
+        """
+        return (
+            f"postgresql://"
+            f"{self.username}:{self.password}"
+            f"@{self.host}:{self.port}"
+            f"/{self.database}"
+        )
+
     @classmethod
     def from_env(cls):
         return cls(

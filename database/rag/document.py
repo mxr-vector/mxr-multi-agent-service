@@ -86,6 +86,25 @@ class DocumentRepository:
         """按 id 获取文档（含软删除行，语义由业务层判断）。"""
         return await self.session.get(Document, doc_id)
 
+    async def list_names_by_ids(self, ids: "list[str]") -> "dict[str, str]":
+        """批量回查文档标题，返回 {hex 无连字符 id: title}（单次 IN 查询，零 N+1）。
+
+        供问答链路对 sources 快照回填 document_name；入参为 hex 字符串列表
+        （图层溯源字段口径），非法/缺失 id 自然不出现在结果映射中。
+        注：返回注解用字符串形式，与其他仓储保持一致。
+        """
+        uuids = []
+        for hex_id in ids:
+            try:
+                uuids.append(uuid.UUID(hex_id))
+            except (ValueError, TypeError):
+                continue
+        if not uuids:
+            return {}
+        stmt = select(Document.id, Document.title).where(Document.id.in_(uuids))
+        result = await self.session.execute(stmt)
+        return {row[0].hex: row[1] for row in result.all()}
+
     async def list_by_kb(
         self,
         knowledge_base_id: uuid.UUID,

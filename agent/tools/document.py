@@ -15,7 +15,7 @@ RAG 混合检索入口（模型调用）。
   暂未实现），与"知识库缺省"语义彻底解绑；
 - 不再返回拼接字符串，而是返回结构化候选
   `{point_id, knowledge_base_id, text, source, score, chapter_title,
-  document_id, chunk_id}`，溯源字段从 payload 宽松读取（无则归 None）；
+  document_id, chunk_id, page_start, page_end}`，溯源字段从 payload 宽松读取（无则归 None）；
 - 候选池大小由配置驱动（ENV.rag_candidate_pool_size），本模块不关心 provider / 模型名；
 - 向量化（dense/sparse）统一在 QdrantManager 内部完成；扇出场景由本模块
   预生成一次查询向量后各集合复用。
@@ -52,7 +52,7 @@ def hybrid_retrieve(
     - dense_vector / sparse_vector 可由调用方预生成传入（扇出复用），缺省时
       由 QdrantManager 内部按 query 生成；
     - 每个候选为 `{point_id, knowledge_base_id, text, source, score,
-      chapter_title, document_id, chunk_id}`，score 为服务端 RRF 融合得分，
+      chapter_title, document_id, chunk_id, page_start, page_end}`，score 为服务端 RRF 融合得分，
       knowledge_base_id 为 hex 无连字符（跨库溯源与去重用），
       其余溯源字段宽松读取（无则为 None）。
     """
@@ -74,6 +74,8 @@ def hybrid_retrieve(
                 "chapter_title": payload.get("chapter_title"),
                 "document_id": payload.get("document_id"),
                 "chunk_id": payload.get("chunk_id"),
+                "page_start": payload.get("page_start"),
+                "page_end": payload.get("page_end"),
             }
         )
     return candidates

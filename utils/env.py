@@ -238,6 +238,7 @@ class ENV_CONFIG:
     def qdrant_https(self) -> bool:
         """是否使用 https 连接 Qdrant，默认 False"""
         return self.get_bool("QDRANT_HTTPS", False)
+
     """
     RAG 混合检索相关配置
     """
@@ -263,6 +264,20 @@ class ENV_CONFIG:
         raw = self.get("BM25_CACHE_DIR", "model/hf")
         path = Path(raw)
         return path if path.is_absolute() else self.base_path / path
+
+    """
+    AI 问答（chat 会话）相关配置
+    """
+
+    @property
+    def chat_checkpoint_ttl_days(self) -> int:
+        """LangGraph checkpoint 保留天数，超期由后台任务清理（默认 7）。"""
+        return int(self.get("CHAT_CHECKPOINT_TTL_DAYS", 7))
+
+    @property
+    def chat_history_max_messages(self) -> int:
+        """checkpoint 缺失时 condense 回落业务表读取的历史消息条数上限（默认 20）。"""
+        return int(self.get("CHAT_HISTORY_MAX_MESSAGES", 20))
 
 
 # 全局单例，其他模块直接 import config 使用

@@ -105,7 +105,7 @@ vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
 # chat model
 vllm serve /models/chat/Qwen3.5-2B \
     --host 0.0.0.0 \
-    --port 9527 \
+    --port 9528 \
     --served-model-name Qwen3.5-2B \
     --dtype half \
     --gpu-memory-utilization 0.90 \

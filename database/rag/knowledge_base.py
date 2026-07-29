@@ -138,6 +138,27 @@ class KnowledgeBaseRepository:
         """按 id 获取知识库，不存在返回 None（含软删除的行也会返回，由业务层决定语义）。"""
         return await self.session.get(KnowledgeBase, kb_id)
 
+    async def list_names_by_ids(self, ids: "list[str]") -> "dict[str, str]":
+        """批量回查知识库名称，返回 {hex 无连字符 id: name}（单次 IN 查询，零 N+1）。
+
+        供问答链路对 sources 快照回填 kb_name；入参为 hex 字符串列表，
+        非法/缺失 id 自然不出现在结果映射中。
+        注：返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
+        """
+        uuids = []
+        for hex_id in ids:
+            try:
+                uuids.append(uuid.UUID(hex_id))
+            except (ValueError, TypeError):
+                continue
+        if not uuids:
+            return {}
+        stmt = select(KnowledgeBase.id, KnowledgeBase.name).where(
+            KnowledgeBase.id.in_(uuids)
+        )
+        result = await self.session.execute(stmt)
+        return {row[0].hex: row[1] for row in result.all()}
+
     async def update_metadata(
         self, kb_id: uuid.UUID, changes: dict[str, Any]
     ) -> KnowledgeBase | None:

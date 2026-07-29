@@ -15,6 +15,10 @@
 --         减少索引页分裂, 大批量写入场景下性能明显更优, 同时仍保持全局唯一, 可直接作为 Qdrant point id
 --         例外: rag_knowledge_bases.id 由应用端(uuid_utils.compat.uuid7)生成并显式传入,
 --         以便同一事务内由 id 派生 qdrant_collection(形如 kb_{id.hex}_v1); 上方 uuidv7() 默认值保留作为兜底
+--         同理: chat_sessions.id 也由应用端生成, 因其同时作为 LangGraph checkpointer 的 thread_id
+-- checkpointer 说明: LangGraph 的 checkpoint 相关表(checkpoints/checkpoint_blobs/checkpoint_writes 等)
+--         由 langgraph-checkpoint-postgres 的 setup() 自动创建与演进, 不入本文件手写维护;
+--         它们仅服务于图运行时的多轮状态恢复与容错, 业务查询一律走下方 chat_sessions/chat_messages
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -268,3 +272,53 @@ CREATE INDEX idx_rag_chunks_metadata_gin  ON rag.rag_chunks USING GIN (metadata)
 -- JOIN rag.rag_documents d ON d.id = c.document_id
 -- JOIN rag.rag_knowledge_bases kb ON kb.id = d.knowledge_base_id
 -- WHERE c.id = ANY(:matched_chunk_ids);
+
+-- ------------------------------------------------------------
+-- 6. AI 问答会话表 chat_sessions
+--    问答历史的业务事实源(前端会话列表/历史/统计均查本表, 不读 checkpoint);
+--    id 由应用端(uuid_utils.compat.uuid7)生成, 同时作为 LangGraph checkpointer 的 thread_id;
+--    问答历史为个人数据: 查询一律按 user_id 等值收敛(检索来源已由消息级 kb_ids 确立, 与部门无关)
+-- ------------------------------------------------------------
+CREATE TABLE rag.chat_sessions (
+    id                UUID PRIMARY KEY DEFAULT uuidv7(),  -- 应用端生成, 兼作 checkpointer thread_id; 默认值仅兜底
+    user_id           VARCHAR(64) NOT NULL,    -- 属主(用户 32 位 hex 标识), 会话仅本人可见
+    title             TEXT NOT NULL DEFAULT '新对话', -- 首轮问答后由 rewrite_model 生成一句摘要(失败回落首问截断)
+    message_count     INT NOT NULL DEFAULT 0,  -- 冗余计数, 业务层在写入消息时同步更新
+    last_message_at   TIMESTAMPTZ,             -- 最后一条消息时间, 列表倒序排序用; 也是 checkpoint TTL 清理的判断基准
+    status            VARCHAR(20) NOT NULL DEFAULT 'active', -- 'active'/'deleted' 软删, 业务层校验
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()   -- 业务层在 UPDATE 时显式赋值
+);
+
+CREATE INDEX idx_chat_sessions_user    ON rag.chat_sessions (user_id, status);
+CREATE INDEX idx_chat_sessions_last_at ON rag.chat_sessions (last_message_at);
+
+-- ------------------------------------------------------------
+-- 7. AI 问答消息表 chat_messages
+--    展示级消息快照(含来源/思考/状态), 与 checkpointer 的图状态快照双轨分离;
+--    kb_ids 为消息级检索范围快照(存在 user 消息上, 仅溯源, 不约束后续轮次);
+--    sequence 为会话内单调序号, UNIQUE 保障并发写入时顺序可靠;
+--    status 生命周期: generating(占位) -> done / stopped(用户停止) / failed(异常),
+--    服务重启时残留 generating 统一清扫为 failed
+-- ------------------------------------------------------------
+CREATE TABLE rag.chat_messages (
+    id                UUID PRIMARY KEY DEFAULT uuidv7(),
+    session_id        UUID NOT NULL,           -- 逻辑关联 rag.chat_sessions.id, 业务层保证存在性
+    role              VARCHAR(20) NOT NULL,    -- 'user'/'assistant', 业务层校验
+    content           TEXT NOT NULL DEFAULT '',-- 消息正文; assistant 生成中为已产出的部分内容
+    thinking          TEXT,                    -- 思考/检索进展文本(assistant)
+    sources           JSONB NOT NULL DEFAULT '[]'::jsonb, -- 来源快照(assistant, 结构同 SSE sources 事件, 含引用序号/文档名/库名/页码/相似度分级)
+    kb_ids            JSONB,                   -- 消息级检索范围快照(user 消息, hex 无连字符列表)
+    metrics           JSONB,                   -- 推理复杂度(仅 assistant 消息: 检索轮数/候选量/token 用量/耗时/模型)
+    sequence          INT NOT NULL,            -- 会话内单调序号, 从 1 开始
+    status            VARCHAR(20) NOT NULL DEFAULT 'done', -- 'generating'/'done'/'stopped'/'failed'
+    error             TEXT,                    -- 失败原因(status='failed' 时填写)
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE (session_id, sequence)
+);
+
+CREATE INDEX idx_chat_messages_session ON rag.chat_messages (session_id, sequence);
+CREATE INDEX idx_chat_messages_status  ON rag.chat_messages (status) WHERE status = 'generating';
