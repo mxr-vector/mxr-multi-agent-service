@@ -57,6 +57,14 @@ def create_app() -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     # 挂载静态文件
     app.mount("/static", StaticFiles(directory="static"), name="static")
+    # 挂载全局上传目录（头像等）：路径带 /public 前缀命中鉴权白名单，
+    # <img> 等无法携带 token 的请求可直接访问
+    ENV.upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        f"{ENV.base_url}/public/files",
+        StaticFiles(directory=ENV.upload_dir),
+        name="uploads",
+    )
     # app.mount("/audio_db", StaticFiles(directory="audio_db"), name="audio_db")
     # 注册中间件
     app.add_middleware(

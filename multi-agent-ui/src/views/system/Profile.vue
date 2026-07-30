@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
-import { authApi } from "@/api/system";
+import { authApi, resolveAvatarUrl } from "@/api/system";
 import { useUserStore } from "@/stores/userStore";
 import StatusTag from "@/components/system/StatusTag.vue";
 
@@ -13,15 +13,50 @@ const displayName = computed(
     () => currentUser.value?.nickname || currentUser.value?.username || "—"
 );
 const avatarInitial = computed(() => displayName.value.charAt(0).toUpperCase());
+const avatarUrl = computed(() => resolveAvatarUrl(currentUser.value?.avatar));
 
-// 基本资料表单（仅本人可维护字段：昵称/邮箱/手机/头像）
+// 头像上传：点击头像选择本地图片，前端先做类型/大小预检（与后端限额一致）
+const AVATAR_MAX_MB = 2;
+const avatarInputRef = ref<HTMLInputElement>();
+const avatarUploading = ref(false);
+
+function pickAvatar() {
+    if (avatarUploading.value) return;
+    avatarInputRef.value?.click();
+}
+
+async function onAvatarChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // 清空选择状态，允许重复选择同一文件重新触发 change
+    input.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+        ElMessage.warning("请选择图片文件");
+        return;
+    }
+    if (file.size > AVATAR_MAX_MB * 1024 * 1024) {
+        ElMessage.warning(`头像图片不能超过 ${AVATAR_MAX_MB}MB`);
+        return;
+    }
+    avatarUploading.value = true;
+    try {
+        const res = await authApi.uploadAvatar(file);
+        // 合并回 store：更新响应不含 data_scope 等聚合字段，展开保留原值
+        userStore.userInfo = { ...userStore.userInfo, ...res.data };
+        ElMessage.success("头像已更新");
+    } finally {
+        avatarUploading.value = false;
+    }
+}
+
+// 基本资料表单（昵称/邮箱/手机；头像走点击头像上传，不在表单内）
 const profileFormRef = ref<FormInstance>();
 const profileSubmitting = ref(false);
 const profileForm = reactive({
     nickname: "",
     email: "",
     phone: "",
-    avatar: "",
 });
 const profileRules: FormRules = {
     email: [{ type: "email", message: "邮箱格式不正确", trigger: "blur" }],
@@ -36,7 +71,6 @@ function fillProfileForm() {
         nickname: user.nickname ?? "",
         email: user.email ?? "",
         phone: user.phone ?? "",
-        avatar: user.avatar ?? "",
     });
 }
 
@@ -49,7 +83,6 @@ async function submitProfile() {
             nickname: profileForm.nickname || null,
             email: profileForm.email || null,
             phone: profileForm.phone || null,
-            avatar: profileForm.avatar || null,
         });
         // 合并回 store：/auth/me 更新响应不含 data_scope 等聚合字段，展开保留原值
         userStore.userInfo = { ...userStore.userInfo, ...res.data };
@@ -114,12 +147,16 @@ onMounted(async () => {
 <template>
     <section class="system-page profile-page">
         <div class="profile-layout">
-            <!-- 左栏：账号概览卡片（只读展示） -->
+            <!-- 左栏：账号概览卡片（头像可点击上传） -->
             <section class="content-card summary-card">
-                <span class="summary-avatar" aria-hidden="true">
-                    <img v-if="currentUser?.avatar" :src="currentUser.avatar" alt="" />
+                <button class="summary-avatar" type="button" :disabled="avatarUploading"
+                    :title="avatarUploading ? '上传中…' : '点击更换头像'" @click="pickAvatar">
+                    <img v-if="avatarUrl" :src="avatarUrl" alt="" />
                     <template v-else>{{ avatarInitial }}</template>
-                </span>
+                    <span class="avatar-mask">{{ avatarUploading ? "上传中…" : "更换头像" }}</span>
+                </button>
+                <input ref="avatarInputRef" class="avatar-file-input" type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp" @change="onAvatarChange" />
                 <h2 class="summary-name">{{ displayName }}</h2>
                 <p class="summary-username">@{{ currentUser?.username ?? "—" }}</p>
                 <ul class="summary-meta">
@@ -148,7 +185,7 @@ onMounted(async () => {
                 <section class="content-card form-card">
                     <div class="card-header">
                         <h3>基本资料</h3>
-                        <span class="card-subtitle">昵称、联系方式与头像，保存后即时生效</span>
+                        <span class="card-subtitle">昵称与联系方式，保存后即时生效；头像点击左侧更换</span>
                     </div>
                     <el-form ref="profileFormRef" class="card-form" :model="profileForm" :rules="profileRules"
                         label-width="90px">
@@ -164,9 +201,6 @@ onMounted(async () => {
                         <el-form-item label="手机号" prop="phone">
                             <el-input v-model="profileForm.phone" placeholder="选填" maxlength="20" />
                         </el-form-item>
-                        <el-form-item label="头像地址" prop="avatar">
-                            <el-input v-model="profileForm.avatar" placeholder="图片 URL，选填" maxlength="255" />
-                        </el-form-item>
                         <el-form-item>
                             <el-button type="primary" :loading="profileSubmitting" @click="submitProfile">
                                 保存资料
@@ -181,18 +215,18 @@ onMounted(async () => {
                         <h3>修改密码</h3>
                         <span class="card-subtitle">需先验证原密码，新密码至少 6 位</span>
                     </div>
-                    <el-form ref="pwdFormRef" class="card-form" :model="pwdForm" :rules="pwdRules" label-width="90px">
+                    <el-form ref="pwdFormRef" class="card-form" :model="pwdForm" :rules="pwdRules" label-width="120px">
                         <el-form-item label="原密码" prop="oldPassword">
                             <el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="当前登录密码"
-                                maxlength="100" />
+                                maxlength="16" />
                         </el-form-item>
                         <el-form-item label="新密码" prop="newPassword">
                             <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="至少 6 位"
-                                maxlength="100" />
+                                maxlength="16" />
                         </el-form-item>
                         <el-form-item label="确认新密码" prop="confirmPassword">
                             <el-input v-model="pwdForm.confirmPassword" type="password" show-password
-                                placeholder="再次输入新密码" maxlength="100" />
+                                placeholder="再次输入新密码" maxlength="16" />
                         </el-form-item>
                         <el-form-item>
                             <el-button type="primary" :loading="pwdSubmitting" @click="submitPassword">
@@ -235,22 +269,53 @@ onMounted(async () => {
 }
 
 .summary-avatar {
+    position: relative;
     display: grid;
     overflow: hidden;
     width: 72px;
     height: 72px;
     place-items: center;
+    padding: 0;
+    border: none;
     border-radius: 20px;
     color: #fff;
     background: linear-gradient(145deg, #5b8bff, #6c63ff);
     font-size: 30px;
     font-weight: 700;
+    cursor: pointer;
+}
+
+.summary-avatar:disabled {
+    cursor: wait;
 }
 
 .summary-avatar img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* 悬停/上传中显示的半透明遮罩提示 */
+.avatar-mask {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgb(23 31 52 / 55%);
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 150ms ease;
+}
+
+.summary-avatar:hover .avatar-mask,
+.summary-avatar:disabled .avatar-mask {
+    opacity: 1;
+}
+
+/* 隐藏原生文件选择框，由点击头像代理触发 */
+.avatar-file-input {
+    display: none;
 }
 
 .summary-name {

@@ -2,9 +2,7 @@
   <header class="afc-header">
     <div class="afc-header__left">
       <span class="afc-header__ava">
-        <el-icon :size="15">
-          <Headset />
-        </el-icon>
+            <SvgIcon  name="智能优化" :size="15"/>
       </span>
       <div>
         <p class="afc-header__name">{{ title }}</p>
@@ -61,10 +59,9 @@ import {
   Close,
   Delete,
   FullScreen,
-  Headset,
   ScaleToOriginal,
 } from "@element-plus/icons-vue";
-
+import SvgIcon from "@/components/SvgIcon.vue";
 defineProps<{
   title: string;
   isLoading: boolean;

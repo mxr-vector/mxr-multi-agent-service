@@ -2,6 +2,7 @@
 import { computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { type NavigationItem } from "@/router/navigation";
+import { resolveAvatarUrl } from "@/api/system";
 import { useUserStore } from "@/stores/userStore";
 import { confirmDanger } from "@/utils/confirm";
 import NavIcon from "@/layout/components/NavIcon.vue";
@@ -28,6 +29,7 @@ const displayName = computed(
     () => currentUser.value?.nickname || currentUser.value?.username || "未登录"
 );
 const avatarInitial = computed(() => displayName.value.charAt(0).toUpperCase());
+const avatarUrl = computed(() => resolveAvatarUrl(currentUser.value?.avatar));
 
 /** 账户下拉菜单命令：个人中心 / 退出登录 */
 async function onProfileCommand(command: string) {
@@ -99,7 +101,7 @@ onMounted(() => {
             <el-dropdown trigger="click" @command="onProfileCommand">
                 <button class="profile" type="button" aria-label="账户菜单">
                     <span class="profile-avatar" aria-hidden="true">
-                        <img v-if="currentUser?.avatar" :src="currentUser.avatar" alt="" />
+                        <img v-if="avatarUrl" :src="avatarUrl" alt="" />
                         <template v-else>{{ avatarInitial }}</template>
                     </span>
                     <span class="profile-copy">

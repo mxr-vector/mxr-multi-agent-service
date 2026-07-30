@@ -14,8 +14,11 @@
                 <div v-for="msg in messages" :key="msg.id" class="afc-msg" :class="`afc-msg--${msg.role}`"
                     :data-afc-msg-id="msg.id">
                     <div class="afc-msg__ava" :class="`afc-msg__ava--${msg.role}`">
-                        <SvgIcon v-if="msg.role === 'user'" name="水豚噜噜" colored :size="26" />
-                        <SvgIcon v-else name="智能优化" :size="16" />
+                        <template v-if="msg.role === 'user'">
+                            <img v-if="userAvatarUrl" :src="userAvatarUrl" alt="" />
+                            <template v-else>{{ userAvatarInitial }}</template>
+                        </template>
+                        <SvgIcon v-else name="智能优化" :size="15" />
                     </div>
                     <div class="afc-msg__body">
                         <div v-if="msg.thinking" class="afc-thinking-card">
@@ -130,11 +133,14 @@ import {
     RefreshRight,
     Select,
 } from "@element-plus/icons-vue";
-import { nextTick, onMounted, onUnmounted, shallowRef } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, shallowRef } from "vue";
 import { MdPreview } from "@/utils/md-editor-v3";
+import { resolveAvatarUrl } from "@/api/system";
+import { useUserStore } from "@/stores/userStore";
 import { MSG_STATUS } from "../constants";
 import type { ChatSource } from "@/api/aichat";
 import type { ChatMessage } from "../types";
+import SvgIcon from "@/components/SvgIcon.vue";
 
 defineProps<{
     messages: ChatMessage[];
@@ -157,6 +163,14 @@ const emit = defineEmits<{
     (e: "quote", msg: ChatMessage): void;
     (e: "scroll-to-bottom"): void;
 }>();
+
+// 用户头像取自当前登录用户：优先头像图片，缺失时用昵称/用户名首字母占位
+const userStore = useUserStore();
+const userDisplayName = computed(
+    () => userStore.userInfo?.nickname || userStore.userInfo?.username || "我"
+);
+const userAvatarInitial = computed(() => userDisplayName.value.charAt(0).toUpperCase());
+const userAvatarUrl = computed(() => resolveAvatarUrl(userStore.userInfo?.avatar));
 
 const sourceTooltipVisible = shallowRef(false);
 const sourceTooltipVirtualRef = shallowRef<HTMLElement | null>(null);

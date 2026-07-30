@@ -100,6 +100,8 @@ export const AUTH_URL = {
   me: "/auth/me",
   /** 修改自己密码（需校验原密码，区别于管理员重置） */
   password: "/auth/me/password",
+  /** 上传当前用户头像（multipart，图片 2MB 以内） */
+  avatar: "/auth/me/avatar",
 } as const;
 
 // 统一出口：业务侧可直接从 "@/api/system" 导入 xxApi 对象与类型

@@ -113,6 +113,13 @@ class ENV_CONFIG:
         return int(self.require("UPLOAD_MAX_SIZE_MB"))
 
     @property
+    def upload_dir(self) -> Path:
+        """全局上传文件存储根目录；相对路径基于项目根解析，默认 data。"""
+        raw = self.get("UPLOAD_DIR", "data")
+        path = Path(raw)
+        return path if path.is_absolute() else self.base_path / path
+
+    @property
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 

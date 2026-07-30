@@ -50,7 +50,6 @@ PostgreSQL 18.0+
 Qdrant@latest
 Rocm/CUDA 显卡 16G(显存至少满足16G)
 内嵌自动下载 qdrant-bm2.5/rapidocr模型  （辅助bm2.5 检索）
-rapidocr-onnx （帮助pdf文本识别和排版）
 redis
 
 ## 1.3 RAG 系统
@@ -66,7 +65,9 @@ redis
 
 [Qdrant使用手册](https://qdrant.org.cn/documentation/quickstart/)
 
-PostgreSQL作为关系型知识库持久化维护，也便于经过向量块命中后返回完整文档，交给对话模型。并能根据命中块精准定位来源出处。
+PostgreSQL作为关系型知识库持久化维护，也便于经过向量块命中后返回完整文档，交给对话模型。并能根据命中块精准定位来源出处。也记录了对话消息。
+
+
 
 
 # 二.本地推理框架部署

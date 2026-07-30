@@ -57,4 +57,20 @@ export const authApi = {
       new_password: newPassword,
     });
   },
+
+  /** 上传当前用户头像（multipart，图片 2MB 以内），返回更新后的用户信息 */
+  uploadAvatar(file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    return request.post<User, ApiResult<User>>(AUTH_URL.avatar, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
 };
+
+/** 头像地址解析：后端存相对路径（/public/files/...）时补代理前缀，绝对地址原样返回 */
+export function resolveAvatarUrl(avatar: string | null | undefined): string {
+  if (!avatar) return "";
+  if (/^(https?:)?\/\//.test(avatar) || avatar.startsWith("data:")) return avatar;
+  return import.meta.env.VITE_APP_BASE_API + avatar;
+}

@@ -72,6 +72,14 @@
 .afc-msg__ava--user {
   background: linear-gradient(135deg, #7c3aed, #db2777);
   color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.afc-msg__ava--user img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .afc-msg__body {
