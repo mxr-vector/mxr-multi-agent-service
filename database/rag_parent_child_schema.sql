@@ -285,7 +285,7 @@ CREATE TABLE rag.chat_sessions (
     title             TEXT NOT NULL DEFAULT '新对话', -- 首轮问答后由 rewrite_model 生成一句摘要(失败回落首问截断)
     message_count     INT NOT NULL DEFAULT 0,  -- 冗余计数, 业务层在写入消息时同步更新
     last_message_at   TIMESTAMPTZ,             -- 最后一条消息时间, 列表倒序排序用; 也是 checkpoint TTL 清理的判断基准
-    status            VARCHAR(20) NOT NULL DEFAULT 'active', -- 'active'/'deleted' 软删, 业务层校验
+    status            VARCHAR(20) NOT NULL DEFAULT 'active', -- 常态 'active'; 删除为物理删除(连同 chat_messages), 'deleted' 仅历史软删遗留
 
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()   -- 业务层在 UPDATE 时显式赋值

@@ -19,7 +19,8 @@ class ChatSession(Base):
     - user_id 为属主（用户 32 位 hex 标识），会话仅本人可见（查询一律按 user_id 等值收敛）；
     - title 首轮问答后由 rewrite_model 生成一句摘要（失败回落首问截断）；
     - message_count / last_message_at 为冗余字段，业务层写入消息时同步更新；
-    - status 取值 'active'/'deleted'，删除采用软删除。
+    - 删除为物理删除（连同 chat_messages 同事务清理）；status 常态为
+      'active'，读侧仍把历史软删遗留的 'deleted' 行按不存在处理。
     """
 
     __tablename__ = "chat_sessions"

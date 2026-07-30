@@ -86,30 +86,26 @@ class ChatSessionRepository:
         chat_session.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
 
-    async def soft_delete(self, chat_session: ChatSession) -> ChatSession:
-        """软删除：置 status='deleted' 并刷新 updated_at。"""
-        chat_session.status = "deleted"
-        chat_session.updated_at = datetime.now(timezone.utc)
+    async def delete(self, chat_session: ChatSession) -> None:
+        """物理删除会话行（消息由 ChatMessageRepository 在同事务清理）。"""
+        await self.session.delete(chat_session)
         await self.session.flush()
-        return chat_session
 
-    async def soft_delete_all(self, user_id: str) -> "list[uuid.UUID]":
-        """清空本人全部未删除会话，返回被删会话 id 列表（供同步清理 checkpoint）。
+    async def delete_by_user(self, user_id: str) -> "list[uuid.UUID]":
+        """物理删除本人全部会话（含历史软删遗留行），返回被删会话 id 列表
+        （供同事务清理消息与同步清理 checkpoint）。
 
         注：返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
         """
-        stmt = select(ChatSession).where(
-            ChatSession.user_id == user_id,
-            ChatSession.status != "deleted",
+        result = await self.session.execute(
+            select(ChatSession.id).where(ChatSession.user_id == user_id)
         )
-        result = await self.session.execute(stmt)
-        sessions = list(result.scalars().all())
-        now = datetime.now(timezone.utc)
-        for chat_session in sessions:
-            chat_session.status = "deleted"
-            chat_session.updated_at = now
-        await self.session.flush()
-        return [chat_session.id for chat_session in sessions]
+        session_ids = [row[0] for row in result.all()]
+        if session_ids:
+            await self.session.execute(
+                delete(ChatSession).where(ChatSession.id.in_(session_ids))
+            )
+        return session_ids
 
     async def stats(self, user_id: str) -> dict:
         """统计本人未删除会话总数与消息总数（消息按未删会话聚合）。"""
