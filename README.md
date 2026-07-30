@@ -82,7 +82,7 @@ PostgreSQL作为关系型知识库持久化维护，也便于经过向量块命�
 
 ### 1.3.1 先决条件
 
-1. 配置 VISUAL_* 多模态模型（VISUAL_MODEL_NAME / VISUAL_API_URL / VISUAL_API_KEY，如 step-3.7-flash）
+1. 配置 VISUAL_* 多模态模型（VISUAL_MODEL_NAME / VISUAL_API_URL / VISUAL_API_KEY，需支持 vision，如 step-3.7-flash）
 2. 部署 drawio 并配置
 ```bash
 podman run -d \
@@ -91,6 +91,16 @@ podman run -d \
   -p 8080:8080 \
   jgraph/drawio
 ```
+
+3. 前端 `.env.development` 配置 `VITE_DRAWIO_EMBED_URL`（drawio 实例地址，如 `http://localhost:8080`；同时作为 postMessage origin 校验基准）
+4. 执行绘图模块建表：`database/draw_schema.sql`（draw schema 下会话/消息/图表版本三表）
+5. 系统菜单已内置 AI 绘图菜单（`database/system_schema.sql` 种子，component 键 `draw`）；需为对应角色授权可见
+
+### 1.3.2 设计要点
+
+- 多模态模型仅输出 Mermaid：前端 mermaid.js 实时预览；点击「在 drawio 中编辑」经 embed 模式（`descriptor:{format:'mermaid',wrap:true}`）载入编辑器
+- 图表版本链 append-only：AI 生成与 drawio 编辑保存均产生新版本（`parent_id` 指向基线），不覆盖旧版本
+- export-server 为二期能力：一期预览由前端编辑器 `export xmlpng` 产出（内嵌 XML 的 PNG，单文件既是预览又可重载编辑）
 
 
 # 二.本地推理框架部署

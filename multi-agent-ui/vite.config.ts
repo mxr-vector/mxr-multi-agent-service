@@ -39,5 +39,12 @@ export default defineConfig(({ mode }) => {
       // 使用 oxc 进行打包压缩（Vite 8 / Rolldown 内置）
       minify: "oxc",
     },
+    optimizeDeps: {
+      // mermaid 依赖链包含多个 CJS 包（dayjs / @braintree/sanitize-url / dompurify 等），
+      // 若排除预构建则这些 CJS 子依赖无 ESM 命名导出而报错；
+      // 改为显式 include 让 Vite 一次性完整预构建 mermaid（含全部子依赖的
+      // CJS→ESM interop 与 chunk 合并），根治懒加载 chunk 404 与命名导出缺失
+      include: ["mermaid"],
+    },
   };
 });

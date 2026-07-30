@@ -211,6 +211,17 @@ VALUES
     ('01900000-0000-7000-8000-000000000007', '01900000-0000-7000-8000-000000000001', 'menu', 'system-config', '/system/config', 'system-config', '参数管理', 'config',   6)
 ON CONFLICT (id) DO NOTHING;
 
+-- AI 绘图菜单: "绘制设计" 目录 + "AI 绘图" 子菜单 (组件键 draw 对应 views/draw/index.vue, 由 viewModules 自动映射)
+INSERT INTO sys.sys_menu (id, parent_id, menu_type, name, path, component, label, icon, sort_order)
+VALUES
+    ('019fa2c4-50f2-7b8a-b703-94abbe1b4f31', NULL, 'dir', NULL, '/draw-design', NULL, '绘制设计', 'bangongyongpinguanli', 3)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO sys.sys_menu (id, parent_id, menu_type, name, path, component, label, icon, sort_order)
+VALUES
+    ('01900000-0000-7000-8000-000000000008', '019fa2c4-50f2-7b8a-b703-94abbe1b4f31', 'menu', 'draw', '/draw-design/draw', 'draw', 'AI 绘图', 'workflow', 30)
+ON CONFLICT (id) DO NOTHING;
+
 -- ============================================================
 -- 11. 默认管理员种子用户
 --     username=admin, 密码明文 123456 的 bcrypt 哈希字面量;

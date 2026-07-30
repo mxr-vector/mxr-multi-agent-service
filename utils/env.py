@@ -213,6 +213,23 @@ class ENV_CONFIG:
         return self.require("REWRITE_MODEL_NAME")
 
     """
+    Visual 多模态模型相关配置（OpenAI 兼容接口，需支持 vision）
+    专用于绘图模块的图文理解与 Mermaid 生成，与 chat/rewrite 模型各司其职。
+    """
+
+    @property
+    def visual_api_key(self) -> str:
+        return self.require("VISUAL_API_KEY")
+
+    @property
+    def visual_api_url(self) -> str:
+        return self.require("VISUAL_API_URL")
+
+    @property
+    def visual_model_name(self) -> str:
+        return self.require("VISUAL_MODEL_NAME")
+
+    """
     数据库相关配置
     """
 
