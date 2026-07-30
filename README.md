@@ -95,9 +95,9 @@ vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --served-model-name Qwen3-Embedding-0.6B \
     --runner pooling \
     --dtype auto \
-    --gpu-memory-utilization 0.4 \
+    --gpu-memory-utilization 0.15 \
     --max-model-len 4096 \
-    --max-num-seqs 1 \
+    --max-num-seqs 4 \
     --max-num-batched-tokens 4096 \
     --trust-remote-code \
     --api-key 95279527
@@ -110,9 +110,9 @@ vllm serve ./models/chat/Qwen3.5-2B \
     --port 9528 \
     --served-model-name Qwen3.5-2B \
     --dtype half \
-    --gpu-memory-utilization 0.60 \
+    --gpu-memory-utilization 0.75 \
     --max-model-len 8192 \
-    --max-num-seqs 1 \
+    --max-num-seqs 4 \
     --max-num-batched-tokens 8192 \
     --trust-remote-code \
     --enable-auto-tool-choice \
