@@ -15,7 +15,7 @@ REASONING_EFFORT_OFF = "off"
 
 
 def build_chat_model(
-    temperature: float = 2, reasoning_effort: str | None = None
+    temperature: float = 0.7, reasoning_effort: str | None = None
 ) -> ChatOpenAI:
     """按 ENV 构造指向 vLLM 的 OpenAI 兼容 chat model；reasoning_effort 控制思考强度。
 
