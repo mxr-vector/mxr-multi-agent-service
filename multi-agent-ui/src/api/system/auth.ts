@@ -20,6 +20,14 @@ export type DataScope = "all" | "dept_and_child" | "dept" | "self";
 /** /auth/me 响应：用户基础信息 + 聚合 data_scope（登录响应不含该字段） */
 export type CurrentUser = User & { data_scope: DataScope };
 
+/** 个人资料更新请求体（仅本人可维护字段，username/status 等管理字段不开放） */
+export interface ProfileUpdatePayload {
+  nickname?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  avatar?: string | null;
+}
+
 /** 认证 API：统一通过 authApi.xx() 调用 */
 export const authApi = {
   /** 用户名/密码登录（免鉴权接口，成功返回 JWT 与用户信息） */
@@ -35,5 +43,18 @@ export const authApi = {
   /** 查询当前 JWT 对应的用户信息（附聚合 data_scope） */
   me() {
     return request.get<CurrentUser, ApiResult<CurrentUser>>(AUTH_URL.me);
+  },
+
+  /** 更新当前用户个人资料（昵称/邮箱/手机/头像），返回更新后的用户信息 */
+  updateProfile(payload: ProfileUpdatePayload) {
+    return request.put<User, ApiResult<User>>(AUTH_URL.me, payload);
+  },
+
+  /** 修改自己密码（服务端先校验原密码，再 bcrypt 哈希新密码覆盖） */
+  changePassword(oldPassword: string, newPassword: string) {
+    return request.put<null, ApiResult<null>>(AUTH_URL.password, {
+      old_password: oldPassword,
+      new_password: newPassword,
+    });
   },
 };

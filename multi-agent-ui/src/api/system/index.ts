@@ -96,8 +96,10 @@ export const AUTH_URL = {
   login: "/public/auth/login",
   /** 登出（无状态语义） */
   logout: "/auth/logout",
-  /** 当前用户信息 */
+  /** 当前用户信息（GET 查询 / PUT 更新个人资料） */
   me: "/auth/me",
+  /** 修改自己密码（需校验原密码，区别于管理员重置） */
+  password: "/auth/me/password",
 } as const;
 
 // 统一出口：业务侧可直接从 "@/api/system" 导入 xxApi 对象与类型

@@ -49,7 +49,8 @@ project
 PostgreSQL 18.0+
 Qdrant@latest
 Rocm/CUDA 显卡 16G(显存至少满足16G)
-内嵌自动下载 qdrant-bm2.5/rapidocr模型
+内嵌自动下载 qdrant-bm2.5/rapidocr模型  （辅助bm2.5 检索）
+rapidocr-onnx （帮助pdf文本识别和排版）
 redis
 
 ## 1.3 RAG 系统

@@ -81,7 +81,23 @@ const routes: RouteRecordRaw[] = [
     name: "layout",
     component: MainLayout,
     redirect: "/overview",
-    children: createChildRoutes(navigationItems),
+    children: [
+      ...createChildRoutes(navigationItems),
+      // 个人中心：不进侧边栏菜单，仅由顶栏右上角账户下拉进入，故直接静态注册
+      {
+        path: "profile",
+        name: "profile",
+        component: () => import("@/views/system/Profile.vue"),
+        meta: {
+          path: "/profile",
+          name: "profile",
+          label: "个人中心",
+          icon: "User",
+          description: "维护个人资料与登录密码。",
+        } satisfies NavigationItem,
+        children: [],
+      },
+    ],
   },
 ];
 
