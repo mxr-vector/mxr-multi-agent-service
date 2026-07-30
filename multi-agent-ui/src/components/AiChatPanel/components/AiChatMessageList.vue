@@ -226,11 +226,21 @@ function formatSourceTooltipMarkdown(source: ChatSource): string {
     const lines = [`### 来源 [${source.index}]`];
     if (source.document_name) lines.push(`- 文件名：${escapeMarkdownInline(source.document_name)}`);
     if (source.kb_name) lines.push(`- 知识库：${escapeMarkdownInline(source.kb_name)}`);
+    const pageLabel = formatSourcePageLabel(source);
+    if (pageLabel) lines.push(`- 页码：${pageLabel}`);
     if (source.similarity_percent != null) lines.push(`- 相似度：${source.similarity_percent}%`);
 
     const content = (source.text || "").trim();
     if (content) lines.push("", "---", "", content);
     return lines.join("\n");
+}
+
+function formatSourcePageLabel(source: ChatSource): string | null {
+    if (source.page_start == null) return null;
+    if (source.page_end != null && source.page_end !== source.page_start) {
+        return `第 ${source.page_start}-${source.page_end} 页`;
+    }
+    return `第 ${source.page_start} 页`;
 }
 
 function escapeMarkdownInline(value: string): string {
