@@ -38,9 +38,9 @@
                         <div v-if="
                             msg.content || msg.status === MSG_STATUS.TYPING || msg.status === MSG_STATUS.ERROR
                         " class="afc-bubble" :class="{
-                'afc-bubble--error': msg.status === MSG_STATUS.ERROR,
-                'afc-bubble--typing': msg.status === MSG_STATUS.TYPING && !msg.content,
-            }">
+                            'afc-bubble--error': msg.status === MSG_STATUS.ERROR,
+                            'afc-bubble--typing': msg.status === MSG_STATUS.TYPING && !msg.content,
+                        }">
                             <span v-if="msg.status === MSG_STATUS.TYPING && !msg.content" class="afc-typing">
                                 <span />
                                 <span />
