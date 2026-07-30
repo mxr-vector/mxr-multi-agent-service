@@ -226,6 +226,7 @@ function formatSourceTooltipMarkdown(source: ChatSource): string {
     const lines = [`### 来源 [${source.index}]`];
     if (source.document_name) lines.push(`- 文件名：${escapeMarkdownInline(source.document_name)}`);
     if (source.kb_name) lines.push(`- 知识库：${escapeMarkdownInline(source.kb_name)}`);
+    if (source.chapter_title) lines.push(`- 章节：${escapeMarkdownInline(source.chapter_title)}`);
     const pageLabel = formatSourcePageLabel(source);
     if (pageLabel) lines.push(`- 页码：${pageLabel}`);
     if (source.similarity_percent != null) lines.push(`- 相似度：${source.similarity_percent}%`);
