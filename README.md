@@ -44,17 +44,28 @@ project
 |—— multi-agent-ui # 简单的前端测试项目(Vue3.x)
 ```
 
-## 1.2 环境要求
+## 1.2 RAG 系统
 
-PostgreSQL 18.0+
-Qdrant@latest
-Rocm/CUDA 显卡 16G(显存至少满足16G)
-内嵌自动下载 qdrant-bm2.5/rapidocr模型  （辅助bm2.5 检索）
-redis
+### 1.2.1 先决条件
 
-## 1.3 RAG 系统
+1. PostgreSQL 18.0+
+2. Qdrant@latest 向量库
+```bash
+# qdrant
+podman run -d  \
+--name qdrant \
+-p 6333:6333  \
+-p 6334:6334  \
+-v qdrant_storage:$HOME/mydata/qdrant/storage \
+-e QDRANT__SERVICE__API_KEY=95279527 \
+docker.io/qdrant/qdrant
+```
+3. Rocm/CUDA 显卡 16G(显存至少满足16G)
+4. 内嵌自动下载 qdrant-bm2.5/rapidocr模型  （辅助bm2.5 检索）
+5. 本地分别配置  postgres,qdrant，embedding,rerank,chat,rewrite 模型api
 
-### 1.3.1 RAG 检索存储方案选择
+
+### 1.2.2 RAG 检索存储方案选择
 
 通用场景下的 RAG（Retrieval-Augmented Generation）方案采用向量数据库作为知识检索基础设施。虽然知识图谱能够表达实体之间的关系，但在通用领域中，由于业务对象类型多样、关系定义复杂，难以提前完成稳定的实体建模和边属性设计，容易导致模型扩展成本较高。
 
@@ -67,7 +78,19 @@ redis
 
 PostgreSQL作为关系型知识库持久化维护，也便于经过向量块命中后返回完整文档，交给对话模型。并能根据命中块精准定位来源出处。也记录了对话消息。
 
+## 1.3 Draw 系统
 
+### 1.3.1 先决条件
+
+1. 配置 VISUAL_* 多模态模型（VISUAL_MODEL_NAME / VISUAL_API_URL / VISUAL_API_KEY，如 step-3.7-flash）
+2. 部署 drawio 并配置
+```bash
+podman run -d \
+  --name drawio \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  jgraph/drawio
+```
 
 
 # 二.本地推理框架部署
@@ -120,16 +143,6 @@ vllm serve ./models/chat/Qwen3.5-2B \
     --enable-auto-tool-choice \
     --tool-call-parser hermes \
     --api-key 95279527
-
-
-# qdrant
-podman run -d  \
---name qdrant \
--p 6333:6333  \
--p 6334:6334  \
--v qdrant_storage:$HOME/mydata/qdrant/storage \
--e QDRANT__SERVICE__API_KEY=95279527 \
-docker.io/qdrant/qdrant
 ```
 
 # 三.池化模型说明
