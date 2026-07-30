@@ -420,11 +420,18 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       return;
     }
     // 后端取消在途任务后会以 done(stopped) 帧正常收尾，无需本地中断；
-    // stop 请求失败时回退为本地 abort
-    AiChatApi.stop(sessionId).catch(() => {
-      abortFnRef.value?.();
-      finishLatest();
-    });
+    // cancelled=false（后端重启后在途任务丢失等）或 stop 请求失败时回退为本地 abort
+    AiChatApi.stop(sessionId)
+      .then((res) => {
+        if (!res.data?.cancelled) {
+          abortFnRef.value?.();
+          finishLatest();
+        }
+      })
+      .catch(() => {
+        abortFnRef.value?.();
+        finishLatest();
+      });
   }
 
   async function handleSend(text?: string): Promise<void> {

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Sequence
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.chat import ChatMessage, ChatSession
@@ -255,5 +255,19 @@ class ChatMessageRepository:
             .where(ChatMessage.status == "generating")
             .values(status="failed", error="服务重启，生成任务中断")
         )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
+    async def delete_by_session(self, session_id: uuid.UUID) -> int:
+        """物理删除会话下全部消息（会话删除时同步清理），返回影响行数。"""
+        stmt = delete(ChatMessage).where(ChatMessage.session_id == session_id)
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
+    async def delete_by_sessions(self, session_ids: "list[uuid.UUID]") -> int:
+        """物理删除多个会话下全部消息（清空会话时同步清理），返回影响行数。"""
+        if not session_ids:
+            return 0
+        stmt = delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids))
         result = await self.session.execute(stmt)
         return result.rowcount or 0

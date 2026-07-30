@@ -179,23 +179,25 @@ class ChatSessionService:
             return await ChatSessionRepository(session).stats(ctx.user_id)
 
     async def delete(self, ctx: UserContext, session_id: uuid.UUID) -> None:
-        """删除会话：先取消在途任务，业务表软删，并同步删除 checkpoint thread。"""
+        """删除会话：先取消在途任务，业务表软删 + 物理清理消息，并同步删除 checkpoint thread。"""
         cancel_generation(session_id.hex)
         async with get_session() as session:
             repo = ChatSessionRepository(session)
             chat_session = await self._assert_owned(repo, session_id, ctx)
             await repo.soft_delete(chat_session)
+            await ChatMessageRepository(session).delete_by_session(session_id)
             await session.commit()
         await self._delete_thread(session_id)
 
     async def delete_all(self, ctx: UserContext) -> int:
-        """清空本人全部会话：软删 + 逐一清理 checkpoint thread，返回删除数。"""
+        """清空本人全部会话：软删 + 物理清理消息 + 逐一清理 checkpoint thread，返回删除数。"""
         if not ctx.user_id:
             return 0
         async with get_session() as session:
             deleted_ids = await ChatSessionRepository(session).soft_delete_all(
                 ctx.user_id
             )
+            await ChatMessageRepository(session).delete_by_sessions(deleted_ids)
             await session.commit()
         for session_id in deleted_ids:
             cancel_generation(session_id.hex)
