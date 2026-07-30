@@ -12,7 +12,7 @@ from agent.checkpoints.postgres import (
     open_checkpointer,
     start_ttl_task,
 )
-from agent.sub.chat_graph import reset_chat_graph
+from agent.graph.chat_graph import chat_graph
 from service.rag.chat import reset_stale_generating
 from service.rag.document import DocumentService
 from utils.logger import logger
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     start_ttl_task()
     yield
     # 关停：释放图单例与 checkpointer 资源（在途生成任务随事件循环关闭一并取消）
-    reset_chat_graph()
+    chat_graph.reset()
     await close_checkpointer()
 
 

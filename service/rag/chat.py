@@ -366,7 +366,7 @@ class ChatCompletionService:
     ) -> None:
         """图执行协程：astream 事件映射为 SSE 帧入队，终态落库并发收尾帧。"""
         from agent.constants.enums.chat import ChatNode
-        from agent.sub.chat_graph import get_chat_graph
+        from agent.graph.chat_graph import chat_graph
 
         session_hex = session_id.hex
         event_id = 0
@@ -382,7 +382,7 @@ class ChatCompletionService:
             queue.put_nowait(_sse_frame(event_id, event, data))
 
         try:
-            graph = get_chat_graph()
+            graph = chat_graph.get()
             config = {"configurable": {"thread_id": session_hex}}
             graph_input = {
                 "messages": [HumanMessage(content=question)],

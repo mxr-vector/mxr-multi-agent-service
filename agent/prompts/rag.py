@@ -1,5 +1,5 @@
 """
-Agentic RAG 图（agent.sub.rag_graph）使用的提示词。
+Agentic RAG 图（agent.graph.sub.rag_graph）使用的提示词。
 
 集中维护 RAG 流程各节点的提示词模板，供 rag_graph 通过 `str.format` 填充变量后使用：
 - GRADE_PROMPT：判断检索文档与问题的相关性（占位符：context、question）；

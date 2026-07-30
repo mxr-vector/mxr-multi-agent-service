@@ -1,5 +1,5 @@
 """
-Chat 问答父图（agent.sub.chat_graph）使用的提示词。
+Chat 问答父图（agent.graph.chat_graph）使用的提示词。
 
 集中维护父图各节点与配套任务的提示词模板，供图节点/服务层通过
 `str.format` 填充变量后使用：
