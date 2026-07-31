@@ -12,6 +12,7 @@ import { getToken, removeToken, setToken } from "@/utils/auth";
 import { resetDynamicRoutes } from "@/router";
 import { useMenuStore } from "@/stores/menuStore";
 import { useDictStore } from "@/stores/dictStore";
+import { useConfigStore } from "@/stores/configStore";
 
 /** 本地用户信息：登录响应不含 data_scope，由 /auth/me 懒补齐 */
 type StoredUser = User & { data_scope?: DataScope };
@@ -42,9 +43,10 @@ export const useUserStore = defineStore("user", () => {
     token.value = "";
     userInfo.value = null;
     removeToken();
-    // 清空动态菜单、全局词典并移除已注册的动态路由，下次登录重新拉取
+    // 清空动态菜单、全局词典、全局运行参数并移除已注册的动态路由，下次登录重新拉取
     useMenuStore().reset();
     useDictStore().reset();
+    useConfigStore().reset();
     resetDynamicRoutes();
   }
 

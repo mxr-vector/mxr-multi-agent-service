@@ -17,6 +17,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from database.postgre_client import get_session
 from database.system.config import ConfigRepository
@@ -25,14 +26,33 @@ from utils.logger import logger
 
 # 四个模型角色（sys_model_config.role），四行必须齐全
 MODEL_ROLES = ("chat", "rewrite", "visual", "rerank")
-# 标量运行参数白名单键（sys_config.key），全部为必需正整数
-SCALAR_KEYS = (
+# 正整数标量运行参数键（sys_config.key），全部为必需正整数
+INT_SCALAR_KEYS = (
     "RAG_CANDIDATE_POOL_SIZE",
     "RAG_FINAL_TOP_K",
     "RAG_REFLECT_ROUND_CAP",
     "CHAT_CHECKPOINT_TTL_DAYS",
     "CHAT_HISTORY_MAX_MESSAGES",
 )
+# 自托管 drawio embed 实例地址（http(s) URL，前端 iframe 加载与 postMessage origin 校验用）
+DRAWIO_EMBED_URL_KEY = "DRAWIO_EMBED_URL"
+# 标量运行参数白名单键全集（/system/configs/scalars 的返回范围）
+SCALAR_KEYS = INT_SCALAR_KEYS + (DRAWIO_EMBED_URL_KEY,)
+
+
+def scalar_value_type(key: str) -> str:
+    """标量参数的值类型（供前端数据驱动校验；类型权威随消费契约定义在此）。
+
+    int=正整数、url=http(s) 地址、text=无格式约束（非契约的内置参数）。
+    前端经 /scalars 响应拿到此值即可按需校验，无需镜像后端白名单键。
+    """
+    if key in INT_SCALAR_KEYS:
+        return "int"
+    if key == DRAWIO_EMBED_URL_KEY:
+        return "url"
+    return "text"
+
+
 # chat/visual 角色的超时/重试缺省值（NULL 时回落，保持迁移前 ENV 行为）
 DEFAULT_TIMEOUT = 60
 DEFAULT_MAX_RETRIES = 2
@@ -64,6 +84,7 @@ class ConfigSnapshot:
     rag_reflect_round_cap: int
     chat_checkpoint_ttl_days: int
     chat_history_max_messages: int
+    drawio_embed_url: str
 
 
 def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
@@ -71,7 +92,9 @@ def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
     if row is None:
         errors.append(f"缺少模型配置角色行: role={role}")
         return None
-    for field in ("model_name", "api_url", "api_key"):
+    # api_key 允许为空：本地 vLLM / 免鉴权 OpenAI 兼容端点无需凭证，
+    # 空值透传为 "Authorization: Bearer "，不影响调用（仅 model_name/api_url 必填）
+    for field in ("model_name", "api_url"):
         if not (getattr(row, field, None) or "").strip():
             errors.append(f"模型配置 role={role} 的必填字段为空: {field}")
     timeout = row.timeout
@@ -106,6 +129,18 @@ def _coerce_positive_int(key: str, raw: str | None, errors: list[str]) -> int:
     return value
 
 
+def _coerce_http_url(key: str, raw: str | None, errors: list[str]) -> str:
+    """把标量参数解析为 http(s) URL，缺失/非法追加到 errors 并返回空串占位。"""
+    value = (raw or "").strip()
+    if not value:
+        errors.append(f"缺少必需运行参数: {key}")
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        errors.append(f"运行参数 {key} 必须为合法的 http(s) URL: {raw!r}")
+    return value
+
+
 async def _build_snapshot() -> ConfigSnapshot:
     """从数据库全量加载并校验，返回不可变快照；任一必需项缺失/非法则抛 ValueError。"""
     errors: list[str] = []
@@ -122,8 +157,12 @@ async def _build_snapshot() -> ConfigSnapshot:
         key: _coerce_positive_int(
             key, scalar_raw[key].value if scalar_raw[key] else None, errors
         )
-        for key in SCALAR_KEYS
+        for key in INT_SCALAR_KEYS
     }
+    drawio_row = scalar_raw[DRAWIO_EMBED_URL_KEY]
+    drawio_embed_url = _coerce_http_url(
+        DRAWIO_EMBED_URL_KEY, drawio_row.value if drawio_row else None, errors
+    )
 
     if errors:
         raise ValueError("配置快照加载失败：\n- " + "\n- ".join(errors))
@@ -138,6 +177,7 @@ async def _build_snapshot() -> ConfigSnapshot:
         rag_reflect_round_cap=scalars["RAG_REFLECT_ROUND_CAP"],
         chat_checkpoint_ttl_days=scalars["CHAT_CHECKPOINT_TTL_DAYS"],
         chat_history_max_messages=scalars["CHAT_HISTORY_MAX_MESSAGES"],
+        drawio_embed_url=drawio_embed_url,
     )
 
 
@@ -150,7 +190,9 @@ class _ConfigManager:
     async def load(self) -> None:
         """lifespan 启动加载；失败直接抛出以拒绝启动（fail-fast）。"""
         self._snapshot = await _build_snapshot()
-        logger.info("[CFG] 配置快照加载完成（模型角色 4 + 标量参数 5）")
+        logger.info(
+            f"[CFG] 配置快照加载完成（模型角色 {len(MODEL_ROLES)} + 标量参数 {len(SCALAR_KEYS)}）"
+        )
 
     def load_blocking(self) -> None:
         """同步脚本入口的引导加载：供不经 lifespan 的独立脚本/冒烟块使用。
@@ -238,6 +280,10 @@ class _ConfigManager:
     @property
     def chat_history_max_messages(self) -> int:
         return self._current.chat_history_max_messages
+
+    @property
+    def drawio_embed_url(self) -> str:
+        return self._current.drawio_embed_url
 
 
 # 全局单例：消费方 import CFG 后同步读取，写接口 commit 成功后 await CFG.refresh()

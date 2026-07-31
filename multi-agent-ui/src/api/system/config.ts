@@ -13,6 +13,11 @@ export interface Config {
   remark: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * 值类型，仅 /scalars 接口返回：int=正整数 / url=http(s) 地址 / text=无格式约束。
+   * 前端据此数据驱动校验运行参数，无需硬编码后端白名单键。
+   */
+  value_type?: "int" | "url" | "text";
 }
 
 /** 创建参数请求体（key 全局唯一，is_builtin 创建后不可变） */
@@ -64,14 +69,9 @@ export const configApi = {
     return request.get<Config, ApiResult<Config>>(CONFIG_URL.byId(configId));
   },
 
-  /** 批量读取白名单内置标量运行参数（RAG_* / CHAT_*），供模型配置页运行参数区域渲染 */
+  /** 批量读取内置运行参数整表（is_builtin=true，created_at 升序），供模型配置页运行参数区域渲染 */
   listScalars() {
     return request.get<Config[], ApiResult<Config[]>>(CONFIG_URL.scalars);
-  },
-
-  /** 按 key 精确查询参数（供业务读取配置值） */
-  getByKey(key: string) {
-    return request.get<Config, ApiResult<Config>>(CONFIG_URL.byKey(key));
   },
 
   /** 更新参数配置（is_builtin 不可变，变更 key 时后端校验唯一）；成功后后端触发快照刷新，结果经 data.refreshed 透出 */

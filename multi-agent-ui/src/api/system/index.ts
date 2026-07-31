@@ -46,12 +46,10 @@ export const DICT_DATA_URL = {
 export const CONFIG_URL = {
   /** 列表 / 新建 */
   root: `${BASE}/configs`,
-  /** 白名单内置标量运行参数（RAG_* / CHAT_*，供模型配置页运行参数区域） */
+  /** 内置运行参数整表（is_builtin=true，供模型配置页运行参数区域） */
   scalars: `${BASE}/configs/scalars`,
   /** 详情 / 更新 / 删除 */
   byId: (id: string) => `${BASE}/configs/${id}`,
-  /** 按 key 精确查询 */
-  byKey: (key: string) => `${BASE}/configs/key/${key}`,
 } as const;
 
 /** 模型配置管理接口地址（chat/rewrite/visual/rerank 角色卡片） */

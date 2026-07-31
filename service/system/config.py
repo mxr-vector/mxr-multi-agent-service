@@ -51,13 +51,12 @@ class ConfigService:
             items, total = await repo.list(page=page, size=size, keyword=keyword)
             return build_page_result([i.to_dict() for i in items], total, page, size)
 
-    async def list_by_keys(self, keys: list[str]) -> list[dict]:
-        """按 key 集合批量返回参数（按传入 keys 顺序排列，缺失的键跳过）。"""
+    async def list_builtin(self) -> list[dict]:
+        """返回全部内置参数（created_at 升序，供运行参数区域整表渲染）。"""
         async with get_session() as session:
             repo = ConfigRepository(session)
-            items = await repo.list_by_keys(keys)
-            by_key = {item.key: item for item in items}
-            return [by_key[k].to_dict() for k in keys if k in by_key]
+            items = await repo.list_builtin()
+            return [item.to_dict() for item in items]
 
     async def get(self, config_id: uuid.UUID) -> dict:
         """按 id 获取参数，不存在时抛出业务异常。"""
@@ -87,7 +86,8 @@ class ConfigService:
     ) -> dict:
         """
         更新参数（is_builtin 创建后不可变），不存在时抛出业务异常。
-        变更 key 时校验新键全局唯一。
+        变更 key 时校验新键全局唯一；内置参数（is_builtin）的 key 不可改名——
+        配置快照白名单按 key 匹配，改名会导致下次重启时 fail-fast。
         """
         async with get_session() as session:
             repo = ConfigRepository(session)
@@ -95,6 +95,8 @@ class ConfigService:
             if config is None:
                 bad_except(f"参数不存在: {config_id}")
             if key is not None and key != config.key:
+                if config.is_builtin:
+                    bad_except("内置参数不允许修改参数键（仅允许改值）")
                 existing = await repo.get_by_key(key)
                 if existing is not None:
                     bad_except(f"参数键已存在: {key}")

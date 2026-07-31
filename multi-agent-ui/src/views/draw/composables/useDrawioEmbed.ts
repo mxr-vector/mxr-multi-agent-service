@@ -1,8 +1,8 @@
 /**
  * drawio embed 模式 postMessage 协议封装（JSON protocol）。
  *
- * 生命周期：iframe 加载自托管 drawio（本地运行参数 DRAWIO_EMBED_URL，在模型
- * 配置页「运行参数」中设置）→ 编辑器就绪发
+ * 生命周期：iframe 加载自托管 drawio（地址来自后端运行参数 DRAWIO_EMBED_URL，
+ * 在模型配置页「运行参数」中设置）→ 编辑器就绪发
  * {event:'init'} → 宿主发送 load action（drawio XML / xmlpng dataURI / mermaid
  * descriptor）→ 用户编辑 → 宿主按需发 export action 取回 XML 与 xmlpng。
  *
@@ -10,7 +10,7 @@
  * iframe 的 contentWindow，来源不符一律丢弃（防伪造 save/export 注入）。
  */
 import { onBeforeUnmount, ref, type Ref } from "vue";
-import { DRAWIO_EMBED_URL_KEY, useSysParamStore } from "@/stores/sysParamStore";
+import { DRAWIO_EMBED_URL_KEY, useConfigStore } from "@/stores/configStore";
 
 /** embed 编辑器 iframe 固定查询串：JSON 协议 + 隐藏全部内置按钮（保存由宿主弹窗驱动） */
 const EMBED_QUERY = "?embed=1&proto=json&spin=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1";
@@ -37,17 +37,20 @@ export function useDrawioEmbed(
   iframeRef: Ref<HTMLIFrameElement | null>,
   options: UseDrawioEmbedOptions = {}
 ) {
-  // drawio 实例地址为纯前端运行参数（sysParamStore，可在模型配置页修改），读取时求值
-  const paramStore = useSysParamStore();
+  // drawio 实例地址来自全局运行参数 store（模型配置页保存后 store 同步刷新，
+  // 这里响应式读取即免刷新生效），首次使用前 ensureLoaded 预热
+  const configStore = useConfigStore();
+  void configStore.ensureLoaded();
 
   /** drawio 实例基址（去尾斜杠；同时是 postMessage origin 校验基准） */
   function drawioBase(): string {
-    return paramStore.getValue(DRAWIO_EMBED_URL_KEY).replace(/\/+$/, "");
+    return configStore.getValue(DRAWIO_EMBED_URL_KEY).replace(/\/+$/, "");
   }
 
-  /** embed 编辑器 iframe 地址（基址 + 固定查询串） */
+  /** embed 编辑器 iframe 地址（基址 + 固定查询串；参数未就绪时为空，加载完成后响应式更新） */
   function embedSrc(): string {
-    return `${drawioBase()}/${EMBED_QUERY}`;
+    const base = drawioBase();
+    return base ? `${base}/${EMBED_QUERY}` : "";
   }
 
   /** drawio embed 实例的 origin（如 http://localhost:8080） */

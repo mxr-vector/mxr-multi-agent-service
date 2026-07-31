@@ -111,10 +111,8 @@ async def favicon():
 if __name__ == "__main__":
     import uvicorn
 
-    # import os
     if ENV.is_prod:
-        logger("生产环境，谨慎操作！")
-    # uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+        logger.warning("生产环境，谨慎操作！")
     uvicorn.run(
         "infer:app", host=ENV.server_host, port=ENV.server_port, reload=True, workers=1
     )

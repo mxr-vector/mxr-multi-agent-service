@@ -5,17 +5,6 @@ def main() -> None:
 
     CFG.load_blocking()
 
-    # 嵌入模型测试
-    # from model.embeddings.langchain_adapter import get_langchain_embeddings
-
-    # embedding_client = get_langchain_embeddings()
-    # document_vectors = embedding_client.embed_documents(
-    #     ["Hello, world!", "Provider-neutral embeddings."],
-    # )
-    # query_vector = embedding_client.embed_query("Hello")
-    # print(document_vectors)
-    # print(query_vector)
-
     # 重排序模型测试
     from model.rerank.factory import get_rerank_client
 

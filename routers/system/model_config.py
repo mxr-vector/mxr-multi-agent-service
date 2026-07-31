@@ -77,5 +77,6 @@ async def update_model_config(
 async def delete_model_config(config_id: uuid.UUID = Path(...)):
     """带守卫的物理删除：内置模型配置（is_builtin）拒绝删除。"""
     await _service.delete(config_id)
-    await CFG.refresh()
-    return R.success(msg="删除成功")
+    # 删除后刷新配置快照；结果经 data.refreshed 透出供前端提示
+    refreshed = await CFG.refresh()
+    return R.success(data={"refreshed": refreshed}, msg="删除成功")

@@ -60,9 +60,13 @@ class ConfigRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
-    async def list_by_keys(self, keys: list[str]) -> list[Config]:
-        """按 key 集合批量精确查询（供模型配置页运行参数区域一次性读取）。"""
-        stmt = select(Config).where(Config.key.in_(keys))
+    async def list_builtin(self) -> list[Config]:
+        """查全部内置参数（is_builtin=true，created_at 升序，供运行参数区域整表读取）。"""
+        stmt = (
+            select(Config)
+            .where(Config.is_builtin.is_(True))
+            .order_by(Config.created_at.asc())
+        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

@@ -52,7 +52,7 @@ This is the most-developed module and follows a strict, spec-driven design (see 
 
 ### Known stale references
 
-`main.py` and `state/PGVectorManager.py` import `model.embeddings.client`, which no longer exists (the module was refactored into `clients/` + `factory.py`). Treat these as WIP/broken; use `EmbeddingFactory.get_client()` instead.
+None currently. (Historical note: `main.py` and the removed `state/PGVectorManager.py` once imported `model.embeddings.client`, which was refactored into `clients/` + `factory.py`; those references have been cleaned up. Use `EmbeddingFactory.get_client()` for embedding access.)
 
 ## OpenSpec workflow
 

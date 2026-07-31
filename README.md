@@ -92,7 +92,7 @@ podman run -d \
   jgraph/drawio
 ```
 
-3. 前端 `.env.development` 配置 `VITE_DRAWIO_EMBED_URL`（drawio 实例地址，如 `http://localhost:8080`；同时作为 postMessage origin 校验基准）
+3. drawio 实例地址由后端运行参数 `DRAWIO_EMBED_URL` 提供（`sys.sys_config` 白名单参数，种子见 `database/sql/base_seed.sql`，可在前端模型配置页「运行参数」中修改；如 `http://localhost:8080`，同时作为 postMessage origin 校验基准）
 4. 执行绘图模块建表：`database/draw_schema.sql`（draw schema 下会话/消息/图表版本三表）
 5. 系统菜单已内置 AI 绘图菜单（`database/system_schema.sql` 种子，component 键 `draw`）；需为对应角色授权可见
 
