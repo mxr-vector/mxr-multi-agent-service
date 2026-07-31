@@ -1,7 +1,8 @@
 /**
  * drawio embed 模式 postMessage 协议封装（JSON protocol）。
  *
- * 生命周期：iframe 加载自托管 drawio（VITE_DRAWIO_EMBED_URL）→ 编辑器就绪发
+ * 生命周期：iframe 加载自托管 drawio（本地运行参数 DRAWIO_EMBED_URL，在模型
+ * 配置页「运行参数」中设置）→ 编辑器就绪发
  * {event:'init'} → 宿主发送 load action（drawio XML / xmlpng dataURI / mermaid
  * descriptor）→ 用户编辑 → 宿主按需发 export action 取回 XML 与 xmlpng。
  *
@@ -9,15 +10,10 @@
  * iframe 的 contentWindow，来源不符一律丢弃（防伪造 save/export 注入）。
  */
 import { onBeforeUnmount, ref, type Ref } from "vue";
+import { DRAWIO_EMBED_URL_KEY, useSysParamStore } from "@/stores/sysParamStore";
 
-/** drawio 实例基址（同时是 postMessage origin 校验基准） */
-const DRAWIO_BASE: string = import.meta.env.VITE_DRAWIO_EMBED_URL || "";
-
-/** embed 编辑器 iframe 地址：JSON 协议 + 隐藏全部内置按钮（保存由宿主弹窗驱动） */
-export const DRAWIO_EMBED_SRC = `${DRAWIO_BASE}/?embed=1&proto=json&spin=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
-
-/** drawio embed 实例的 origin（如 http://localhost:8080） */
-const DRAWIO_ORIGIN = DRAWIO_BASE ? new URL(DRAWIO_BASE).origin : "";
+/** embed 编辑器 iframe 固定查询串：JSON 协议 + 隐藏全部内置按钮（保存由宿主弹窗驱动） */
+const EMBED_QUERY = "?embed=1&proto=json&spin=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1";
 
 /** export 响应（data 为对应格式的 dataURI；xml 为当前图 XML） */
 export interface DrawioExportResult {
@@ -41,12 +37,31 @@ export function useDrawioEmbed(
   iframeRef: Ref<HTMLIFrameElement | null>,
   options: UseDrawioEmbedOptions = {}
 ) {
+  // drawio 实例地址为纯前端运行参数（sysParamStore，可在模型配置页修改），读取时求值
+  const paramStore = useSysParamStore();
+
+  /** drawio 实例基址（去尾斜杠；同时是 postMessage origin 校验基准） */
+  function drawioBase(): string {
+    return paramStore.getValue(DRAWIO_EMBED_URL_KEY).replace(/\/+$/, "");
+  }
+
+  /** embed 编辑器 iframe 地址（基址 + 固定查询串） */
+  function embedSrc(): string {
+    return `${drawioBase()}/${EMBED_QUERY}`;
+  }
+
+  /** drawio embed 实例的 origin（如 http://localhost:8080） */
+  function drawioOrigin(): string {
+    const base = drawioBase();
+    return base ? new URL(base).origin : "";
+  }
+
   const ready = ref(false);
   // 在途 export 请求：按 format 关联响应（同一时刻只发起一个）
   const pendingExports = new Map<string, (result: DrawioExportResult) => void>();
 
   function post(action: Record<string, unknown>) {
-    iframeRef.value?.contentWindow?.postMessage(JSON.stringify(action), DRAWIO_ORIGIN);
+    iframeRef.value?.contentWindow?.postMessage(JSON.stringify(action), drawioOrigin());
   }
 
   /** 加载 drawio XML 或内嵌 XML 的 PNG dataURI */
@@ -80,7 +95,7 @@ export function useDrawioEmbed(
 
   function handleMessage(event: MessageEvent) {
     // 来源双校验：origin 匹配 embed 实例 + 消息来自本 iframe 窗口
-    if (event.origin !== DRAWIO_ORIGIN) return;
+    if (event.origin !== drawioOrigin()) return;
     if (event.source !== iframeRef.value?.contentWindow) return;
     if (typeof event.data !== "string" || !event.data.length) return;
 
@@ -124,7 +139,7 @@ export function useDrawioEmbed(
     pendingExports.clear();
   }
 
-  return { ready, loadXml, loadMermaid, exportDiagram, reset };
+  return { ready, embedSrc, loadXml, loadMermaid, exportDiagram, reset };
 }
 
 /** 把 dataURI（如 xmlpng 导出结果）转为 Blob，供 FormData 上传 */

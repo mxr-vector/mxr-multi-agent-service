@@ -7,10 +7,10 @@
  * - 保存：依次 export xml 与 xmlpng（内嵌 XML 的 PNG 预览），交由父层调用
  *   保存接口 append-only 新增版本；关闭未保存不产生任何记录。
  */
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { DrawVersionVO } from "@/api/draw";
-import { DRAWIO_EMBED_SRC, dataUriToBlob, useDrawioEmbed } from "../composables/useDrawioEmbed";
+import { dataUriToBlob, useDrawioEmbed } from "../composables/useDrawioEmbed";
 
 const props = defineProps<{
     visible: boolean;
@@ -33,6 +33,9 @@ const embed = useDrawioEmbed(iframeRef, {
         loading.value = false;
     },
 });
+
+// 每次打开弹窗重新求值，使运行参数中的 drawio 地址修改后免刷新生效
+const drawioSrc = computed(() => (props.visible ? embed.embedSrc() : ""));
 
 function loadCurrentVersion() {
     const version = props.version;
@@ -89,8 +92,8 @@ function handleClose() {
     <el-dialog :model-value="visible" title="编辑图表" width="86%" top="4vh" :close-on-click-modal="false" destroy-on-close
         class="drawio-dialog" @update:model-value="emit('update:visible', $event)">
         <div v-loading="loading" element-loading-text="正在加载 drawio 编辑器…" class="drawio-editor-wrap">
-            <iframe v-if="visible" :key="version?.id ?? 'blank'" ref="iframeRef" :src="DRAWIO_EMBED_SRC"
-                class="drawio-frame" title="drawio 编辑器"></iframe>
+            <iframe v-if="visible" :key="version?.id ?? 'blank'" ref="iframeRef" :src="drawioSrc" class="drawio-frame"
+                title="drawio 编辑器"></iframe>
         </div>
         <template #footer>
             <el-button @click="handleClose">取消</el-button>

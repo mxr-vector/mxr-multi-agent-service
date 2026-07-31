@@ -254,6 +254,8 @@ if __name__ == "__main__":
     # 手动冒烟需在初始 state 传入 hex 格式的 knowledge_base_ids 列表（可跨多个知识库）；
     # use_web_search=True 时走联网搜索通道，当前未实现，会抛 NotImplementedError。
     async def _smoke():
+        # 不经 lifespan 的独立入口须先加载配置快照（rewrite/rerank/RAG 参数均读 CFG）
+        await CFG.load()
         result = await rag_graph.graph.ainvoke(
             {
                 "messages": [

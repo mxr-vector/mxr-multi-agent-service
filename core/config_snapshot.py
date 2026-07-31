@@ -10,8 +10,12 @@
 - 写时刷新 + last-known-good：配置写接口 commit 成功后调用 `await CFG.refresh()`，
   校验通过则原子替换快照并清空 rerank client 缓存；失败则保留旧快照、记 error 日志、
   返回 False（不影响本次写操作的成败）。
+- 独立脚本引导：不经 lifespan 的入口（main.py demo、各模块 __main__ 冒烟块）
+  在使用模型工厂前需先加载快照：同步上下文调 `CFG.load_blocking()`，
+  已在事件循环内则 `await CFG.load()`。
 """
 
+import asyncio
 from dataclasses import dataclass
 
 from database.postgre_client import get_session
@@ -148,6 +152,23 @@ class _ConfigManager:
         self._snapshot = await _build_snapshot()
         logger.info("[CFG] 配置快照加载完成（模型角色 4 + 标量参数 5）")
 
+    def load_blocking(self) -> None:
+        """同步脚本入口的引导加载：供不经 lifespan 的独立脚本/冒烟块使用。
+
+        在无事件循环的同步上下文中一次性加载快照，并在临时事件循环关闭前
+        释放引擎连接池（asyncpg 连接绑定创建时的循环，残留池内会毒化后续
+        asyncio.run 开启的新循环）；已在事件循环内时由 asyncio.run 报错拦下，
+        此时应改用 `await CFG.load()`。
+        """
+
+        async def _bootstrap() -> None:
+            from database.postgre_client import get_async_engine
+
+            await self.load()
+            await get_async_engine().dispose()
+
+        asyncio.run(_bootstrap())
+
     async def refresh(self) -> bool:
         """
         写时刷新：重新加载并校验，通过则原子替换快照并清空 rerank client 缓存；
@@ -174,7 +195,10 @@ class _ConfigManager:
     @property
     def _current(self) -> ConfigSnapshot:
         if self._snapshot is None:
-            raise RuntimeError("配置快照尚未加载（CFG.load 应在 lifespan 启动时执行）")
+            raise RuntimeError(
+                "配置快照尚未加载：Web 服务经 lifespan 执行 await CFG.load()；"
+                "独立脚本/冒烟块需先调用 CFG.load_blocking()（事件循环内用 await CFG.load()）"
+            )
         return self._snapshot
 
     # ---------- 模型角色配置（同步读取） ----------

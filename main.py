@@ -1,4 +1,10 @@
 def main() -> None:
+    # 配置快照引导：模型配置已迁至数据库，不经 lifespan 的独立脚本
+    # 须先加载 CFG，否则模型工厂报“配置快照尚未加载”
+    from core.config_snapshot import CFG
+
+    CFG.load_blocking()
+
     # 嵌入模型测试
     # from model.embeddings.langchain_adapter import get_langchain_embeddings
 
@@ -12,6 +18,7 @@ def main() -> None:
 
     # 重排序模型测试
     from model.rerank.factory import get_rerank_client
+
     query = "What is the capital of the United States?"
     docs = [
         "Carson City is the capital city of the American state of Nevada. At the 2010 United States Census, Carson City had a population of 55,274.",
