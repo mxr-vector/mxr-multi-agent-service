@@ -59,6 +59,7 @@ class ModelConfigService:
         provider: str | None = None,
         timeout: int | None = None,
         max_retries: int | None = None,
+        context_window: int | None = None,
         extra: dict | None = None,
         remark: str | None = None,
     ) -> dict:
@@ -83,6 +84,7 @@ class ModelConfigService:
                 provider=provider,
                 timeout=timeout,
                 max_retries=max_retries,
+                context_window=context_window,
                 extra=extra,
                 remark=remark,
             )

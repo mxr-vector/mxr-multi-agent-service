@@ -40,6 +40,9 @@ INSERT INTO sys.sys_dict_data VALUES ('019fac76-5be6-7d29-b6ed-b597e457be7f', 'r
 INSERT INTO sys.sys_dict_data VALUES ('019fac76-40e6-7aba-841c-abcba09e86e1', 'reasoning_effort', '低', 'low', 3, false, 'active', NULL, '2026-07-29 14:00:58.853115+08', '2026-07-29 14:44:31.659777+08');
 INSERT INTO sys.sys_dict_data VALUES ('019fac76-7b3c-7684-b4ab-2ab06ac2c335', 'reasoning_effort', '高', 'high', 4, false, 'active', NULL, '2026-07-29 14:01:13.787067+08', '2026-07-29 14:44:34.258149+08');
 INSERT INTO sys.sys_dict_data VALUES ('019fac9d-bc25-7f17-a1a7-116b35588dfa', 'reasoning_effort', '关闭', 'off', 0, true, 'active', NULL, '2026-07-29 14:44:06.306795+08', '2026-07-29 15:12:23.958277+08');
+INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000013', 'context_window', '200K', '200000', 3, true, 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
+INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000014', 'context_window', '400K', '400000', 3, true, 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
+INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000014', 'context_window', '1M', '1000000', 4, false, 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
 
 
 --
@@ -51,6 +54,7 @@ INSERT INTO sys.sys_dict_data VALUES ('019fac9d-bc25-7f17-a1a7-116b35588dfa', 'r
 INSERT INTO sys.sys_dict_type VALUES ('019fa7b2-6490-7587-982f-6b4d9d4f5c21', '可见性', 'visibility_type', 'active', NULL, '2026-07-28 15:48:34.061154+08', '2026-07-28 15:48:34.061154+08');
 INSERT INTO sys.sys_dict_type VALUES ('019fa7b3-9a9c-7ed3-aabb-434e923e09c9', '进度状态', 'status', 'active', NULL, '2026-07-28 15:49:53.435767+08', '2026-07-28 15:49:53.435767+08');
 INSERT INTO sys.sys_dict_type VALUES ('019fac75-7289-711f-a290-7ca04cfedfb5', '推理等级', 'reasoning_effort', 'active', NULL, '2026-07-29 14:00:06.022149+08', '2026-07-29 14:00:06.022149+08');
+INSERT INTO sys.sys_dict_type VALUES ('019fb769-bd93-707d-8246-edec3110ab27', '上下文窗口', 'context_window', 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
 
 
 --
@@ -82,10 +86,10 @@ INSERT INTO sys.sys_menu VALUES ('019fb5b4-95df-77b1-b163-3ab3d460d9e6', '019000
 -- Data for Name: sys_model_config; Type: TABLE DATA; Schema: sys; Owner: postgres
 --
 
-INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-76ec-ac2e-34c3c8a588b7', 'chat', '对话模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '', NULL, 60, 2, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:07:52.278889+08');
-INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-0.6B', 'http://127.0.0.1:9527', '95279527', 'cohere', NULL, NULL, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:17.41671+08');
-INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '', NULL, 60, 2, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:56.0961+08');
-INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c24-8853-c06e3c973c8e', 'rewrite', '改写压缩模型', 'Qwen3.5-2B', 'http://127.0.0.1:9528/v1', '95279527', NULL, NULL, NULL, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:39:04.185031+08');
+INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-76ec-ac2e-34c3c8a588b7', 'chat', '对话模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '', NULL, 60, 2, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:07:52.278889+08');
+INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-0.6B', 'http://127.0.0.1:9527', '95279527', 'cohere', NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:17.41671+08');
+INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '', NULL, 60, 2, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:56.0961+08');
+INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c24-8853-c06e3c973c8e', 'rewrite', '改写压缩模型', 'Qwen3.5-2B', 'http://127.0.0.1:9528/v1', '95279527', NULL, NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:39:04.185031+08');
 
 
 --

@@ -89,6 +89,7 @@ CREATE TABLE sys.sys_model_config (
     provider     VARCHAR(50),                   -- provider 标识, 目前仅 rerank 使用
     timeout      INT,                           -- 单请求超时(秒), 目前 chat/visual 使用
     max_retries  INT,                           -- 失败重试次数, 目前 chat/visual 使用
+    context_window INT NOT NULL DEFAULT 200000, -- 上下文窗口(token), 目前 chat 使用
     extra        JSONB,                         -- 角色特有参数兜底
     is_builtin   BOOLEAN NOT NULL DEFAULT TRUE, -- 内置行删除保护
     remark       TEXT,

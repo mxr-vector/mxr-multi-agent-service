@@ -39,6 +39,9 @@ class ModelConfig(Base):
     provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     timeout: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_retries: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    context_window: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("200000")
+    )
     extra: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_builtin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("TRUE")
@@ -64,6 +67,7 @@ class ModelConfig(Base):
             "provider": self.provider,
             "timeout": self.timeout,
             "max_retries": self.max_retries,
+            "context_window": self.context_window,
             "extra": self.extra,
             "is_builtin": self.is_builtin,
             "remark": self.remark,

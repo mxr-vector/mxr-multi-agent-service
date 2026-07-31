@@ -45,6 +45,7 @@ class ModelConfigRepository:
         provider: str | None = None,
         timeout: int | None = None,
         max_retries: int | None = None,
+        context_window: int | None = None,
         extra: dict | None = None,
         remark: str | None = None,
     ) -> ModelConfig | None:
@@ -69,6 +70,8 @@ class ModelConfigRepository:
             config.timeout = timeout
         if max_retries is not None:
             config.max_retries = max_retries
+        if context_window is not None:
+            config.context_window = context_window
         if extra is not None:
             config.extra = extra
         if remark is not None:

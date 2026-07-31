@@ -2,9 +2,15 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { modelConfigApi, type ModelConfig } from "@/api/system/modelConfig";
+import { useDictStore } from "@/stores/dictStore";
 import FormDialog from "@/components/system/FormDialog.vue";
 import ModelCard from "./ModelCard.vue";
 import ScalarParams from "./ScalarParams.vue";
+
+const dictStore = useDictStore();
+dictStore.ensureLoaded();
+// 上下文窗口预设档位（字典 context_window，值为 token 数字符串）
+const contextWindowOptions = computed(() => dictStore.getOptions("context_window"));
 
 const loading = ref(false);
 const list = ref<ModelConfig[]>([]);
@@ -32,6 +38,8 @@ const form = reactive({
     provider: "",
     timeout: null as number | null,
     max_retries: null as number | null,
+    // 字典下拉存储值为字符串（token 数），提交前转数字
+    context_window: "" as string,
     remark: "",
 });
 const rules: FormRules = {
@@ -40,9 +48,10 @@ const rules: FormRules = {
     api_url: [{ required: true, message: "请输入接口地址", trigger: "blur" }],
 };
 
-// chat/visual 显示超时/重试；仅 rerank 显示 provider
+// chat/visual 显示超时/重试；仅 rerank 显示 provider；仅 chat 显示上下文窗口
 const showTimeout = computed(() => ["chat", "visual"].includes(editing.value?.role ?? ""));
 const showProvider = computed(() => editing.value?.role === "rerank");
+const showContextWindow = computed(() => editing.value?.role === "chat");
 
 function openEdit(config: ModelConfig) {
     editing.value = config;
@@ -55,6 +64,7 @@ function openEdit(config: ModelConfig) {
         provider: config.provider ?? "",
         timeout: config.timeout,
         max_retries: config.max_retries,
+        context_window: config.context_window != null ? String(config.context_window) : "",
         remark: config.remark ?? "",
     });
     dialogVisible.value = true;
@@ -76,6 +86,10 @@ async function submit() {
             provider: showProvider.value ? form.provider || null : undefined,
             timeout: showTimeout.value ? form.timeout : undefined,
             max_retries: showTimeout.value ? form.max_retries : undefined,
+            // 上下文窗口字典存字符串，提交转数字；非 chat 角色不提交
+            context_window: showContextWindow.value
+                ? (form.context_window ? Number(form.context_window) : null)
+                : undefined,
             remark: form.remark || null,
         });
         // 后端在保存成功后触发配置快照刷新，refreshed 透出是否热更新生效
@@ -137,6 +151,12 @@ onMounted(loadConfigs);
                         <el-input-number v-model="form.max_retries" :min="0" :max="10" controls-position="right" />
                     </el-form-item>
                 </template>
+                <el-form-item v-if="showContextWindow" label="上下文窗口">
+                    <el-select v-model="form.context_window" placeholder="选择上下文窗口" clearable>
+                        <el-option v-for="item in contextWindowOptions" :key="item.value" :label="item.label"
+                            :value="item.value" />
+                    </el-select>
+                </el-form-item>
                 <el-form-item label="备注">
                     <el-input v-model="form.remark" type="textarea" :rows="2" placeholder="选填" />
                 </el-form-item>

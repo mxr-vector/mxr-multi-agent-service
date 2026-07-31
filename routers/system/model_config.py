@@ -24,6 +24,7 @@ class ModelConfigUpdate(BaseModel):
     provider: Optional[str] = None
     timeout: Optional[int] = None
     max_retries: Optional[int] = None
+    context_window: Optional[int] = None
     extra: Optional[dict] = None
     remark: Optional[str] = None
 
@@ -60,6 +61,7 @@ async def update_model_config(
         provider=payload.provider,
         timeout=payload.timeout,
         max_retries=payload.max_retries,
+        context_window=payload.context_window,
         extra=payload.extra,
         remark=payload.remark,
     )

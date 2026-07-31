@@ -18,6 +18,8 @@ export interface ModelConfig {
   timeout: number | null;
   /** 失败重试次数，目前 chat/visual 使用 */
   max_retries: number | null;
+  /** 上下文窗口（token），目前 chat 使用；后端作为 max_tokens 下发 */
+  context_window: number;
   /** 角色特有参数兜底 */
   extra: Record<string, unknown> | null;
   /** 内置行删除保护标记，创建后不可变 */
@@ -37,6 +39,7 @@ export interface ModelConfigUpdatePayload {
   provider?: string | null;
   timeout?: number | null;
   max_retries?: number | null;
+  context_window?: number | null;
   extra?: Record<string, unknown> | null;
   remark?: string | null;
 }

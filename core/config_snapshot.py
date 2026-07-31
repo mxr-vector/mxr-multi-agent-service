@@ -56,6 +56,8 @@ def scalar_value_type(key: str) -> str:
 # chat/visual 角色的超时/重试缺省值（NULL 时回落，保持迁移前 ENV 行为）
 DEFAULT_TIMEOUT = 60
 DEFAULT_MAX_RETRIES = 2
+# 上下文窗口(token)缺省值（NULL 时回落，目前 chat 使用）
+DEFAULT_CONTEXT_WINDOW = 200000
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,7 @@ class ModelRoleConfig:
     provider: str | None
     timeout: int | None
     max_retries: int | None
+    context_window: int
 
 
 @dataclass(frozen=True)
@@ -111,6 +114,11 @@ def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
         provider=(row.provider or None),
         timeout=timeout,
         max_retries=max_retries,
+        context_window=(
+            row.context_window
+            if row.context_window is not None
+            else DEFAULT_CONTEXT_WINDOW
+        ),
     )
 
 
