@@ -53,6 +53,12 @@ DRAWIO_XML_MAX_CHARS = 2_000_000
 # 会话标题取首问截断长度
 _TITLE_MAX_CHARS = 30
 
+# 思考阶段 think 心跳间隔（秒）：visual 推理模型（如 step-3.7-flash）带图时会先
+# 进行长时间思考，期间流式 chunk 的 content 全为空串（思考 token 不回传正文），
+# 不发帧会让前端一直停留在"正在生成图表…"；按此间隔发送带耗时的 think 帧
+# 以呈现进展并保活连接
+_THINK_HEARTBEAT_SECONDS = 3
+
 # Mermaid 代码块提取（```mermaid ... ```，容忍前后杂散文本）
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -402,11 +408,25 @@ class DrawCompletionService:
             # 首帧回传 session_id（自动建会话场景前端由此拿到会话 id）
             _put(SseEvent.THINK, {"text": "正在生成图表...", "session_id": session_hex})
 
+            last_think_at = time.monotonic()
             async for chunk in model.astream(messages):
                 delta = chunk.content if isinstance(chunk.content, str) else ""
                 if delta:
                     answer_parts.append(delta)
                     _put(SseEvent.ANSWER, {"delta": delta})
+                elif not answer_parts:
+                    # 思考阶段空 content chunk：周期性发 think 心跳（带已耗时）
+                    now_mono = time.monotonic()
+                    if now_mono - last_think_at >= _THINK_HEARTBEAT_SECONDS:
+                        last_think_at = now_mono
+                        elapsed = int(now_mono - started_at)
+                        _put(
+                            SseEvent.THINK,
+                            {
+                                "text": f"模型思考中…（已 {elapsed} 秒，图片越复杂耗时越长）",
+                                "session_id": session_hex,
+                            },
+                        )
 
             answer = "".join(answer_parts)
             mermaid_source = extract_mermaid(answer)

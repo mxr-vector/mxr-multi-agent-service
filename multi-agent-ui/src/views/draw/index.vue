@@ -124,12 +124,18 @@ async function removeSession(session: DrawSessionVO) {
 // 输入与流式生成（5.1）
 // ============================================================
 
-function onPickImage(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    (event.target as HTMLInputElement).value = "";
-    if (!file) return;
+// 图片类型白名单（与后端 /draw/upload 的 IMAGE_EXTENSION_MIME 对齐）
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
+const IMAGE_MIME_EXT: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+};
+
+/** 校验并设置待重绘图片（选文件/粘贴两条路径共用） */
+function setPendingImage(file: File) {
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!["png", "jpg", "jpeg", "webp"].includes(ext)) {
+    if (!IMAGE_EXTENSIONS.includes(ext)) {
         ElMessage.error("仅支持 png / jpg / jpeg / webp 图片");
         return;
     }
@@ -137,8 +143,32 @@ function onPickImage(event: Event) {
         ElMessage.error("图片超过大小上限（50MB）");
         return;
     }
+    if (pendingImagePreview.value) URL.revokeObjectURL(pendingImagePreview.value);
     pendingImage.value = file;
     pendingImagePreview.value = URL.createObjectURL(file);
+}
+
+function onPickImage(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    (event.target as HTMLInputElement).value = "";
+    if (file) setPendingImage(file);
+}
+
+/** 输入框 Ctrl+V 粘贴：剪贴板含图片时直接作为待重绘图片（截图无扩展名，按 MIME 补齐） */
+function onPaste(event: ClipboardEvent) {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+        if (item.kind !== "file" || !(item.type in IMAGE_MIME_EXT)) continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        event.preventDefault();
+        const hasExt = file.name.includes(".");
+        setPendingImage(
+            hasExt ? file : new File([file], `粘贴图片-${Date.now()}.${IMAGE_MIME_EXT[item.type]}`, { type: item.type })
+        );
+        return;
+    }
 }
 
 function clearPendingImage() {
@@ -355,8 +385,8 @@ onMounted(loadSessions);
                         </el-icon>
                     </div>
                     <textarea v-model="inputText" class="composer-input" rows="3"
-                        placeholder="描述想要的图表，或附加图片说明…（Enter 发送，Shift+Enter 换行）"
-                        @keydown.enter.exact.prevent="send"></textarea>
+                        placeholder="描述想要的图表，或附加图片说明…（Enter 发送，Shift+Enter 换行，支持粘贴图片）"
+                        @keydown.enter.exact.prevent="send" @paste="onPaste"></textarea>
                     <div class="composer-actions">
                         <label class="upload-button">
                             <input type="file" accept=".png,.jpg,.jpeg,.webp" hidden @change="onPickImage" />
