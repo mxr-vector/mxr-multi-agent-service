@@ -24,7 +24,7 @@ from psycopg_pool import AsyncConnectionPool
 from core.source.postgres import PostgresConfig
 from database.postgre_client import get_session
 from database.rag.chat import ChatSessionRepository
-from utils.env import ENV
+from core.config_snapshot import CFG
 from utils.logger import logger
 
 # 进程级单例（lifespan 内初始化/释放，业务代码经 get_checkpointer 获取）
@@ -108,13 +108,13 @@ async def cleanup_expired_checkpoints() -> int:
     """
     执行一次 checkpoint TTL 清理，返回清理的 thread 数。
 
-    以 rag.chat_sessions.last_message_at 早于 ENV.chat_checkpoint_ttl_days
+    以 rag.chat_sessions.last_message_at 早于 CFG.chat_checkpoint_ttl_days
     为过期判据（业务表是事实源），逐一删除对应 thread 的 checkpoint 数据；
     业务表中的会话与消息完整保留（过期会话续聊由 condense 回落业务表历史）。
     """
     saver = get_checkpointer()
     threshold = datetime.now(timezone.utc) - timedelta(
-        days=ENV.chat_checkpoint_ttl_days
+        days=CFG.chat_checkpoint_ttl_days
     )
     async with get_session() as session:
         expired_ids = await ChatSessionRepository(session).list_expired_ids(threshold)
@@ -123,7 +123,7 @@ async def cleanup_expired_checkpoints() -> int:
     if expired_ids:
         logger.info(
             f"[CHAT] checkpoint TTL 清理完成：{len(expired_ids)} 个过期 thread"
-            f"（阈值 {ENV.chat_checkpoint_ttl_days} 天）"
+            f"（阈值 {CFG.chat_checkpoint_ttl_days} 天）"
         )
     return len(expired_ids)
 

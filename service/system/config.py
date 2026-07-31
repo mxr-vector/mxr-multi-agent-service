@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 
 from database.postgre_client import get_session
@@ -48,6 +50,14 @@ class ConfigService:
             repo = ConfigRepository(session)
             items, total = await repo.list(page=page, size=size, keyword=keyword)
             return build_page_result([i.to_dict() for i in items], total, page, size)
+
+    async def list_by_keys(self, keys: list[str]) -> list[dict]:
+        """按 key 集合批量返回参数（按传入 keys 顺序排列，缺失的键跳过）。"""
+        async with get_session() as session:
+            repo = ConfigRepository(session)
+            items = await repo.list_by_keys(keys)
+            by_key = {item.key: item for item in items}
+            return [by_key[k].to_dict() for k in keys if k in by_key]
 
     async def get(self, config_id: uuid.UUID) -> dict:
         """按 id 获取参数，不存在时抛出业务异常。"""

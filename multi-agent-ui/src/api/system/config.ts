@@ -32,6 +32,9 @@ export interface ConfigUpdatePayload {
   remark?: string | null;
 }
 
+/** 更新返回体：在参数基础上附带热更新是否生效标识 */
+export type ConfigUpdateResult = Config & { refreshed?: boolean };
+
 /** 分页列出参数配置参数 */
 export interface ConfigListParams {
   /** 页码，从 1 开始（默认 1） */
@@ -61,14 +64,22 @@ export const configApi = {
     return request.get<Config, ApiResult<Config>>(CONFIG_URL.byId(configId));
   },
 
+  /** 批量读取白名单内置标量运行参数（RAG_* / CHAT_*），供模型配置页运行参数区域渲染 */
+  listScalars() {
+    return request.get<Config[], ApiResult<Config[]>>(CONFIG_URL.scalars);
+  },
+
   /** 按 key 精确查询参数（供业务读取配置值） */
   getByKey(key: string) {
     return request.get<Config, ApiResult<Config>>(CONFIG_URL.byKey(key));
   },
 
-  /** 更新参数配置（is_builtin 不可变，变更 key 时后端校验唯一） */
+  /** 更新参数配置（is_builtin 不可变，变更 key 时后端校验唯一）；成功后后端触发快照刷新，结果经 data.refreshed 透出 */
   update(configId: string, payload: ConfigUpdatePayload) {
-    return request.put<Config, ApiResult<Config>>(CONFIG_URL.byId(configId), payload);
+    return request.put<ConfigUpdateResult, ApiResult<ConfigUpdateResult>>(
+      CONFIG_URL.byId(configId),
+      payload
+    );
   },
 
   /** 带守卫的物理删除：内置参数（is_builtin）拒绝删除 */

@@ -36,6 +36,7 @@ from database.postgre_client import get_session
 from exception.bad_except import bad_except
 from model.visual.factory import build_visual_model
 from utils.env import ENV
+from core.config_snapshot import CFG
 from utils.logger import logger
 
 # 上传图片后缀白名单 -> data URI 的 MIME 类型（仅图片，多模态 image_url 消费）
@@ -410,7 +411,7 @@ class DrawCompletionService:
             answer = "".join(answer_parts)
             mermaid_source = extract_mermaid(answer)
             metrics = {
-                "model": ENV.visual_model_name,
+                "model": CFG.visual.model_name,
                 "duration_ms": round((time.monotonic() - started_at) * 1000),
             }
             version_id = await self._finalize(

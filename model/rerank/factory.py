@@ -2,7 +2,7 @@ from enum import Enum
 from functools import cache
 from typing import Dict, Type
 
-from utils.env import ENV
+from core.config_snapshot import CFG
 from model.rerank.clients.base import BaseRerankClient
 from model.rerank.clients.cohere import CohereRerankClient
 
@@ -26,8 +26,9 @@ class RerankFactory:
     """
     rerank 策略上下文 / 工厂。
 
-    根据 ENV.rerank_provider 自动加载对应 client，业务代码只需调用
+    根据配置快照 CFG.rerank.provider 自动加载对应 client，业务代码只需调用
     RerankFactory.get_client()，无需关心具体实现与 provider / 模型名。
+    配置刷新时由 CFG.refresh() 清空本工厂缓存，令新配置生效。
     """
 
     _registry: Dict[RerankProvider, Type[BaseRerankClient]] = {
@@ -36,7 +37,7 @@ class RerankFactory:
 
     @classmethod
     def get_client(cls) -> BaseRerankClient:
-        provider = RerankProvider.from_value(ENV.rerank_provider)
+        provider = RerankProvider.from_value(CFG.rerank.provider or "")
         return cls._build_client(provider)
 
     @classmethod
@@ -45,8 +46,8 @@ class RerankFactory:
         """
         按 provider 构造并缓存 client。
 
-        provider 与模型名由配置决定、进程内固定不变，client 无状态且可复用，
-        因此用 functools.cache 按 provider 缓存单例，避免每次重复构造与重复读取 ENV。
+        provider 与模型名由配置决定，client 无状态且可复用，因此用 functools.cache
+        按 provider 缓存单例；配置刷新时由 CFG.refresh() 调用 cache_clear() 重建。
         """
         impl = cls._registry.get(provider)
         if impl is None:

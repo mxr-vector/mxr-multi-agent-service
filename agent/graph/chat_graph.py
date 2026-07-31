@@ -37,7 +37,7 @@ from agent.prompts.chat import CONDENSE_PROMPT, RESPOND_PROMPT
 from agent.graph.sub.rag_graph import rag_graph
 from model.chat.factory import build_chat_model
 from model.compression.factory import build_compression_model
-from utils.env import ENV
+from core.config_snapshot import CFG
 from utils.logger import logger
 
 
@@ -64,13 +64,13 @@ class ChatState(MessagesState):
 
 
 class ChatGraph:
-    """Chat 父图封装：持有对话/改写模型与编译单例（get() 惰性编译）。"""
+    """Chat 父图封装：持有编译单例（get() 惰性编译）。
+
+    模型不在构造期固化：各节点每次调用时按当前配置快照现造，
+    以便模型配置热更新自下一请求生效（图结构与配置无关，无需重编译）。
+    """
 
     def __init__(self):
-        # 对话生成模型（respond 节点，token 流式外发）
-        self.response_model = build_chat_model()
-        # 问题改写模型（condense 节点，低温度贴近原意）
-        self.condense_model = build_compression_model()
         # 编译后的父图缓存（首次 get() 时装配 checkpointer 后编译）
         self._compiled = None
 
@@ -124,7 +124,7 @@ class ChatGraph:
         question = state["question"]
         # messages 末尾是本轮刚追加的 HumanMessage，历史取其之前的部分
         history_messages = state["messages"][:-1]
-        max_messages = ENV.chat_history_max_messages
+        max_messages = CFG.chat_history_max_messages
         history = self._format_history(history_messages, max_messages)
 
         if not history:
@@ -137,7 +137,7 @@ class ChatGraph:
             return {"standalone_question": question}
 
         prompt = CONDENSE_PROMPT.format(history=history, question=question)
-        response = await self.condense_model.ainvoke(
+        response = await build_compression_model().ainvoke(
             [{"role": ChatRole.USER.value, "content": prompt}]
         )
         standalone = (response.content or "").strip() or question
@@ -172,7 +172,7 @@ class ChatGraph:
         question = state["question"]
         docs = state.get("reranked_docs", [])
         history = self._format_history(
-            state["messages"][:-1], ENV.chat_history_max_messages
+            state["messages"][:-1], CFG.chat_history_max_messages
         )
         # 为各候选标注 [n] 序号（与 sources.index 对应），引导答案引用角标
         context = "\n\n".join(
@@ -182,13 +182,9 @@ class ChatGraph:
         prompt = RESPOND_PROMPT.format(
             history=history, question=question, context=context
         )
-        # 携带思考强度时按请求构造本轮模型，否则沿用模块级默认模型
+        # 每次按当前配置快照现造对话模型（携带思考强度时透传 reasoning_effort）
         reasoning_effort = state.get("reasoning_effort")
-        model = (
-            build_chat_model(reasoning_effort=reasoning_effort)
-            if reasoning_effort
-            else self.response_model
-        )
+        model = build_chat_model(reasoning_effort=reasoning_effort)
         response = await model.ainvoke(
             [{"role": ChatRole.USER.value, "content": prompt}]
         )
@@ -214,7 +210,7 @@ class ChatGraph:
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
             "total_tokens": usage.get("total_tokens"),
-            "model": ENV.chat_model_name,
+            "model": CFG.chat.model_name,
         }
         return {
             "messages": [response],

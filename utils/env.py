@@ -148,86 +148,10 @@ class ENV_CONFIG:
         return self.require("EMBEDDING_MODEL_NAME")
 
     """
-    重排序(Rerank)模型相关配置（vLLM cohere 兼容接口）
+    Rerank / Chat / Rewrite / Visual 模型相关配置已迁至数据库（sys_model_config），
+    经配置快照 core.config_snapshot.CFG 读取并支持免重启热更新；此处不再暴露对应 property。
+    EMBEDDING_* 因换模型即毁向量库、与基础设施配置同属部署级钉死项，仍保留在 env。
     """
-
-    @property
-    def rerank_api_key(self) -> str:
-        return self.require("RERANK_API_KEY")
-
-    @property
-    def rerank_api_url(self) -> str:
-        return self.require("RERANK_API_URL")
-
-    @property
-    def rerank_provider(self) -> str:
-        """原始 RERANK_PROVIDER 字符串；合法性由 rerank 模块的 RerankProvider 负责校验"""
-        return self.require("RERANK_PROVIDER")
-
-    @property
-    def rerank_model_name(self) -> str:
-        return self.require("RERANK_MODEL_NAME")
-
-    """
-    Chat 模型相关配置（vLLM OpenAI 兼容接口）
-    """
-
-    @property
-    def chat_api_key(self) -> str:
-        return self.require("CHAT_API_KEY")
-
-    @property
-    def chat_api_url(self) -> str:
-        return self.require("CHAT_API_URL")
-
-    @property
-    def chat_model_name(self) -> str:
-        return self.require("CHAT_MODEL_NAME")
-
-    @property
-    def chat_timeout(self) -> float:
-        """Chat 模型单请求超时（秒）；流式下为相邻数据块间的读超时，
-        用于防止外部 API 卡死不返回而无限等待；默认 60。"""
-        return float(self.get("CHAT_TIMEOUT", 60))
-
-    @property
-    def chat_max_retries(self) -> int:
-        """Chat 模型请求失败自动重试次数（仅连接错误/429/5xx，不含 4xx）；默认 2。"""
-        return int(self.get("CHAT_MAX_RETRIES", 2))
-
-    """
-    Rewrite / Compression 模型相关配置（vLLM OpenAI 兼容接口）
-    与 chat 模型区分：专用于问题改写、上下文压缩等辅助任务，便于各司其职。
-    """
-
-    @property
-    def rewrite_api_key(self) -> str:
-        return self.require("REWRITE_API_KEY")
-
-    @property
-    def rewrite_api_url(self) -> str:
-        return self.require("REWRITE_API_URL")
-
-    @property
-    def rewrite_model_name(self) -> str:
-        return self.require("REWRITE_MODEL_NAME")
-
-    """
-    Visual 多模态模型相关配置（OpenAI 兼容接口，需支持 vision）
-    专用于绘图模块的图文理解与 Mermaid 生成，与 chat/rewrite 模型各司其职。
-    """
-
-    @property
-    def visual_api_key(self) -> str:
-        return self.require("VISUAL_API_KEY")
-
-    @property
-    def visual_api_url(self) -> str:
-        return self.require("VISUAL_API_URL")
-
-    @property
-    def visual_model_name(self) -> str:
-        return self.require("VISUAL_MODEL_NAME")
 
     """
     数据库相关配置
@@ -275,23 +199,11 @@ class ENV_CONFIG:
         return self.get_bool("QDRANT_HTTPS", False)
 
     """
-    RAG 混合检索相关配置
+    RAG 检索相关配置
+    RAG 标量阈值（RAG_CANDIDATE_POOL_SIZE / RAG_FINAL_TOP_K / RAG_REFLECT_ROUND_CAP）
+    已迁至 sys_config 内置参数，经配置快照 CFG 读取并支持热更新；
+    BM25 缓存目录属本机部署拓扑，仍保留在 env。
     """
-
-    @property
-    def rag_candidate_pool_size(self) -> int:
-        """混合召回融合后的候选池大小（召回广度）。"""
-        return int(self.require("RAG_CANDIDATE_POOL_SIZE"))
-
-    @property
-    def rag_final_top_k(self) -> int:
-        """重排序后保留的最终候选数量（top-k）。"""
-        return int(self.require("RAG_FINAL_TOP_K"))
-
-    @property
-    def rag_reflect_round_cap(self) -> int:
-        """反思循环最大检索轮数上限（默认建议 3）。"""
-        return int(self.require("RAG_REFLECT_ROUND_CAP"))
 
     @property
     def bm25_cache_dir(self) -> Path:
@@ -302,17 +214,9 @@ class ENV_CONFIG:
 
     """
     AI 问答（chat 会话）相关配置
+    CHAT_CHECKPOINT_TTL_DAYS / CHAT_HISTORY_MAX_MESSAGES 已迁至 sys_config 内置参数，
+    经配置快照 CFG 读取并支持热更新；此处不再暴露对应 property。
     """
-
-    @property
-    def chat_checkpoint_ttl_days(self) -> int:
-        """LangGraph checkpoint 保留天数，超期由后台任务清理（默认 7）。"""
-        return int(self.get("CHAT_CHECKPOINT_TTL_DAYS", 7))
-
-    @property
-    def chat_history_max_messages(self) -> int:
-        """checkpoint 缺失时 condense 回落业务表读取的历史消息条数上限（默认 20）。"""
-        return int(self.get("CHAT_HISTORY_MAX_MESSAGES", 20))
 
 
 # 全局单例，其他模块直接 import config 使用

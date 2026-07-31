@@ -13,6 +13,7 @@ from agent.checkpoints.postgres import (
     start_ttl_task,
 )
 from agent.graph.chat_graph import chat_graph
+from core.config_snapshot import CFG
 from service.rag.chat import reset_stale_generating
 from service.draw.diagram import reset_stale_generating as reset_stale_draw_generating
 from service.rag.document import DocumentService
@@ -25,6 +26,9 @@ from utils.env import ENV
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 配置快照加载（fail-fast）：模型配置与运行参数的运行期事实源，
+    # 必须先于图节点/工厂的首次使用；缺配置或校验失败即抛异常拒绝启动
+    await CFG.load()
     # 启动清扫：重启丢失所有在途后台作业，残留 reindexing 文档统一置为 failed
     await DocumentService().reset_stale_reindexing()
     # 问答持久化装配：打开 psycopg 池 + AsyncPostgresSaver.setup（checkpoint 表自建）

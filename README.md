@@ -132,7 +132,7 @@ vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
     --dtype auto \
     --gpu-memory-utilization 0.15 \
     --max-model-len 4096 \
-    --max-num-seqs 4 \
+    --max-num-seqs 2 \
     --max-num-batched-tokens 4096 \
     --trust-remote-code \
     --api-key 95279527
@@ -147,7 +147,7 @@ vllm serve ./models/chat/Qwen3.5-2B \
     --dtype half \
     --gpu-memory-utilization 0.75 \
     --max-model-len 8192 \
-    --max-num-seqs 4 \
+    --max-num-seqs 2 \
     --max-num-batched-tokens 8192 \
     --trust-remote-code \
     --enable-auto-tool-choice \

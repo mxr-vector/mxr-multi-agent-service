@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Path, Query
 from pydantic import BaseModel
 
 from service.system.config import ConfigService
+from core.config_snapshot import CFG, SCALAR_KEYS
 from utils.response import R
 
 # 创建路由
@@ -42,6 +43,8 @@ async def create_config(payload: ConfigCreate = Body(...)):
         is_builtin=payload.is_builtin,
         remark=payload.remark,
     )
+    # 参数变更后刷新配置快照（白名单标量参数免重启生效；刷新结果不影响本次写入）
+    await CFG.refresh()
     return R.success(data=config)
 
 
@@ -54,6 +57,13 @@ async def list_configs(
     """真分页列出参数配置。"""
     page_result = await _service.list(page=page, size=size, keyword=keyword)
     return R.success(data=page_result)
+
+
+@router.get("/scalars")
+async def list_scalar_configs():
+    """返回白名单内置标量运行参数（RAG_* / CHAT_*），供模型配置页运行参数区域渲染。"""
+    configs = await _service.list_by_keys(list(SCALAR_KEYS))
+    return R.success(data=configs)
 
 
 @router.get("/key/{key}")
@@ -83,6 +93,9 @@ async def update_config(
         value=payload.value,
         remark=payload.remark,
     )
+    # 参数变更后刷新配置快照（白名单标量参数免重启生效）；结果经 data.refreshed 透出供前端提示
+    refreshed = await CFG.refresh()
+    config["refreshed"] = refreshed
     return R.success(data=config)
 
 
@@ -90,4 +103,6 @@ async def update_config(
 async def delete_config(config_id: uuid.UUID = Path(...)):
     """带守卫的物理删除：内置参数（is_builtin）拒绝删除。"""
     await _service.delete(config_id)
+    # 参数删除后刷新配置快照
+    await CFG.refresh()
     return R.success(msg="删除成功")

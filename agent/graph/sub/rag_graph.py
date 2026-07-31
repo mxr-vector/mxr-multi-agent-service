@@ -11,7 +11,7 @@ point id 去重，见 agent.tools.document.hybrid_retrieve）。
 节点（全部 async，同步 IO 经 asyncio.to_thread 包装）：
 - retrieve：混合召回并把去重候选合并进 `retrieved_docs` 结构化状态；
 - reflect：LLM 判断累积上下文是否足以回答；充分或达到轮数上限则进入重排序，
-  否则扩展查询并回到检索（轮数上限 ENV.rag_reflect_round_cap）；
+  否则扩展查询并回到检索（轮数上限 CFG.rag_reflect_round_cap）；
 - rerank：反思循环结束后运行一次，用 rerank client 对去重候选打分并裁剪到 top-k。
 
 入口：模块级单例 `rag_graph = RagGraph()`，编译图挂在 `rag_graph.graph`
@@ -38,7 +38,7 @@ from agent.prompts.rag import REFLECT_PROMPT, REWRITE_PROMPT
 from agent.tools.document import hybrid_retrieve_multi, web_search_retrieve
 from model.compression.factory import build_compression_model
 from model.rerank.factory import get_rerank_client
-from utils.env import ENV
+from core.config_snapshot import CFG
 
 
 class SufficiencyGrade(BaseModel):
@@ -79,14 +79,13 @@ class RagState(MessagesState):
 
 
 class RagGraph:
-    """RAG 检索子图封装：持有辅助模型并在实例化时编译图（挂在 self.graph）。"""
+    """RAG 检索子图封装：实例化时编译图（挂在 self.graph）。
+
+    辅助模型不在构造期固化：判断/改写节点每次调用时按当前配置快照现造
+    rewrite/compression 模型，以便热更新自下一请求生效（本子图不引用对话生成模型）。
+    """
 
     def __init__(self):
-        # LLM 二值仲裁评分模型（用于反思判断上下文是否充分）——判断/改写类辅助任务
-        # 统一走 rewrite/compression 模型，本子图不引用对话生成模型（答案生成在父图）。
-        self.grader_model = build_compression_model()
-        # 改写/扩展类辅助任务模型
-        self.rewrite_model = build_compression_model()
         # 编译后的子图（无 checkpointer，持久化边界由父图统一）
         self.graph = self._build()
 
@@ -162,17 +161,19 @@ class RagGraph:
         prompt = REFLECT_PROMPT.format(question=question, context=context)
         # 结构化输出走 function_calling（强制 tool_choice）：云 API 与本地 vLLM 通用，
         # 本地 vLLM 需启动时带 --enable-auto-tool-choice --tool-call-parser hermes（Qwen 系）
-        verdict = await self.grader_model.with_structured_output(
-            SufficiencyGrade, method="function_calling"
-        ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
+        verdict = (
+            await build_compression_model()
+            .with_structured_output(SufficiencyGrade, method="function_calling")
+            .ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
+        )
         sufficient = verdict.binary_score == GradeScore.YES.value
 
         # 上下文充分，或已达到最大检索轮数上限，进入重排序。
-        if sufficient or round_no >= ENV.rag_reflect_round_cap:
+        if sufficient or round_no >= CFG.rag_reflect_round_cap:
             return {"reflect_sufficient": True}
 
         # 上下文不足且仍在轮数内：扩展/改写查询后回到检索（轮数由 retrieve_node 累加）。
-        response = await self.rewrite_model.ainvoke(
+        response = await build_compression_model().ainvoke(
             [
                 {
                     "role": MessageRole.USER.value,
@@ -204,7 +205,7 @@ class RagGraph:
             get_rerank_client().rerank,
             state["question"],
             [doc.get("text", "") for doc in docs],
-            top_n=ENV.rag_final_top_k,
+            top_n=CFG.rag_final_top_k,
         )
         reranked = [{**docs[result.index], "score": result.score} for result in results]
         return {

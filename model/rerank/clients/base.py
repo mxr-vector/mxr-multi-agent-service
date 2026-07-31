@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional
 
-from utils.env import ENV
+from core.config_snapshot import CFG
 
 
 @dataclass
@@ -24,15 +24,16 @@ class BaseRerankClient(ABC):
     """
     rerank 客户端统一抽象基类。
 
-    - 每个实例在构造时从 ENV 读取 provider / 模型名 / 凭证，屏蔽不同 SDK 差异。
+    - 每个实例在构造时从配置快照 CFG.rerank 读取模型名 / 凭证，屏蔽不同 SDK 差异。
     - 公共方法不接收 model_name 参数，模型统一由配置决定。
     - 返回值标准化为 List[RerankResult]，按相关性得分从高到低排序。
+    - client 由 RerankFactory 缓存，配置刷新时缓存被清除以重建（新配置生效）。
     """
 
     def __init__(self) -> None:
-        self.model_name: str = ENV.rerank_model_name
-        self.api_key: str = ENV.rerank_api_key
-        self.api_url: str = ENV.rerank_api_url
+        self.model_name: str = CFG.rerank.model_name
+        self.api_key: str = CFG.rerank.api_key
+        self.api_url: str = CFG.rerank.api_url
 
     @abstractmethod
     def rerank(

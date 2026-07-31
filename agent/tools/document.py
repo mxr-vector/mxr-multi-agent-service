@@ -16,7 +16,7 @@ RAG 混合检索入口（模型调用）。
 - 不再返回拼接字符串，而是返回结构化候选
   `{point_id, knowledge_base_id, text, source, score, chapter_title,
   document_id, chunk_id, page_start, page_end}`，溯源字段从 payload 宽松读取（无则归 None）；
-- 候选池大小由配置驱动（ENV.rag_candidate_pool_size），本模块不关心 provider / 模型名；
+- 候选池大小由配置驱动（CFG.rag_candidate_pool_size），本模块不关心 provider / 模型名；
 - 向量化（dense/sparse）统一在 QdrantManager 内部完成；扇出场景由本模块
   预生成一次查询向量后各集合复用。
 """
@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Sequence
 
 from database.qdrant_client import QdrantManager, build_kb_collection_name
-from utils.env import ENV
+from core.config_snapshot import CFG
 from utils.logger import logger
 
 # 跨集合扇出检索的最大并发数（查询向量已预生成，单任务仅一次 Qdrant IO）
@@ -48,7 +48,7 @@ def hybrid_retrieve(
     """混合检索单个知识库，返回按融合排名去重后的结构化候选。
 
     - knowledge_base_id 指定目标知识库：经 build_kb_collection_name 派生集合名；
-    - pool_size 缺省取 ENV.rag_candidate_pool_size（融合后保留的候选池上限）；
+    - pool_size 缺省取 CFG.rag_candidate_pool_size（融合后保留的候选池上限）；
     - dense_vector / sparse_vector 可由调用方预生成传入（扇出复用），缺省时
       由 QdrantManager 内部按 query 生成；
     - 每个候选为 `{point_id, knowledge_base_id, text, source, score,
@@ -57,7 +57,7 @@ def hybrid_retrieve(
       其余溯源字段宽松读取（无则为 None）。
     """
     collection = build_kb_collection_name(knowledge_base_id)
-    limit = pool_size if pool_size is not None else ENV.rag_candidate_pool_size
+    limit = pool_size if pool_size is not None else CFG.rag_candidate_pool_size
     points = QdrantManager(collection).hybrid_search(
         query, limit=limit, dense_vector=dense_vector, sparse_vector=sparse_vector
     )
@@ -98,7 +98,7 @@ def hybrid_retrieve_multi(
     if not kb_ids:
         logger.info("[RAG] 可检索知识库为空，返回空候选")
         return []
-    limit = pool_size if pool_size is not None else ENV.rag_candidate_pool_size
+    limit = pool_size if pool_size is not None else CFG.rag_candidate_pool_size
     if len(kb_ids) == 1:
         return hybrid_retrieve(query, kb_ids[0], pool_size=limit)
 

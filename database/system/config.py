@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 
@@ -57,6 +59,12 @@ class ConfigRepository:
         stmt = stmt.order_by(Config.created_at.desc())
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
+
+    async def list_by_keys(self, keys: list[str]) -> list[Config]:
+        """按 key 集合批量精确查询（供模型配置页运行参数区域一次性读取）。"""
+        stmt = select(Config).where(Config.key.in_(keys))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get(self, config_id: uuid.UUID) -> Config | None:
         """按 id 获取单条参数，不存在返回 None。"""
