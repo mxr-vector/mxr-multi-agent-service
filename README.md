@@ -1,15 +1,16 @@
 # 一.说明
 
 本项目只涉及推理服务，不涉及模型加载等优化方案。目的是解耦，之间使用http协议。不支持离线服务
-- 本地推理框架使用vllm: https://docs.vllm.com.cn/en/latest/getting_started/installation/gpu/#create-a-new-python-environment
+
+本地推理框架使用vllm: <https://docs.vllm.com.cn/en/latest/getting_started/installation/gpu/#create-a-new-python-environment>
 
 本项目涉及多个外部中间件和基础组件的集成。虽然 LangGraph 提供了较丰富的封装能力，但在实际使用过程中发现，其对于部分第三方组件（例如 Cohere 等）的适配能力存在一定局限，因此底层建议使用各自官方客户端，使用兼容层适配框架，因此一般langchain_adapter.py是访问底层客户端的入口。
 
 |功能实现|状态|
 |--|--|
-|RAG系统| - [:heavy_check_mark:] |
-|AI剧本生成| - [:x:] |
-|AI图像转写手绘| - [:smile:] |
+|RAG系统|- [:heavy_check_mark:]|
+|AI剧本生成|- [:x:]|
+|AI图像转写手绘|- [:smile:]|
 
 ## 1.1 项目结构
 
@@ -46,10 +47,17 @@ project
 
 ## 1.2 RAG 系统
 
+|测试集|Recall@K(召回率)|Precision@K(准确率)|MRR(算术平均首位度)|
+|--|--|--|--|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)||||
+|[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)||||
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)||||
+
 ### 1.2.1 先决条件
 
 1. PostgreSQL 18.0+
 2. Qdrant@latest 向量库
+
 ```bash
 # qdrant  http://127.0.0.1:6333/dashboard
 podman run -d  \
@@ -60,10 +68,10 @@ podman run -d  \
 -e QDRANT__SERVICE__API_KEY=95279527 \
 docker.io/qdrant/qdrant
 ```
-3. Rocm/CUDA 显卡 16G(显存至少满足16G)
-4. 内嵌自动下载 qdrant-bm2.5/rapidocr模型  （辅助bm2.5 检索）
-5. 本地分别配置  postgres,qdrant，embedding,rerank,chat,rewrite 模型api
 
+1. Rocm/CUDA 显卡 16G(显存至少满足16G)
+2. 内嵌自动下载 qdrant-bm2.5/rapidocr模型  （辅助bm2.5 检索）
+3. 本地分别配置  postgres,qdrant，embedding,rerank,chat,rewrite 模型api
 
 ### 1.2.2 RAG 检索存储方案选择
 
@@ -86,6 +94,7 @@ PostgreSQL作为关系型知识库持久化维护，也便于经过向量块命�
 
 1. 配置 VISUAL_* 多模态模型（VISUAL_MODEL_NAME / VISUAL_API_URL / VISUAL_API_KEY，需支持 vision，如 step-3.7-flash）
 2. 部署 drawio 并配置
+
 ```bash
 podman run -d \
   --name drawio \
@@ -94,16 +103,15 @@ podman run -d \
   jgraph/drawio
 ```
 
-3. drawio 实例地址由后端运行参数 `DRAWIO_EMBED_URL` 提供（`sys.sys_config` 白名单参数，种子见 `database/sql/base_seed.sql`，可在前端模型配置页「运行参数」中修改；如 `http://localhost:8080`，同时作为 postMessage origin 校验基准）
-4. 执行绘图模块建表：`database/draw_schema.sql`（draw schema 下会话/消息/图表版本三表）
-5. 系统菜单已内置 AI 绘图菜单（`database/system_schema.sql` 种子，component 键 `draw`）；需为对应角色授权可见
+1. drawio 实例地址由后端运行参数 `DRAWIO_EMBED_URL` 提供（`sys.sys_config` 白名单参数，种子见 `database/sql/base_seed.sql`，可在前端模型配置页「运行参数」中修改；如 `http://localhost:8080`，同时作为 postMessage origin 校验基准）
+2. 执行绘图模块建表：`database/draw_schema.sql`（draw schema 下会话/消息/图表版本三表）
+3. 系统菜单已内置 AI 绘图菜单（`database/system_schema.sql` 种子，component 键 `draw`）；需为对应角色授权可见
 
 ### 1.3.2 设计要点
 
 - 多模态模型仅输出 Mermaid：前端 mermaid.js 实时预览；点击「在 drawio 中编辑」经 embed 模式（`descriptor:{format:'mermaid',wrap:true}`）载入编辑器
 - 图表版本链 append-only：AI 生成与 drawio 编辑保存均产生新版本（`parent_id` 指向基线），不覆盖旧版本
 - export-server 为二期能力：一期预览由前端编辑器 `export xmlpng` 产出（内嵌 XML 的 PNG，单文件既是预览又可重载编辑）
-
 
 # 二.本地推理框架部署
 
@@ -112,6 +120,7 @@ podman run -d \
 先决条件: linux系统
 
 ## 2.1 环境部署
+
 ```shell
 uv venv --python 3.12 --seed --managed-python
 source .venv/bin/activate
@@ -124,6 +133,7 @@ uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 ```
 
 ## 2.2 运行vllm服务
+
 ```shell
 # pool model  vllm 0.25.1+
 vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
@@ -163,12 +173,12 @@ vllm serve ./models/chat/Qwen3.5-2B \
 
 经过综合考虑，为降低模型维护成本，避免在不同模块中重复引用模型配置导致版本不一致、向量维度或量化结果不一致等问题，系统不支持在方法层级单独指定嵌入模型。统一通过环境配置文件中的 `EMBEDDING_MODEL_NAME` 参数指定全局使用的嵌入模型，确保系统内所有向量生成流程使用一致的模型配置。
 
-
-
 # 其他问题
 
 ## 1. cohere运行报错?
+
 本地vllm兼容cohere，但对其做了简化，对部分参数有变化。详见 model\embeddings\clients\cohere.py 说明。当然本项目默认对接本地vllm兼容接口。
 
 ## 2. RAG效果差?
+
 注意 rerank和 embedding 模型类型一致，即多模态都是多模态，纯文本都是纯文本.
