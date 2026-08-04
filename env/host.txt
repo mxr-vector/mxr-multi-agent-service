@@ -1,0 +1,5 @@
+127.0.0.1 server_host
+127.0.0.1 postgres_host
+127.0.0.1 qdrant_host
+192.168.245.213 embedding_host
+

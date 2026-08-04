@@ -6,6 +6,17 @@
 
 本项目涉及多个外部中间件和基础组件的集成。虽然 LangGraph 提供了较丰富的封装能力，但在实际使用过程中发现，其对于部分第三方组件（例如 Cohere 等）的适配能力存在一定局限，因此底层建议使用各自官方客户端，使用兼容层适配框架，因此一般langchain_adapter.py是访问底层客户端的入口。
 
+host设置
+
+```bash
+# macos/linux
+# 将 env/host.txt 的内容逐行添加到 /etc/hosts 文件中
+cat env/host.txt >> /etc/hosts
+
+# window
+type env\host.txt >> C:\Windows\System32\drivers\etc\hosts
+```
+
 |功能实现|状态|
 |--|--|
 |RAG系统|- [:heavy_check_mark:]|
@@ -52,6 +63,14 @@ project
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)||||
 |[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)||||
 |[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)||||
+
+|功能|测试模型|
+|--|--- |
+| embedding | Qwen3-Embedding-4B |
+| rerank | Qwen3-Embedding-4B |
+| chat | DeepSeek-V4-Flash-high |
+| rewrite | Step-3.7-flash |
+| bm2.5 | qdrant-bm2.5 |
 
 ### 1.2.1 先决条件
 
