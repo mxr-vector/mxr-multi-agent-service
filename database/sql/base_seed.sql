@@ -87,7 +87,7 @@ INSERT INTO sys.sys_menu VALUES ('019fb5b4-95df-77b1-b163-3ab3d460d9e6', '019000
 --
 
 INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-76ec-ac2e-34c3c8a588b7', 'chat', '对话模型', 'deepseek-v4-flash', 'https://api.deepseek.com', '', NULL, 60, 2, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:07:52.278889+08');
-INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-4B', 'http://127.0.0.1:9527', '95279527', 'cohere', NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:17.41671+08');
+INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-0.6B', 'http://127.0.0.1:9527', '95279527', 'cohere', NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:17.41671+08');
 INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '', NULL, 60, 2, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:56.0961+08');
 INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c24-8853-c06e3c973c8e', 'rewrite', '改写压缩模型', 'Qwen3.5-2B', 'http://127.0.0.1:9528/v1', '95279527', NULL, NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:39:04.185031+08');
 
