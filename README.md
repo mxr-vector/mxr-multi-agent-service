@@ -66,8 +66,8 @@ project
 
 |功能|测试模型|
 |--|--- |
-| embedding | Qwen3-Embedding-0.6B |
-| rerank | Qwen3-Embedding-0.6B |
+| embedding | Qwen3-Embedding-4B |
+| rerank | Qwen3-Embedding-4B |
 | chat | DeepSeek-V4-Flash-high |
 | rewrite | Step-3.7-flash |
 | bm2.5 | qdrant-bm2.5 |
@@ -155,15 +155,15 @@ uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 
 ```shell
 # pool model  vllm 0.25.1+
-vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
+vllm serve ./models/embeddings/Qwen3-Embedding-4B \
     --host 0.0.0.0 \
     --port 9527 \
-    --served-model-name Qwen3-Embedding-0.6B \
+    --served-model-name Qwen3-Embedding-4B \
     --runner pooling \
     --dtype auto \
-    --gpu-memory-utilization 0.25 \
-    --max-model-len 2048 \
-    --max-num-seqs 8 \
+    --gpu-memory-utilization 0.35 \
+    --max-model-len 4096 \
+    --max-num-seqs 4 \
     --max-num-batched-tokens 8192 \
     --trust-remote-code \
     --api-key 95279527 
@@ -177,7 +177,7 @@ vllm serve ./models/chat/Qwen3.5-2B \
     --port 9528 \
     --served-model-name Qwen3.5-2B \
     --dtype half \
-    --gpu-memory-utilization 0.75 \
+    --gpu-memory-utilization 0.65 \
     --max-model-len 8192 \
     --max-num-seqs 2 \
     --max-num-batched-tokens 8192 \

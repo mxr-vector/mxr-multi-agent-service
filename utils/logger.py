@@ -24,7 +24,15 @@ LOG_ROOT = BASE_DIR / "logs"
 
 logger.remove()
 
-# 文件
+# 拦截器：handler 级 filter 注入 request_id。
+# 用 filter 而非 logger.patch()：patch 只对当前实例生效，fastembed 等第三方库
+# 在线程池中直接使用原始 loguru.logger 发日志时，其 record 缺少 extra[request_id]，
+# 导致 LOG_FORMAT 里的 {extra[request_id]} 格式化抛 KeyError 并连带业务日志崩溃。
+# filter 作用于每个 handler 的所有记录（无论来自哪个 logger 实例），先注入再格式化。
+def inject_request_id(record):
+    record["extra"].setdefault("request_id", request_id_ctx.get())
+    return True
+
 
 LOG_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
@@ -37,6 +45,7 @@ logger.add(
     sys.stdout,
     format=LOG_FORMAT,
     level="INFO",
+    filter=inject_request_id,
 )
 
 # 所有日志
@@ -48,6 +57,7 @@ logger.add(
     retention="5 days",
     compression="zip",
     enqueue=True,
+    filter=inject_request_id,
 )
 
 
@@ -59,13 +69,5 @@ logger.add(
     rotation="100 MB",  # 单文件最大 100MB
     retention="7 days",
     enqueue=True,
+    filter=inject_request_id,
 )
-
-
-# 拦截器：自动注入 request_id
-def inject_request_id(record):
-    record["extra"]["request_id"] = request_id_ctx.get()
-    return record
-
-
-logger = logger.patch(inject_request_id)

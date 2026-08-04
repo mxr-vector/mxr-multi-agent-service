@@ -1,6 +1,7 @@
 from typing import List, Union
 import cohere
 from model.embeddings.clients.base import BaseEmbeddingClient
+from utils.env import ENV
 
 """
 cohere SDK v2. langchain_cohere 不兼容新版，因此使用官方SDK cohere.  
@@ -17,6 +18,10 @@ class CohereEmbeddingClient(BaseEmbeddingClient):
         self._client = cohere.ClientV2(
             api_key=self.api_key,
             base_url=self.api_url,
+            # 显式超时/重试：SDK 默认 timeout=300s 且重试多次，
+            # 服务不可达时会挂起数分钟才失败，导致向量化作业表现为"卡住"
+            timeout=ENV.embedding_timeout,
+            max_retries=ENV.embedding_max_retries,
         )
 
     def embed_documents(self, docs: Union[str, List[str]]) -> List[List[float]]:

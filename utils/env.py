@@ -147,6 +147,16 @@ class ENV_CONFIG:
     def embedding_model_name(self) -> str:
         return self.require("EMBEDDING_MODEL_NAME")
 
+    @property
+    def embedding_timeout(self) -> float:
+        """embedding HTTP 请求超时（秒）；服务不可达时快速失败，避免向量化作业长时间挂起。"""
+        return float(self.get("EMBEDDING_TIMEOUT", 60))
+
+    @property
+    def embedding_max_retries(self) -> int:
+        """embedding HTTP 请求重试次数；调小可让故障快速暴露（默认 1）。"""
+        return int(self.get("EMBEDDING_MAX_RETRIES", 1))
+
     """
     Rerank / Chat / Rewrite / Visual 模型相关配置已迁至数据库（sys_model_config），
     经配置快照 core.config_snapshot.CFG 读取并支持免重启热更新；此处不再暴露对应 property。

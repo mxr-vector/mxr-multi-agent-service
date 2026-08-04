@@ -15,7 +15,9 @@ RAG 混合检索入口（模型调用）。
   暂未实现），与"知识库缺省"语义彻底解绑；
 - 不再返回拼接字符串，而是返回结构化候选
   `{point_id, knowledge_base_id, text, source, score, chapter_title,
-  document_id, chunk_id, page_start, page_end}`，溯源字段从 payload 宽松读取（无则归 None）；
+  document_id, chunk_id, page_start, page_end}`，其中 point_id / knowledge_base_id /
+  document_id / chunk_id 均为 hex 无连字符（Qdrant 返回的 point id 经 normalize_point_id
+  归一化，与 payload 内各 id 格式对齐），溯源字段从 payload 宽松读取（无则归 None）；
 - 候选池大小由配置驱动（CFG.rag_candidate_pool_size），本模块不关心 provider / 模型名；
 - 向量化（dense/sparse）统一在 QdrantManager 内部完成；扇出场景由本模块
   预生成一次查询向量后各集合复用。
@@ -27,6 +29,7 @@ from typing import List, Optional, Sequence
 
 from database.qdrant_client import QdrantManager, build_kb_collection_name
 from core.config_snapshot import CFG
+from utils.id import normalize_point_id
 from utils.logger import logger
 
 # 跨集合扇出检索的最大并发数（查询向量已预生成，单任务仅一次 Qdrant IO）
@@ -53,7 +56,7 @@ def hybrid_retrieve(
       由 QdrantManager 内部按 query 生成；
     - 每个候选为 `{point_id, knowledge_base_id, text, source, score,
       chapter_title, document_id, chunk_id, page_start, page_end}`，score 为服务端 RRF 融合得分，
-      knowledge_base_id 为 hex 无连字符（跨库溯源与去重用），
+      point_id / knowledge_base_id 为 hex 无连字符（跨库溯源与去重用），
       其余溯源字段宽松读取（无则为 None）。
     """
     collection = build_kb_collection_name(knowledge_base_id)
@@ -66,7 +69,7 @@ def hybrid_retrieve(
         payload = point.payload or {}
         candidates.append(
             {
-                "point_id": point.id,
+                "point_id": normalize_point_id(point.id),
                 "knowledge_base_id": knowledge_base_id.hex,
                 "text": payload.get("text", ""),
                 "source": payload.get("source", ""),

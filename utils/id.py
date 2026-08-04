@@ -11,3 +11,17 @@ def format_id(value: uuid.UUID | None) -> str | None:
     if value is None:
         return None
     return value.hex
+
+
+def normalize_point_id(value) -> str:
+    """把 Qdrant 返回的 point id 归一化为无连字符 hex，与业务侧 id 格式对齐。
+
+    Qdrant 接受 32 位 hex 作为 point id（写入端统一用 format_id），但检索返回时
+    会格式化为标准带连字符 UUID（或原样返回 int）。本函数兜底归一化，避免
+    同一 chunk 的 point_id 与 payload.chunk_id 呈现两种格式造成比对/去重歧义。
+    非 UUID 形态（如整数 id）原样字符串化。
+    """
+    try:
+        return uuid.UUID(str(value)).hex
+    except (ValueError, TypeError):
+        return str(value)
