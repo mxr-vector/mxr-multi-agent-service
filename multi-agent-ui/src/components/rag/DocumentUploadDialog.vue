@@ -117,6 +117,21 @@ async function handleSubmit() {
 <template>
   <el-dialog v-model="dialogVisible" title="新建文档" width="620px">
     <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+      <el-form-item label="文件" required>
+        <div class="file-row">
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".pdf,.docx,.md,.markdown,.txt,.xlsx,.xls,.csv"
+            hidden
+            @change="onFileChange"
+          />
+          <span class="file-name" :class="{ placeholder: !selectedFile }">
+            {{ selectedFile ? selectedFile.name : "支持 PDF、DOCX、Markdown、Excel、TXT" }}
+          </span>
+          <el-button link type="primary" @click="pickFile">浏览</el-button>
+        </div>
+      </el-form-item>
       <el-form-item label="手册名称" prop="title">
         <el-input
           v-model="form.title"
@@ -135,21 +150,6 @@ async function handleSubmit() {
           value-format="YYYY-MM-DDTHH:mm:ss"
           style="width: 100%"
         />
-      </el-form-item>
-      <el-form-item label="文件" required>
-        <div class="file-row">
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".pdf,.docx,.md,.markdown,.txt,.xlsx,.xls,.csv"
-            hidden
-            @change="onFileChange"
-          />
-          <span class="file-name" :class="{ placeholder: !selectedFile }">
-            {{ selectedFile ? selectedFile.name : "支持 PDF、DOCX、Markdown、Excel、TXT" }}
-          </span>
-          <el-button link type="primary" @click="pickFile">浏览</el-button>
-        </div>
       </el-form-item>
       <el-form-item label="分块策略">
         <el-select v-model="form.chunk_strategy" style="width: 100%">
