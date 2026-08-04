@@ -66,8 +66,8 @@ project
 
 |功能|测试模型|
 |--|--- |
-| embedding | Qwen3-Embedding-4B |
-| rerank | Qwen3-Embedding-4B |
+| embedding | Qwen3-Embedding-0.6B |
+| rerank | Qwen3-Embedding-0.6B |
 | chat | DeepSeek-V4-Flash-high |
 | rewrite | Step-3.7-flash |
 | bm2.5 | qdrant-bm2.5 |
