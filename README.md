@@ -58,20 +58,6 @@ project
 
 ## 1.2 RAG 系统
 
-|测试集|Recall@K(召回率)|Precision@K(准确率)|MRR(算术平均首位度)|
-|--|--|--|--|
-|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)||||
-|[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)||||
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)||||
-
-|功能|测试模型|
-|--|--- |
-| embedding | Qwen3-Embedding-4B |
-| rerank | Qwen3-Embedding-4B |
-| chat | DeepSeek-V4-Flash-high |
-| rewrite | Step-3.7-flash |
-| bm2.5 | qdrant-bm2.5 |
-
 ### 1.2.1 先决条件
 
 1. PostgreSQL 18.0+
@@ -192,6 +178,52 @@ vllm serve ./models/chat/Qwen3.5-2B \
 ## 2.1 嵌入模型
 
 经过综合考虑，为降低模型维护成本，避免在不同模块中重复引用模型配置导致版本不一致、向量维度或量化结果不一致等问题，系统不支持在方法层级单独指定嵌入模型。统一通过环境配置文件中的 `EMBEDDING_MODEL_NAME` 参数指定全局使用的嵌入模型，确保系统内所有向量生成流程使用一致的模型配置。
+
+# 四.基准测试
+
+|测试集|Recall@K(召回率)|Precision@K(准确率)|MRR(算术平均首位度)|
+|--|--|--|--|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|0.897（宽松@10，检索+rerank）|0.724（严格@1，检索+rerank）|0.827（宽松，检索+rerank）|
+|[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)||||
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)||||
+
+|功能|测试模型|
+|--|--- |
+| embedding | Qwen3-Embedding-4B |
+| rerank | Qwen3-Embedding-4B |
+| chat | DeepSeek-V4-Flash-high |
+| rewrite | Step-3.7-flash |
+| bm2.5 | qdrant-bm2.5 |
+
+### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-04）
+
+数据集：[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K)
+（111,824 条记录 / 2,919 个维基页面，每条自带证据片段 `content`，构成 query→gold 评测对）。
+
+**评测配置**：1000 条分层抽样（seed=42，覆盖 1,000 个页面）；按页面聚合建库
+（2,919 文档 / 23,953 叶块，两级切块 2000/400/80）；candidate_pool=50，final_top_k=5；
+管线 = 混合检索（dense+sparse RRF）→ 本地 rerank（Qwen3-Embedding-4B）。
+
+**指标口径**：严格 = chunk 级（证据句命中具体叶块）；宽松 = 文档级（同页面任意叶块，按文档去重）。
+
+| K | 严格 Recall@K | 严格 Precision@K | 宽松 Recall@K | 宽松 Precision@K |
+|---|---|---|---|---|
+| 1 | 0.406 | 0.724 | 0.789 | 0.789 |
+| 3 | 0.679 | 0.482 | 0.852 | 0.284 |
+| 5 | 0.752 | 0.341 | 0.878 | 0.176 |
+| 10 | 0.807 | 0.191 | 0.897 | 0.090 |
+| MRR | 0.774 | — | 0.827 | — |
+
+**实验结论**（同规模对比）：
+- 基线纯检索：严格 Recall@10 = 0.798 / MRR = 0.759；**本地 rerank 增益 +1~2.3pt**（严格 Recall@10 → 0.807，MRR → 0.774），零云端 token，建议生产链路启用
+- 候选池扩容（50→100）、query 拆分多路检索经实测**无增益或负优化**（拼接式 query 占池外失败 83%）
+- 严格口径 gold 为空占比 3.9%（证据句被切块截断），不计入严格指标
+
+**评测工具链**（可复现）：`test/dataset01/`——四阶段脚本
+`build_corpus → build_gold → run_queries → report`，支持
+`--pool/--split-query/--rerank` 实验参数与产物缓存复用；完整报告见
+`test/dataset01/results/report.md`。
+
 
 # 其他问题
 
