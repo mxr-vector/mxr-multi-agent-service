@@ -155,35 +155,36 @@ uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade
 
 ```shell
 # pool model  vllm 0.25.1+
-vllm serve ./models/embeddings/Qwen3-Embedding-0.6B \
+vllm serve ./models/embeddings/Qwen3-Embedding-4B \
     --host 0.0.0.0 \
     --port 9527 \
-    --served-model-name Qwen3-Embedding-0.6B \
+    --served-model-name Qwen3-Embedding-4B \
     --runner pooling \
     --dtype auto \
-    --gpu-memory-utilization 0.15 \
+    --gpu-memory-utilization 0.85 \
     --max-model-len 4096 \
-    --max-num-seqs 2 \
-    --max-num-batched-tokens 4096 \
+    --max-num-seqs 4 \
+    --max-num-batched-tokens 8192 \
     --trust-remote-code \
-    --api-key 95279527
+    --api-key 95279527 
 
 # compress model  可以使用 cloud 兼容openai接口
 # 关于 工具调用 https://docs.vllm.com.cn/en/latest/features/tool_calling/
 # --tool-call-parser hermes  or --tool-call-parser openai
-vllm serve ./models/chat/Qwen3.5-2B \
-    --host 0.0.0.0 \
-    --port 9528 \
-    --served-model-name Qwen3.5-2B \
-    --dtype half \
-    --gpu-memory-utilization 0.75 \
-    --max-model-len 8192 \
-    --max-num-seqs 2 \
-    --max-num-batched-tokens 8192 \
-    --trust-remote-code \
-    --enable-auto-tool-choice \
-    --tool-call-parser hermes \
-    --api-key 95279527
+
+# vllm serve ./models/chat/Qwen3.5-2B \
+#     --host 0.0.0.0 \
+#     --port 9528 \
+#     --served-model-name Qwen3.5-2B \
+#     --dtype half \
+#     --gpu-memory-utilization 0.65 \
+#     --max-model-len 8192 \
+#     --max-num-seqs 2 \
+#     --max-num-batched-tokens 8192 \
+#     --trust-remote-code \
+#     --enable-auto-tool-choice \
+#     --tool-call-parser hermes \
+#     --api-key 95279527
 ```
 
 # 三.池化模型说明
