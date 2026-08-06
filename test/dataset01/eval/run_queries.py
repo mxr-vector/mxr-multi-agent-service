@@ -35,6 +35,9 @@ from common import (
 CONCURRENCY = 4
 # 进度打印间隔
 PROGRESS_EVERY = 50
+# 单条 B 管线（rag_graph 含多轮外部 LLM 调用）超时兜底：外部 API 偶发挂起时
+# 标记 failed 继续，避免单条拖死全量评测（正常 1 轮反思约 6s，3 轮上限远低于此）
+PIPELINE_B_TIMEOUT = 180
 
 
 def _meta_for(kb_id_hex: str, stats: dict, seed: int, sample_size: int, no_graph: bool, pool_size: int, split_query: bool, rerank: bool, sparse_encoder: str = "default") -> dict:
@@ -157,13 +160,16 @@ async def run_pipeline_b(query: str, kb_id_hex: str) -> dict:
 
     from agent.graph.sub.rag_graph import rag_graph
 
-    result = await rag_graph.graph.ainvoke(
-        {
-            "messages": [HumanMessage(content=query)],
-            "question": query,
-            "knowledge_base_ids": [kb_id_hex],
-            "use_web_search": False,
-        }
+    result = await asyncio.wait_for(
+        rag_graph.graph.ainvoke(
+            {
+                "messages": [HumanMessage(content=query)],
+                "question": query,
+                "knowledge_base_ids": [kb_id_hex],
+                "use_web_search": False,
+            }
+        ),
+        timeout=PIPELINE_B_TIMEOUT,
     )
     metrics = result.get("metrics") or {}
     return {
@@ -269,14 +275,17 @@ async def run_queries(max_queries: int | None, no_graph: bool, force: bool, pool
 
     semaphore = asyncio.Semaphore(CONCURRENCY)
     started = time.monotonic()
+    # 并发执行（run_one 内部以信号量限流；按完成顺序收集，进度按完成数打印）
+    done = 0
     results: list[dict] = []
-    for idx, item in enumerate(queries, start=1):
-        results.append(
-            await run_one(semaphore, item, strict_gold, relaxed_gold, kb.id, meta["candidate_pool_size"], no_graph, split_query, rerank, sparse_encoder)
-        )
-        if idx % PROGRESS_EVERY == 0 or idx == len(queries):
+    for coro in asyncio.as_completed(
+        [run_one(semaphore, item, strict_gold, relaxed_gold, kb.id, meta["candidate_pool_size"], no_graph, split_query, rerank, sparse_encoder) for item in queries]
+    ):
+        results.append(await coro)
+        done += 1
+        if done % PROGRESS_EVERY == 0 or done == len(queries):
             elapsed = time.monotonic() - started
-            print(f"[S3] 进度 {idx}/{len(queries)}（耗时 {elapsed:.0f}s）", flush=True)
+            print(f"[S3] 进度 {done}/{len(queries)}（耗时 {elapsed:.0f}s）", flush=True)
 
     failed_a = sum(1 for r in results if r["pipeline_a"]["status"] == "failed")
     failed_b = sum(1 for r in results if not no_graph and r["pipeline_b"]["status"] == "failed")

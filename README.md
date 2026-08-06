@@ -183,7 +183,7 @@ vllm serve ./models/chat/Qwen3.5-2B \
 
 |测试集|Recall@K(召回率)|Precision@K(准确率)|MRR(算术平均首位度)|
 |--|--|--|--|
-|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|0.918（宽松@10，jieba+rerank 生产配置）|0.725（严格@1，jieba+rerank 生产配置）|0.833（宽松，jieba+rerank 生产配置）|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|0.847（宽松@10，jieba+rerank 生产配置）|0.722（严格@1，jieba+rerank 生产配置）|0.808（宽松，jieba+rerank 生产配置）|
 |[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)||||
 |[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)||||
 
@@ -195,7 +195,7 @@ vllm serve ./models/chat/Qwen3.5-2B \
 | rewrite | Step-3.7-flash |
 | bm2.5 | qdrant-bm2.5 |
 
-### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-06 更新）
+### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-06 重跑更新）
 
 数据集：[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K)
 （111,824 条记录 / 2,919 个维基页面，每条自带证据片段 `content`，构成 query→gold 评测对）。
@@ -205,17 +205,18 @@ vllm serve ./models/chat/Qwen3.5-2B \
 **生产配置管线** = 混合检索（dense 语义 + jieba 中文 BM25 词法 RRF 融合）→ rerank 精排。
 
 **指标口径**：严格 = chunk 级（证据句命中具体叶块）；宽松 = 文档级（同页面任意叶块，按文档去重）。
+下表为生产配置（B 完整子图：反思多轮 + rerank）指标；A 纯检索（无反思无重排）见下方检索层上限。
 
 | K | 严格 Recall@K | 严格 Precision@K | 宽松 Recall@K | 宽松 Precision@K |
 |---|---|---|---|---|
-| 1 | 0.408 | 0.725 | 0.791 | 0.791 |
-| 3 | 0.682 | 0.484 | 0.851 | 0.284 |
-| 5 | 0.760 | 0.345 | 0.885 | 0.177 |
-| 10 | 0.823 | 0.195 | 0.918 | 0.092 |
-| MRR | 0.780 | — | 0.833 | — |
+| 1 | 0.395 | 0.722 | 0.782 | 0.782 |
+| 3 | 0.665 | 0.484 | 0.830 | 0.277 |
+| 5 | 0.748 | 0.349 | 0.847 | 0.169 |
+| 10 | 0.748 | 0.174 | 0.847 | 0.085 |
+| MRR | 0.762 | — | 0.808 | — |
 
-**检索层上限**（jieba 混合检索，不叠加 rerank，供调参参考）：
-严格 Recall@10 = 0.865 / MRR = 0.810；宽松 Recall@10 = 0.930 / MRR = 0.846。
+**检索层上限**（A 纯检索，jieba 混合检索不叠加 rerank，供调参参考）：
+严格 Recall@10 = 0.865 / MRR = 0.815；宽松 Recall@10 = 0.930 / MRR = 0.851。
 
 **关键发现与实验结论**（同规模对比）：
 - **中文词法通道是决定性短板**：fastembed `Qdrant/bm25` 的 tokenizer 面向英文，
@@ -223,9 +224,12 @@ vllm serve ./models/chat/Qwen3.5-2B \
   dense 单通道）。换用 **jieba 中文 BM25 编码器**（`model/sparse/bm25.py` 主路径，
   词频权重 + 服务端 IDF）后：严格 Recall@10 **0.798 → 0.865**（+6.7pt）、宽松
   Recall@10 **0.888 → 0.930**（+4.2pt）
-- **rerank 必须保留**（生产最终排序与回答质量依赖精排）：jieba 通道上 rerank 使
-  检索层 Recall 略降（0.865→0.823）属设计取舍，以生产真实配置（jieba+rerank）
+- **rerank 必须保留**（生产最终排序与回答质量依赖精排）：本次重跑检索层（A）严格
+  Recall@10=0.865，完整子图（B）严格 Recall@10=0.748，降幅含 B 失败子集剔除偏差
+  （33.4% 审查失败，成功子集与全量的 gold 分布不均），以生产真实配置（jieba+rerank）
   为基线，检索层上限单独披露
+- **外部审查是评测噪声源**：stepfun rewrite/反思模型对含政治、争议、动物福利等主题
+  query 返回 451 拦截，失败条目不参与指标但使 B 指标子集偏置；A 纯检索不受影响
 - 候选池扩容（50→100）、query 拆分多路检索经实测**无增益或负优化**（拼接式 query
   占池外失败 83%）
 - 严格口径 gold 为空占比 3.9%（证据句被切块截断），不计入严格指标
@@ -234,7 +238,7 @@ vllm serve ./models/chat/Qwen3.5-2B \
 `build_corpus → build_gold → run_queries → report`，支持
 `--pool/--split-query/--rerank/--sparse-encoder` 实验参数与产物缓存复用；
 生产 sparse 编码器切换与既有知识库迁移见 `utils/migrate_sparse.py`；
-完整报告见 `test/dataset01/results/report.md`。
+完整报告（双口径 A/B 指标 + NDCG + 失败案例）见 `test/dataset01/results/report.md`。
 
 
 # 其他问题
