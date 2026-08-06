@@ -1,18 +1,14 @@
 """
-BM25 稀疏向量编码器（中文 jieba 词法编码，主路径）。
+jieba 中文分词 BM25 稀疏向量编码器（中文词法通道）。
 
 背景：fastembed 的 Qdrant/bm25 模型 tokenizer 面向英文（空格分词），中文文本
 无空格，query 整句被哈希成单个 token，与文档侧 token 空间几乎无交集，导致
 sparse 通道对中文 query 几乎零命中（混合检索实际退化为 dense 单通道）。
-评测（test/dataset01，1000 条分层抽样）验证 jieba 中文 BM25 使严格 Recall@10
-0.798 → 0.865、宽松 Recall@10 0.888 → 0.930。
+本编码器用 jieba 中文分词 + 词频（TF）权重替代，token 以稳定 hash 映射为
+非负 int 下标；IDF 部分仍由 Qdrant 服务端（Modifier.IDF）按集合统计算。
 
-本编码器以 jieba 中文分词 + 词频（TF）权重产出稀疏向量，token 以稳定 hash
-映射为非负 int 下标；IDF 部分仍由 Qdrant 服务端（Modifier.IDF）按集合统计算。
-接口保持 embed_query / embed_documents（返回 qdrant_client.models.SparseVector），
-调用方（upsert_hybrid / hybrid_search / agent 检索）零改动。
-
-旧 fastembed 实现保留为 legacy_* 函数，仅供迁移回滚与对照使用（勿在生产主路径调用）。
+接口与 model/sparse/bm25.py 保持一致：embed_query / embed_documents，
+返回 qdrant_client.models.SparseVector。依赖 jieba（首次调用惰性加载词典）。
 """
 
 import re
@@ -21,8 +17,6 @@ from functools import lru_cache
 from typing import List
 
 from qdrant_client.models import SparseVector
-
-from utils.env import ENV
 
 # 检索级最小停用词集：纯虚词/标点/无区分度词（BM25 的 IDF 会再压高频词）
 _STOPWORDS = frozenset(
@@ -88,51 +82,3 @@ def embed_documents(texts: List[str]) -> List[SparseVector]:
 def embed_query(text: str) -> SparseVector:
     """对查询文本编码为 jieba BM25 稀疏向量。"""
     return _to_sparse(_tokenize(text))
-
-
-# ============================================================================
-# 以下为 legacy 实现（fastembed Qdrant/bm25，英文分词器，中文失效）。
-# 保留仅供迁移回滚（utils/migrate_sparse.py --encoder legacy）与对照评测使用，
-# 生产主路径勿调用。
-# ============================================================================
-
-# fastembed 支持的 BM25 词法稀疏模型标识
-BM25_MODEL_NAME = "Qdrant/bm25"
-
-
-@lru_cache(maxsize=1)
-def _get_legacy_model():
-    """惰性加载并缓存 fastembed BM25 编码器（legacy，仅供回滚）。"""
-    from fastembed import SparseTextEmbedding
-
-    ENV.bm25_cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir = str(ENV.bm25_cache_dir)
-    try:
-        return SparseTextEmbedding(
-            model_name=BM25_MODEL_NAME, cache_dir=cache_dir, local_files_only=True
-        )
-    except Exception:
-        return SparseTextEmbedding(model_name=BM25_MODEL_NAME, cache_dir=cache_dir)
-
-
-def _legacy_to_sparse(embedding) -> SparseVector:
-    """把 fastembed SparseEmbedding 转成 qdrant SparseVector。"""
-    return SparseVector(
-        indices=embedding.indices.tolist(),
-        values=embedding.values.tolist(),
-    )
-
-
-def legacy_embed_documents(texts: List[str]) -> List[SparseVector]:
-    """legacy：fastembed BM25 批量编码（英文分词器，中文 query 失效）。"""
-    if not texts:
-        return []
-    model = _get_legacy_model()
-    return [_legacy_to_sparse(emb) for emb in model.embed(list(texts))]
-
-
-def legacy_embed_query(text: str) -> SparseVector:
-    """legacy：fastembed BM25 查询编码（英文分词器，中文 query 失效）。"""
-    model = _get_legacy_model()
-    embedding = next(iter(model.query_embed(text)))
-    return _legacy_to_sparse(embedding)

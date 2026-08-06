@@ -37,7 +37,7 @@ CONCURRENCY = 4
 PROGRESS_EVERY = 50
 
 
-def _meta_for(kb_id_hex: str, stats: dict, seed: int, sample_size: int, no_graph: bool, pool_size: int, split_query: bool, rerank: bool) -> dict:
+def _meta_for(kb_id_hex: str, stats: dict, seed: int, sample_size: int, no_graph: bool, pool_size: int, split_query: bool, rerank: bool, sparse_encoder: str = "default") -> dict:
     """评测元数据（缓存校验键）：数据集/知识库/抽样/系统配置均参与比对。"""
     from core.config_snapshot import CFG
 
@@ -52,6 +52,7 @@ def _meta_for(kb_id_hex: str, stats: dict, seed: int, sample_size: int, no_graph
         "no_graph": no_graph,
         "split_query": split_query,
         "rerank": rerank,
+        "sparse_encoder": sparse_encoder,
     }
 
 
@@ -61,15 +62,27 @@ def split_sub_queries(question: str, min_len: int = 5) -> list[str]:
     return [p for p in parts if len(p) >= min_len]
 
 
-async def run_pipeline_a(query: str, kb_id: uuid.UUID, pool_size: int, split_query: bool = False, rerank: bool = False) -> dict:
+async def run_pipeline_a(query: str, kb_id: uuid.UUID, pool_size: int, split_query: bool = False, rerank: bool = False, sparse_encoder: str = "default") -> dict:
     """纯检索管线：混合召回候选池（同步 IO 丢线程池），记录排序与得分。
 
     split_query=True 时把拼接式 query 拆为子问题多路检索，按轮转合并去重
     （模拟"多路检索"策略，不改生产代码的评测侧实验）。
+    sparse_encoder="jieba" 时使用 jieba 中文 BM25 词法通道（需评测库已重算
+    sparse 向量），验证中文词法召回增益。
     """
-    from agent.tools.document import hybrid_retrieve_multi
+    from agent.tools.document import hybrid_retrieve, hybrid_retrieve_multi
 
-    if split_query:
+    if sparse_encoder == "jieba":
+        # 自定义 sparse 向量注入单库检索（dense 走标准 embedding）
+        from model.embeddings.factory import get_embedding_client
+        from model.sparse.bm25_jieba import embed_query as jieba_sparse_embed
+
+        dense_vector = await asyncio.to_thread(get_embedding_client().embed_query, query)
+        sparse_vector = await asyncio.to_thread(jieba_sparse_embed, query)
+        candidates = await asyncio.to_thread(
+            hybrid_retrieve, query, kb_id, pool_size, dense_vector, sparse_vector
+        )
+    elif split_query:
         subs = split_sub_queries(query)
         if len(subs) > 1:
             # 每个子问题保持完整池大小检索（不缩小召回空间），合并去重后截断
@@ -182,6 +195,7 @@ async def run_one(
     no_graph: bool,
     split_query: bool,
     rerank: bool,
+    sparse_encoder: str,
 ) -> dict:
     """单条 query 双管线执行（协程内 A→B 串行，协程间受信号量限流）。"""
     row_index = str(item["row_index"])
@@ -196,7 +210,7 @@ async def run_one(
             "pipeline_b": {"status": "skipped", "reranked": [], "metrics": {}},
         }
         try:
-            out["pipeline_a"] = await run_pipeline_a(question, kb_id, pool_size, split_query, rerank)
+            out["pipeline_a"] = await run_pipeline_a(question, kb_id, pool_size, split_query, rerank, sparse_encoder)
         except Exception as exc:
             out["pipeline_a"] = {
                 "status": "failed",
@@ -216,7 +230,7 @@ async def run_one(
         return out
 
 
-async def run_queries(max_queries: int | None, no_graph: bool, force: bool, pool_size: int | None = None, split_query: bool = False, rerank: bool = False) -> None:
+async def run_queries(max_queries: int | None, no_graph: bool, force: bool, pool_size: int | None = None, split_query: bool = False, rerank: bool = False, sparse_encoder: str = "default") -> None:
     await ensure_cfg_async()
     ensure_dirs()
 
@@ -239,7 +253,7 @@ async def run_queries(max_queries: int | None, no_graph: bool, force: bool, pool
     from core.config_snapshot import CFG
 
     pool_size = pool_size or CFG.rag_candidate_pool_size
-    meta = _meta_for(kb.id.hex, stats, seed, sample_size, no_graph, pool_size, split_query, rerank)
+    meta = _meta_for(kb.id.hex, stats, seed, sample_size, no_graph, pool_size, split_query, rerank, sparse_encoder)
 
     # 缓存复用：meta 一致且非 --force → 直接复用已有明细
     if not force and EVAL_RESULTS_PATH.exists():
@@ -258,7 +272,7 @@ async def run_queries(max_queries: int | None, no_graph: bool, force: bool, pool
     results: list[dict] = []
     for idx, item in enumerate(queries, start=1):
         results.append(
-            await run_one(semaphore, item, strict_gold, relaxed_gold, kb.id, meta["candidate_pool_size"], no_graph, split_query, rerank)
+            await run_one(semaphore, item, strict_gold, relaxed_gold, kb.id, meta["candidate_pool_size"], no_graph, split_query, rerank, sparse_encoder)
         )
         if idx % PROGRESS_EVERY == 0 or idx == len(queries):
             elapsed = time.monotonic() - started
@@ -295,8 +309,9 @@ async def main() -> None:
     parser.add_argument("--pool", type=int, default=None, help="候选池大小（默认取系统 RAG_CANDIDATE_POOL_SIZE）")
     parser.add_argument("--split-query", action="store_true", help="拼接式 query 拆分为子问题多路检索（评测实验）")
     parser.add_argument("--rerank", action="store_true", help="A 管线候选池追加本地 rerank 重排（检索→重排精简链路）")
+    parser.add_argument("--sparse-encoder", choices=["default", "jieba"], default="default", help="sparse 词法编码器（jieba=中文 BM25，需评测库已重算 sparse 向量）")
     args = parser.parse_args()
-    await run_queries(args.max_queries, args.no_graph, args.force, args.pool, args.split_query, args.rerank)
+    await run_queries(args.max_queries, args.no_graph, args.force, args.pool, args.split_query, args.rerank, args.sparse_encoder)
 
 
 if __name__ == "__main__":
