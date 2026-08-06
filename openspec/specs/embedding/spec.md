@@ -22,8 +22,8 @@ argument.
 - **AND** the model used is `EMBEDDING_MODEL_NAME` without any per-call override
 
 #### Scenario: Unknown provider value
-- **WHEN** `EMBEDDING_PROVIDER` is set to a value that is not a member of the
-  `EmbeddingProvider` enum
+- **WHEN** `EMBEDDING_PROVIDER` is set to a value that is not registered in the
+  `EmbeddingFactory` registry
 - **THEN** configuration resolution raises a clear error identifying the invalid
   value
 

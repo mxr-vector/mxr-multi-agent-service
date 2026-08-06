@@ -15,6 +15,13 @@ const contextWindowLabel = computed(() =>
     dictStore.getLabel("context_window", String(props.config.context_window))
 );
 
+/** Provider 展示文案：命中字典（embedding_provider）取 label，未命中回退原始值 */
+const providerLabel = computed(() =>
+    props.config.provider
+        ? dictStore.getLabel("embedding_provider", props.config.provider)
+        : ""
+);
+
 /** 角色标签配色（仅视觉区分，无业务语义） */
 const ROLE_TAG: Record<string, string> = {
     chat: "primary",
@@ -52,7 +59,7 @@ function tagType(role: string) {
             </div>
             <div v-if="config.provider" class="model-card__row">
                 <dt>Provider</dt>
-                <dd>{{ config.provider }}</dd>
+                <dd>{{ providerLabel }}</dd>
             </div>
             <div v-if="config.timeout !== null" class="model-card__row">
                 <dt>超时 / 重试</dt>

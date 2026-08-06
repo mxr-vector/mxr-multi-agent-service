@@ -140,7 +140,7 @@ class ENV_CONFIG:
 
     @property
     def embedding_provider(self) -> str:
-        """原始 EMBEDDING_PROVIDER 字符串；合法性由 embedding 模块的 EmbeddingProvider 负责校验"""
+        """原始 EMBEDDING_PROVIDER 字符串；合法性由 embedding 模块的工厂注册表负责校验"""
         return self.require("EMBEDDING_PROVIDER")
 
     @property

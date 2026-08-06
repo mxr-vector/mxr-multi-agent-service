@@ -29,20 +29,25 @@ INSERT INTO sys.sys_dept VALUES ('019fa265-8a66-7b6e-a330-46a028be8e37', '019fa2
 -- Data for Name: sys_dict_data; Type: TABLE DATA; Schema: sys; Owner: postgres
 --
 
-INSERT INTO sys.sys_dict_data VALUES ('019fa7b2-986d-7df1-a85a-5b17bb62acc7', 'visibility_type', '私有', 'private', 0, true, 'active', NULL, '2026-07-28 15:48:47.339482+08', '2026-07-28 15:48:51.075894+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fa7b2-cfe7-7016-96ee-4d574ec8ece2', 'visibility_type', '部门', 'department', 1, false, 'active', NULL, '2026-07-28 15:49:01.541264+08', '2026-07-28 15:49:11.114857+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fa7b3-29b6-7248-a609-6bd4eec82fc0', 'visibility_type', '公开', 'public', 2, false, 'active', NULL, '2026-07-28 15:49:24.532+08', '2026-07-28 15:49:24.532+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fa7b4-0cf5-7eee-ba8b-7cdfef75cc4d', 'status', '激活', 'active', 0, true, 'active', NULL, '2026-07-28 15:50:22.708511+08', '2026-07-28 15:50:22.708511+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fa7b4-5605-7687-912f-b7a7041fb142', 'status', '已归档', 'archived', 1, false, 'active', NULL, '2026-07-28 15:50:41.411415+08', '2026-07-28 15:50:41.411415+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fa7b4-872c-71c5-b978-39e39c3b15a6', 'status', '已删除', 'deleted', 2, false, 'active', NULL, '2026-07-28 15:50:53.994785+08', '2026-07-28 15:50:53.994785+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fac76-1e71-7d2e-8213-9f30a6681641', 'reasoning_effort', '最低限度', 'minimal', 1, false, 'active', NULL, '2026-07-29 14:00:50.031848+08', '2026-07-29 14:44:18.929063+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fac76-5be6-7d29-b6ed-b597e457be7f', 'reasoning_effort', '中', 'medium', 2, false, 'active', NULL, '2026-07-29 14:01:05.764394+08', '2026-07-29 14:44:23.170003+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fac76-40e6-7aba-841c-abcba09e86e1', 'reasoning_effort', '低', 'low', 3, false, 'active', NULL, '2026-07-29 14:00:58.853115+08', '2026-07-29 14:44:31.659777+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fac76-7b3c-7684-b4ab-2ab06ac2c335', 'reasoning_effort', '高', 'high', 4, false, 'active', NULL, '2026-07-29 14:01:13.787067+08', '2026-07-29 14:44:34.258149+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fac9d-bc25-7f17-a1a7-116b35588dfa', 'reasoning_effort', '关闭', 'off', 0, true, 'active', NULL, '2026-07-29 14:44:06.306795+08', '2026-07-29 15:12:23.958277+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000013', 'context_window', '200K', '200000', 3, true, 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000014', 'context_window', '400K', '400000', 3, true, 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
-INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000014', 'context_window', '1M', '1000000', 4, false, 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
+INSERT INTO sys.sys_dict_data (id,dict_type,"label",value,sort_order,is_default,status,remark,created_at,updated_at) VALUES
+	 ('019fa7b2-986d-7df1-a85a-5b17bb62acc7'::uuid,'visibility_type','私有','private',0,true,'active',NULL,'2026-07-28 15:48:47.339','2026-07-28 15:48:51.075'),
+	 ('019fa7b2-cfe7-7016-96ee-4d574ec8ece2'::uuid,'visibility_type','部门','department',1,false,'active',NULL,'2026-07-28 15:49:01.541','2026-07-28 15:49:11.114'),
+	 ('019fa7b3-29b6-7248-a609-6bd4eec82fc0'::uuid,'visibility_type','公开','public',2,false,'active',NULL,'2026-07-28 15:49:24.532','2026-07-28 15:49:24.532'),
+	 ('019fa7b4-0cf5-7eee-ba8b-7cdfef75cc4d'::uuid,'status','激活','active',0,true,'active',NULL,'2026-07-28 15:50:22.708','2026-07-28 15:50:22.708'),
+	 ('019fa7b4-5605-7687-912f-b7a7041fb142'::uuid,'status','已归档','archived',1,false,'active',NULL,'2026-07-28 15:50:41.411','2026-07-28 15:50:41.411'),
+	 ('019fa7b4-872c-71c5-b978-39e39c3b15a6'::uuid,'status','已删除','deleted',2,false,'active',NULL,'2026-07-28 15:50:53.994','2026-07-28 15:50:53.994'),
+	 ('019fac76-1e71-7d2e-8213-9f30a6681641'::uuid,'reasoning_effort','最低限度','minimal',1,false,'active',NULL,'2026-07-29 14:00:50.031','2026-07-29 14:44:18.929'),
+	 ('019fac76-5be6-7d29-b6ed-b597e457be7f'::uuid,'reasoning_effort','中','medium',2,false,'active',NULL,'2026-07-29 14:01:05.764','2026-07-29 14:44:23.170'),
+	 ('019fac76-40e6-7aba-841c-abcba09e86e1'::uuid,'reasoning_effort','低','low',3,false,'active',NULL,'2026-07-29 14:00:58.853','2026-07-29 14:44:31.659'),
+	 ('019fac76-7b3c-7684-b4ab-2ab06ac2c335'::uuid,'reasoning_effort','高','high',4,false,'active',NULL,'2026-07-29 14:01:13.787','2026-07-29 14:44:34.258');
+INSERT INTO sys.sys_dict_data (id,dict_type,"label",value,sort_order,is_default,status,remark,created_at,updated_at) VALUES
+	 ('019fac9d-bc25-7f17-a1a7-116b35588dfa'::uuid,'reasoning_effort','关闭','off',0,true,'active',NULL,'2026-07-29 14:44:06.306','2026-07-29 15:12:23.958'),
+	 ('019fb76a-ecd2-7ee8-8b7f-4e392fa78bf7'::uuid,'context_window','200K','200000',0,true,'active',NULL,'2026-07-31 17:04:25.807','2026-07-31 17:21:50.178'),
+	 ('019fb76b-3440-7e43-a53d-72e96cc30b19'::uuid,'context_window','400K','400000',0,false,'active',NULL,'2026-07-31 17:04:44.095','2026-07-31 17:21:50.178'),
+	 ('019fb76b-6c89-7fa2-aa1a-d42e7304d76d'::uuid,'context_window','1M','1000000',0,false,'active',NULL,'2026-07-31 17:04:58.504','2026-07-31 17:21:50.178'),
+	 ('019fd72f-efe4-75c4-a936-f14fc1afd2e1'::uuid,'embedding_provider','cohere','cohere',0,true,'active',NULL,'2026-08-06 21:07:50.861','2026-08-06 21:07:50.861'),
+	 ('019fd730-0e80-7986-9491-e6aafe481daa'::uuid,'embedding_provider','openai','openai',1,false,'active',NULL,'2026-08-06 21:07:58.642','2026-08-06 21:07:58.642'),
+	 ('019fd730-32a1-75c8-9aff-27b5905a0bc4'::uuid,'embedding_provider','dashscope','dashscope',2,false,'active',NULL,'2026-08-06 21:08:07.961','2026-08-06 21:08:07.961');
 
 
 --
@@ -51,10 +56,12 @@ INSERT INTO sys.sys_dict_data VALUES ('019fb600-0001-7000-8000-000000000014', 'c
 -- Data for Name: sys_dict_type; Type: TABLE DATA; Schema: sys; Owner: postgres
 --
 
-INSERT INTO sys.sys_dict_type VALUES ('019fa7b2-6490-7587-982f-6b4d9d4f5c21', '可见性', 'visibility_type', 'active', NULL, '2026-07-28 15:48:34.061154+08', '2026-07-28 15:48:34.061154+08');
-INSERT INTO sys.sys_dict_type VALUES ('019fa7b3-9a9c-7ed3-aabb-434e923e09c9', '进度状态', 'status', 'active', NULL, '2026-07-28 15:49:53.435767+08', '2026-07-28 15:49:53.435767+08');
-INSERT INTO sys.sys_dict_type VALUES ('019fac75-7289-711f-a290-7ca04cfedfb5', '推理等级', 'reasoning_effort', 'active', NULL, '2026-07-29 14:00:06.022149+08', '2026-07-29 14:00:06.022149+08');
-INSERT INTO sys.sys_dict_type VALUES ('019fb769-bd93-707d-8246-edec3110ab27', '上下文窗口', 'context_window', 'active', NULL, '2026-07-31 11:00:00+08', '2026-07-31 11:00:00+08');
+INSERT INTO sys.sys_dict_type (id,"name","type",status,remark,created_at,updated_at) VALUES
+	 ('019fa7b2-6490-7587-982f-6b4d9d4f5c21'::uuid,'可见性','visibility_type','active',NULL,'2026-07-28 15:48:34.061','2026-07-28 15:48:34.061'),
+	 ('019fa7b3-9a9c-7ed3-aabb-434e923e09c9'::uuid,'进度状态','status','active',NULL,'2026-07-28 15:49:53.435','2026-07-28 15:49:53.435'),
+	 ('019fac75-7289-711f-a290-7ca04cfedfb5'::uuid,'推理等级','reasoning_effort','active',NULL,'2026-07-29 14:00:06.022','2026-07-29 14:00:06.022'),
+	 ('019fb769-bd93-707d-8246-edec3110ab27'::uuid,'模型上下文窗口','context_window','active',NULL,'2026-07-31 17:03:08.176','2026-07-31 17:21:50.180'),
+	 ('019fd72f-7363-7768-8fc9-79e7d2bb291b'::uuid,'嵌入模型协议','embedding_provider','active',NULL,'2026-08-06 21:07:18.399','2026-08-06 21:07:18.399');
 
 
 --

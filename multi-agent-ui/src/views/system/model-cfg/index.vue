@@ -11,6 +11,8 @@ const dictStore = useDictStore();
 dictStore.ensureLoaded();
 // 上下文窗口预设档位（字典 context_window，值为 token 数字符串）
 const contextWindowOptions = computed(() => dictStore.getOptions("context_window"));
+// 嵌入模型协议档位（字典 embedding_provider，重排序模型 provider 复用该协议集）
+const providerOptions = computed(() => dictStore.getOptions("embedding_provider"));
 
 const loading = ref(false);
 const list = ref<ModelConfig[]>([]);
@@ -141,7 +143,10 @@ onMounted(loadConfigs);
                     <el-input v-model="form.api_key" type="password" show-password placeholder="留空则不修改" />
                 </el-form-item>
                 <el-form-item v-if="showProvider" label="Provider">
-                    <el-input v-model="form.provider" placeholder="如：cohere" maxlength="50" />
+                    <el-select v-model="form.provider" placeholder="选择 Provider" clearable>
+                        <el-option v-for="item in providerOptions" :key="item.value" :label="item.label"
+                            :value="item.value" />
+                    </el-select>
                 </el-form-item>
                 <template v-if="showTimeout">
                     <el-form-item label="超时(秒)">
