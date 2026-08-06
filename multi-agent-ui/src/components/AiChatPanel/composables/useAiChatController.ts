@@ -1,12 +1,13 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef } from "vue";
 import { useDictStore } from "@/stores/dictStore";
+import { resolveSseEventMap } from "@/api/aichat";
 import { useAiChatConversation } from "./useAiChatConversation";
 import { useAiChatHistory } from "./useAiChatHistory";
 import { useAiChatOptionsLoader } from "./useAiChatOptionsLoader";
 import { useAiChatPanelLayout } from "./useAiChatPanelLayout";
 import { useAiChatTriggerPosition } from "./useAiChatTriggerPosition";
 import { makeWelcome } from "../utils/chatMessage";
-import { REASONING_EFFORT_DICT_TYPE } from "../constants";
+import { REASONING_EFFORT_DICT_TYPE, SSE_EVENT_DICT_TYPE } from "../constants";
 import type { AiChatEmit, AiChatProps, ChatMessage, ChatSession, KnowledgeOption } from "../types";
 
 export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEmit) {
@@ -50,6 +51,10 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     })
     .catch(() => {});
 
+  // SSE 事件名：来自词典 sse_event（字典管理页维护，value 即事件名），
+  // 词典未加载/缺失时回落协议默认名，保证流解析不中断
+  const sseEventMap = computed(() => resolveSseEventMap(dictStore.getOptions(SSE_EVENT_DICT_TYPE)));
+
   let history!: ReturnType<typeof useAiChatHistory>;
   const conversation = useAiChatConversation({
     props,
@@ -70,6 +75,7 @@ export function useAiChatController(props: Readonly<AiChatProps>, emit: AiChatEm
     responsiveHeight: panel.responsiveHeight,
     thinkingExpanded,
     thinkingTouched,
+    sseEventMap,
     loadSessions: () => history.loadSessions(),
   });
 

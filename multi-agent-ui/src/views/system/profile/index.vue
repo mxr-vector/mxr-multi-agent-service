@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { authApi, resolveAvatarUrl } from "@/api/system";
 import { useUserStore } from "@/stores/userStore";
-import StatusTag from "@/components/StatusTag.vue";
+import StatusTag from "@/views/system/_shared/StatusTag.vue";
 
 const userStore = useUserStore();
 

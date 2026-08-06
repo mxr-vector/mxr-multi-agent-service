@@ -2,7 +2,7 @@
 import { computed, type Component } from "vue";
 import * as ElementPlusIconsVue from "@element-plus/icons-vue";
 import { NAV_ICON_ASSET } from "@/router/navigation";
-import SvgIcon from "@/components/SvgIcon.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 
 /**
  * 导航图标：兼容三类 icon 值 —— 静态导航的映射键（NAV_ICON_ASSET）、

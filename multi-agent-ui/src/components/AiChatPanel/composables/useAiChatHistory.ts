@@ -4,8 +4,8 @@ import { AiSessionApi } from "@/api/aichat";
 import type { ChatMessageVO, ChatSessionVO } from "@/api/aichat";
 import { knowledgeBaseApi } from "@/api/rag/knowledgeBase";
 
-import { MSG_STATUS, SESSION_TITLE_ELLIPSIS, SESSION_TITLE_MAX_LEN } from "../constants";
-import type { ChatMessage, ChatSession, KnowledgeOption, MessageStatus } from "../types";
+import { SESSION_TITLE_ELLIPSIS, SESSION_TITLE_MAX_LEN } from "../constants";
+import { MESSAGE_STATUS, type ChatMessage, type ChatSession, type KnowledgeOption, type MessageStatus } from "../types";
 import { formatDate, makeWelcome, normalizeSources } from "../utils/chatMessage";
 
 /** 会话列表单页拉取量（暂不做滚动分页） */
@@ -96,7 +96,7 @@ export function useAiChatHistory(deps: UseAiChatHistoryDeps) {
         hour: "2-digit",
         minute: "2-digit",
       }),
-      status: (isFailed ? MSG_STATUS.ERROR : MSG_STATUS.DONE) as MessageStatus,
+      status: (isFailed ? MESSAGE_STATUS.ERROR : MESSAGE_STATUS.DONE) as MessageStatus,
       ...(m.thinking ? { thinking: m.thinking } : {}),
       ...(sources.length ? { sources } : {}),
     };

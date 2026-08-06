@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import type { RagDocument } from "@/api/rag/document";
 import { resolveFileIcon } from "@/utils/fileIcon";
-import SvgIcon from "@/components/SvgIcon.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 import expiredSoonBadge from "@/assets/images/expiredSoon.svg";
 import expiredBadge from "@/assets/images/expired.svg";
 

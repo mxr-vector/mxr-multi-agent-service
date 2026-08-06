@@ -8,9 +8,9 @@ import { confirmDanger } from "@/utils/confirm";
 import { useUserStore } from "@/stores/userStore";
 import KnowledgeBaseTable from "@/views/rag/knowledgebase/KnowledgeBaseTable.vue";
 import KnowledgeBaseFormDialog from "@/views/rag/knowledgebase/KnowledgeBaseFormDialog.vue";
-import SearchInput from "@/components/SearchInput.vue";
-import Pagination from "@/components/Pagination.vue";
-import DeptTreePanel from "@/components/DeptTreePanel.vue";
+import SearchInput from "@/components/ui/SearchInput.vue";
+import Pagination from "@/components/ui/Pagination.vue";
+import DeptTreePanel from "@/components/shared/dept/DeptTreePanel.vue";
 import type { KnowledgeBaseFormPayload } from "@/views/rag/document/types";
 
 const loading = ref(false);

@@ -4,8 +4,8 @@ import type { ElTree } from "element-plus";
 import type Node from "element-plus/es/components/tree/src/model/node";
 import { knowledgeBaseApi, type KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { folderApi, type Folder } from "@/api/rag/folders";
-import SearchInput from "@/components/SearchInput.vue";
-import SvgIcon from "@/components/SvgIcon.vue";
+import SearchInput from "@/components/ui/SearchInput.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 
 /**
  * 知识库导航树：根节点为知识库列表，展开/点击某个知识库时

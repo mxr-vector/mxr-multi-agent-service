@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { modelConfigApi, type ModelConfig } from "@/api/system/modelConfig";
 import { useDictStore } from "@/stores/dictStore";
-import FormDialog from "@/components/FormDialog.vue";
+import FormDialog from "@/components/ui/FormDialog.vue";
 import ModelCard from "./ModelCard.vue";
 import ScalarParams from "./ScalarParams.vue";
 

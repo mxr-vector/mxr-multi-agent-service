@@ -20,7 +20,12 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 from uuid_utils.compat import uuid7
 
-from agent.constants.enums.chat import ChatMessageStatus, ChatRole, SseEvent
+from agent.constants.enums.chat import (
+    ChatMessageStatus,
+    ChatRole,
+    SseEvent,
+    get_sse_event_names,
+)
 from agent.constants.enums.draw import DrawSourceType
 from agent.prompts.draw import (
     DRAW_REVISE_CONTEXT,
@@ -105,9 +110,14 @@ def extract_mermaid(text: str) -> str | None:
 
 
 def _sse_frame(event_id: int, event: SseEvent, data) -> str:
-    """构造标准 SSE 帧：id / event / data 三字段，data 为 JSON 序列化内容。"""
+    """构造标准 SSE 帧：id / event / data 三字段，data 为 JSON 序列化内容。
+
+    事件名以系统字典 sse_event 为准（lifespan 启动同步缓存），
+    缓存未就绪时回落枚举默认值。
+    """
     payload = json.dumps(data, ensure_ascii=False)
-    return f"id: {event_id}\nevent: {event.value}\ndata: {payload}\n\n"
+    event_name = get_sse_event_names().get(event, event.value)
+    return f"id: {event_id}\nevent: {event_name}\ndata: {payload}\n\n"
 
 
 def _image_to_data_uri(relative_path: str) -> str:

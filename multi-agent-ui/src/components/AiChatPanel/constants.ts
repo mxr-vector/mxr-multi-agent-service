@@ -7,17 +7,9 @@ export const DATE_LABEL_YESTERDAY = "昨天";
 /** 词典类型键：思考强度等级（字典管理页维护，前端不做硬编码回退） */
 export const REASONING_EFFORT_DICT_TYPE = "reasoning_effort";
 
-/** SSE 事件名（对应后端 agent.constants.enums.chat.SseEvent） */
-export const SSE_EVENT = {
-  THINK: "think",
-  ANSWER: "answer",
-  SOURCES: "sources",
-  DONE: "done",
-  ERROR: "error",
-} as const;
+/**
+ * 词典类型键：SSE 事件名（字典管理页维护，value 即事件名；
+ * 事件名映射解析见 api/aichat/ai.ts 的 resolveSseEventMap，缺失时回落协议默认名）
+ */
+export const SSE_EVENT_DICT_TYPE = "sse_event";
 
-export const MSG_STATUS = {
-  DONE: "done",
-  TYPING: "typing",
-  ERROR: "error",
-} as const;

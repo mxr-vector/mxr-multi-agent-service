@@ -4,11 +4,11 @@ import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { configApi, type Config } from "@/api/system/config";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
-import SearchInput from "@/components/SearchInput.vue";
-import Pagination from "@/components/Pagination.vue";
-import ListPageCard from "@/components/ListPageCard.vue";
-import PrimaryButton from "@/components/PrimaryButton.vue";
-import FormDialog from "@/components/FormDialog.vue";
+import SearchInput from "@/components/ui/SearchInput.vue";
+import Pagination from "@/components/ui/Pagination.vue";
+import ListPageCard from "@/views/system/_shared/ListPageCard.vue";
+import PrimaryButton from "@/components/ui/PrimaryButton.vue";
+import FormDialog from "@/components/ui/FormDialog.vue";
 
 const loading = ref(false);
 const list = ref<Config[]>([]);

@@ -1,7 +1,15 @@
 import type { ChatSource } from "@/api/aichat";
 
 export type MessageRole = "user" | "assistant";
-export type MessageStatus = "done" | "typing" | "error";
+
+/** 前端消息展示状态；后端 generating/failed 等协议状态在适配层转换。 */
+export const MESSAGE_STATUS = {
+  DONE: "done",
+  TYPING: "typing",
+  ERROR: "error",
+} as const;
+
+export type MessageStatus = (typeof MESSAGE_STATUS)[keyof typeof MESSAGE_STATUS];
 
 export interface ChatMessage {
   id: string;

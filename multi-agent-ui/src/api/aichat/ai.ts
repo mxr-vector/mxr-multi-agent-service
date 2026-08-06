@@ -1,6 +1,7 @@
 import request, { type ApiResult } from "@/utils/request";
 import { getToken } from "@/utils/auth";
 import type { PageResult } from "@/api/rag";
+import type { DictData } from "@/api/system/dict";
 import { CHAT_URL, SESSION_URL } from "./index";
 
 // ============================================================
@@ -107,6 +108,36 @@ export interface ChatMessageVO {
 /** SSE 事件名（对应后端 SseEvent 枚举） */
 export type ChatSseEventName = "think" | "answer" | "sources" | "done" | "error";
 
+// ============================================================
+// SSE 事件名（字典驱动：单一事实源为系统字典 sse_event）
+// ============================================================
+
+/** SSE 事件协议默认名（与后端 SseEvent 枚举一致；字典缺失/未配置时的兜底） */
+export const SSE_EVENT = {
+  THINK: "think",
+  ANSWER: "answer",
+  SOURCES: "sources",
+  DONE: "done",
+  ERROR: "error",
+} as const;
+
+/** 事件名映射：语义 key 由代码约定，value 以字典 sse_event 的 value 为准 */
+export type SseEventMap = Record<keyof typeof SSE_EVENT, string>;
+
+/**
+ * 由字典项解析事件名映射：按默认名匹配字典项并采用其 value，
+ * 缺失/未启用（dictStore 仅返回 active 项）时回退协议默认名，
+ * 保证词典缺失或事件被禁用时解析不中断。
+ */
+export function resolveSseEventMap(items: DictData[]): SseEventMap {
+  const map: SseEventMap = { ...SSE_EVENT };
+  (Object.keys(map) as (keyof typeof SSE_EVENT)[]).forEach((key) => {
+    const hit = items.find((d) => d.value === SSE_EVENT[key]);
+    if (hit) map[key] = hit.value;
+  });
+  return map;
+}
+
 /** done 帧数据 */
 export interface ChatDonePayload {
   session_id: string;
@@ -142,8 +173,8 @@ export type ChatStreamEventHandler = (event: ChatStreamEvent) => void;
 /** API 基础地址（与 utils/request.ts 的 baseURL 保持一致） */
 const API_BASE_URL: string = import.meta.env.VITE_APP_BASE_API || "";
 
-/** 把 SSE 帧的 event + data(JSON) 解析为类型化事件 */
-function parseSSEBlock(block: string): ChatStreamEvent | null {
+/** 把 SSE 帧的 event + data(JSON) 解析为类型化事件；未知事件安全忽略 */
+function parseSSEBlock(block: string, eventNames: SseEventMap): ChatStreamEvent | null {
   const lines = block.split(/\r?\n/);
   let eventName = "";
   const dataLines: string[] = [];
@@ -168,28 +199,27 @@ function parseSSEBlock(block: string): ChatStreamEvent | null {
     data = null;
   }
 
-  switch (eventName as ChatSseEventName) {
-    case "think": {
-      const payload = (data ?? {}) as { text?: string; session_id?: string };
-      return { event: "think", text: payload.text ?? "", session_id: payload.session_id };
-    }
-    case "answer": {
-      const payload = (data ?? {}) as { delta?: string };
-      return { event: "answer", delta: payload.delta ?? "" };
-    }
-    case "sources":
-      return { event: "sources", sources: Array.isArray(data) ? (data as ChatSource[]) : [] };
-    case "done": {
-      const payload = data as ChatDonePayload;
-      return { event: "done", done: payload, session_id: payload?.session_id };
-    }
-    case "error": {
-      const payload = (data ?? {}) as { msg?: string };
-      return { event: "error", msg: payload.msg ?? "回答生成失败，请稍后重试" };
-    }
-    default:
-      return null;
+  if (eventName === eventNames.THINK) {
+    const payload = (data ?? {}) as { text?: string; session_id?: string };
+    return { event: "think", text: payload.text ?? "", session_id: payload.session_id };
   }
+  if (eventName === eventNames.ANSWER) {
+    const payload = (data ?? {}) as { delta?: string };
+    return { event: "answer", delta: payload.delta ?? "" };
+  }
+  if (eventName === eventNames.SOURCES) {
+    return { event: "sources", sources: Array.isArray(data) ? (data as ChatSource[]) : [] };
+  }
+  if (eventName === eventNames.DONE) {
+    const payload = data as ChatDonePayload;
+    return { event: "done", done: payload, session_id: payload?.session_id };
+  }
+  if (eventName === eventNames.ERROR) {
+    const payload = (data ?? {}) as { msg?: string };
+    return { event: "error", msg: payload.msg ?? "回答生成失败，请稍后重试" };
+  }
+  // 字典新增但代码未实现语义的事件（如 feed 占位）安全忽略
+  return null;
 }
 
 /**
@@ -203,6 +233,7 @@ function parseSSEBlock(block: string): ChatStreamEvent | null {
 async function requestSSE(
   url: string,
   data: ChatCompletionPayload,
+  eventNames: SseEventMap,
   onMessage: ChatStreamEventHandler,
   onError?: (error: Error) => void,
   onComplete?: () => void
@@ -252,7 +283,7 @@ async function requestSSE(
           if (done) {
             const remaining = sseBuffer.trim();
             if (remaining) {
-              const event = parseSSEBlock(remaining);
+              const event = parseSSEBlock(remaining, eventNames);
               if (event) onMessage(event);
             }
             onComplete?.();
@@ -264,7 +295,7 @@ async function requestSSE(
           sseBuffer = blocks.pop() ?? "";
 
           for (const block of blocks) {
-            const event = parseSSEBlock(block);
+            const event = parseSSEBlock(block, eventNames);
             if (event) onMessage(event);
           }
         }
@@ -291,6 +322,7 @@ export const AiChatApi = {
   /**
    * 流式问答（SSE）
    * @param data 问答请求参数
+   * @param eventNames 事件名映射（由字典 sse_event 解析，见 resolveSseEventMap）
    * @param onMessage 收到流式事件时的回调
    * @param onError 发生错误时的回调
    * @param onComplete 流结束时的回调
@@ -298,11 +330,12 @@ export const AiChatApi = {
    */
   chatStream(
     data: ChatCompletionPayload,
+    eventNames: SseEventMap,
     onMessage: ChatStreamEventHandler,
     onError?: (error: Error) => void,
     onComplete?: () => void
   ): Promise<() => void> {
-    return requestSSE(CHAT_URL.completions, data, onMessage, onError, onComplete);
+    return requestSSE(CHAT_URL.completions, data, eventNames, onMessage, onError, onComplete);
   },
 
   /** 停止生成：取消该会话在途生成任务（无在途任务幂等成功） */

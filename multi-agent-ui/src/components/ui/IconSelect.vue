@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from "vue";
 import * as ElementPlusIconsVue from "@element-plus/icons-vue";
-import SvgIcon from "@/components/SvgIcon.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 
 /** 图标选择器：本地 assets/icon 全量 svg + Element Plus 全量默认图标 */
 const model = defineModel<string>({ default: "" });
 
 // 本地图标：懒加载 glob 仅取路径推导基础名，不额外内联文件内容（SvgIcon 已负责渲染）
-const localModules = import.meta.glob("../assets/icon/**/*.svg");
+const localModules = import.meta.glob("../../assets/icon/**/*.svg");
 const localIcons = Object.keys(localModules)
   .map((path) => (path.split("/").pop() ?? "").replace(/\.svg$/i, ""))
   .sort((a, b) => a.localeCompare(b));

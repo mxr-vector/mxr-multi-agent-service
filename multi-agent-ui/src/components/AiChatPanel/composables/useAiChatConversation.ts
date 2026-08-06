@@ -1,9 +1,8 @@
 import { nextTick, type Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { AiChatApi, AiSessionApi } from "@/api/aichat";
-import type { ChatCompletionPayload, ChatStreamEvent } from "@/api/aichat";
-import { MSG_STATUS, SSE_EVENT } from "../constants";
-import type { AiChatEmit, AiChatProps, ChatMessage, MessageStatus } from "../types";
+import type { ChatCompletionPayload, ChatStreamEvent, SseEventMap } from "@/api/aichat";
+import { MESSAGE_STATUS, type AiChatEmit, type AiChatProps, type ChatMessage, type MessageStatus } from "../types";
 import {
   getMessageSourceMarkdown,
   makeWelcome,
@@ -40,6 +39,8 @@ interface UseAiChatConversationDeps {
   responsiveHeight: Ref<number>;
   thinkingExpanded: Map<string, boolean>;
   thinkingTouched: Set<string>;
+  /** SSE 事件名映射（由词典 sse_event 解析，见 useAiChatController.sseEventMap） */
+  sseEventMap: Ref<SseEventMap>;
   loadSessions: () => Promise<void>;
 }
 
@@ -69,6 +70,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     responsiveHeight,
     thinkingExpanded,
     thinkingTouched,
+    sseEventMap,
     loadSessions,
   } = deps;
 
@@ -278,7 +280,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
   ): void {
     flushStreamingBuffer(aiMsg);
     if (options.status) aiMsg.status = options.status;
-    else if (aiMsg.status === MSG_STATUS.TYPING) aiMsg.status = MSG_STATUS.DONE;
+    else if (aiMsg.status === MESSAGE_STATUS.TYPING) aiMsg.status = MESSAGE_STATUS.DONE;
 
     isLoading.value = false;
     stopTimer();
@@ -296,7 +298,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       currentSessionId.value = event.session_id;
     }
 
-    if (event.event === SSE_EVENT.THINK) {
+    if (event.event === sseEventMap.value.THINK) {
       if (event.text) {
         // think 帧为整句进展文本，换行分隔逐条追加
         const buffer = getStreamingBuffer(aiMsg);
@@ -306,24 +308,24 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       return;
     }
 
-    if (event.event === SSE_EVENT.ANSWER) {
+    if (event.event === sseEventMap.value.ANSWER) {
       queueStreamingFlush(aiMsg, "answer", event.delta ?? "");
       return;
     }
 
-    if (event.event === SSE_EVENT.SOURCES) {
+    if (event.event === sseEventMap.value.SOURCES) {
       aiMsg.sources = normalizeSources(event.sources);
       return;
     }
 
-    if (event.event === SSE_EVENT.ERROR) {
+    if (event.event === sseEventMap.value.ERROR) {
       flushStreamingBuffer(aiMsg);
       aiMsg.content = event.msg || "回答生成失败，请稍后重试";
-      finishGeneration(aiMsg, { status: MSG_STATUS.ERROR });
+      finishGeneration(aiMsg, { status: MESSAGE_STATUS.ERROR });
       return;
     }
 
-    if (event.event === SSE_EVENT.DONE) {
+    if (event.event === sseEventMap.value.DONE) {
       // 流紧接着结束，收尾统一由 onComplete 的 finishGeneration 处理；
       // 这里仅预约延迟刷新，等首轮标题摘要异步回填
       if (titleRefreshTimer) clearTimeout(titleRefreshTimer);
@@ -343,7 +345,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       role: "user",
       content,
       time: timeNow(),
-      status: MSG_STATUS.DONE,
+      status: MESSAGE_STATUS.DONE,
     };
     messages.value.push(userMsg);
     inputText.value = "";
@@ -354,7 +356,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       role: "assistant",
       content: "",
       time: timeNow(),
-      status: MSG_STATUS.TYPING,
+      status: MESSAGE_STATUS.TYPING,
       thinking: "",
       sources: [],
     };
@@ -379,14 +381,15 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
 
       const abortFn = await AiChatApi.chatStream(
         reqData,
+        sseEventMap.value,
         (event: ChatStreamEvent) => {
           handleStreamEvent(event, reactiveAiMsg);
         },
         (err: Error) => {
           flushStreamingBuffer(reactiveAiMsg);
           reactiveAiMsg.content = `出错了：${err.message}`;
-          reactiveAiMsg.status = MSG_STATUS.ERROR;
-          finishGeneration(reactiveAiMsg, { status: MSG_STATUS.ERROR });
+          reactiveAiMsg.status = MESSAGE_STATUS.ERROR;
+          finishGeneration(reactiveAiMsg, { status: MESSAGE_STATUS.ERROR });
         },
         () => {
           finishGeneration(reactiveAiMsg, { refreshSessions: true });
@@ -397,8 +400,8 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
       if (err?.name !== "AbortError") {
         flushStreamingBuffer(reactiveAiMsg);
         reactiveAiMsg.content = `出错了：${err?.message ?? "未知错误"}`;
-        reactiveAiMsg.status = MSG_STATUS.ERROR;
-        finishGeneration(reactiveAiMsg, { status: MSG_STATUS.ERROR });
+        reactiveAiMsg.status = MESSAGE_STATUS.ERROR;
+        finishGeneration(reactiveAiMsg, { status: MESSAGE_STATUS.ERROR });
       } else {
         flushStreamingBuffer(reactiveAiMsg);
         finishGeneration(reactiveAiMsg);
@@ -410,7 +413,7 @@ export function useAiChatConversation(deps: UseAiChatConversationDeps) {
     const sessionId = currentSessionId.value;
     const finishLatest = (): void => {
       const latest = messages.value[messages.value.length - 1];
-      if (latest?.role === "assistant" && latest.status === MSG_STATUS.TYPING) {
+      if (latest?.role === "assistant" && latest.status === MESSAGE_STATUS.TYPING) {
         finishGeneration(latest);
       }
     };

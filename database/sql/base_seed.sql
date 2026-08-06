@@ -47,8 +47,14 @@ INSERT INTO sys.sys_dict_data (id,dict_type,"label",value,sort_order,is_default,
 	 ('019fb76b-6c89-7fa2-aa1a-d42e7304d76d'::uuid,'context_window','1M','1000000',0,false,'active',NULL,'2026-07-31 17:04:58.504','2026-07-31 17:21:50.178'),
 	 ('019fd72f-efe4-75c4-a936-f14fc1afd2e1'::uuid,'embedding_provider','cohere','cohere',0,true,'active',NULL,'2026-08-06 21:07:50.861','2026-08-06 21:07:50.861'),
 	 ('019fd730-0e80-7986-9491-e6aafe481daa'::uuid,'embedding_provider','openai','openai',1,false,'active',NULL,'2026-08-06 21:07:58.642','2026-08-06 21:07:58.642'),
-	 ('019fd730-32a1-75c8-9aff-27b5905a0bc4'::uuid,'embedding_provider','dashscope','dashscope',2,false,'active',NULL,'2026-08-06 21:08:07.961','2026-08-06 21:08:07.961');
-
+	 ('019fd730-32a1-75c8-9aff-27b5905a0bc4'::uuid,'embedding_provider','dashscope','dashscope',2,false,'active',NULL,'2026-08-06 21:08:07.961','2026-08-06 21:08:07.961'),
+	 ('019fd758-16cb-7158-aab8-c0782ce7aecd'::uuid,'sse_event','sources','sources',0,false,'active','引用','2026-08-06 21:51:42.262','2026-08-06 21:51:42.262'),
+	 ('019fd758-3ca7-78d2-bbb1-0b13e5520393'::uuid,'sse_event','done','done',0,false,'active','结束','2026-08-06 21:51:51.888','2026-08-06 21:51:51.888'),
+	 ('019fd757-dd27-7653-819f-19c03bfed40a'::uuid,'sse_event','answer','answer',0,false,'active','回复','2026-08-06 21:51:27.516','2026-08-06 21:51:58.637');
+INSERT INTO sys.sys_dict_data (id,dict_type,"label",value,sort_order,is_default,status,remark,created_at,updated_at) VALUES
+	 ('019fd757-b506-7f8f-8787-826083ec4b8d'::uuid,'sse_event','think','think',0,false,'active','思考内容','2026-08-06 21:51:17.071','2026-08-06 21:52:24.121'),
+	 ('019fd758-df5f-7fc8-ad10-66385ad25ff3'::uuid,'sse_event','error','error',0,false,'active','错误','2026-08-06 21:52:33.565','2026-08-06 21:52:33.565'),
+	 ('019fd75a-69ca-7385-b0a8-049f8c538112'::uuid,'sse_event','feed','feed',0,false,'active','追问','2026-08-06 21:54:14.532','2026-08-06 21:54:14.532');
 
 --
 -- TOC entry 5155 (class 0 OID 24864)
@@ -61,8 +67,8 @@ INSERT INTO sys.sys_dict_type (id,"name","type",status,remark,created_at,updated
 	 ('019fa7b3-9a9c-7ed3-aabb-434e923e09c9'::uuid,'进度状态','status','active',NULL,'2026-07-28 15:49:53.435','2026-07-28 15:49:53.435'),
 	 ('019fac75-7289-711f-a290-7ca04cfedfb5'::uuid,'推理等级','reasoning_effort','active',NULL,'2026-07-29 14:00:06.022','2026-07-29 14:00:06.022'),
 	 ('019fb769-bd93-707d-8246-edec3110ab27'::uuid,'模型上下文窗口','context_window','active',NULL,'2026-07-31 17:03:08.176','2026-07-31 17:21:50.180'),
-	 ('019fd72f-7363-7768-8fc9-79e7d2bb291b'::uuid,'嵌入模型协议','embedding_provider','active',NULL,'2026-08-06 21:07:18.399','2026-08-06 21:07:18.399');
-
+	 ('019fd72f-7363-7768-8fc9-79e7d2bb291b'::uuid,'嵌入模型协议','embedding_provider','active',NULL,'2026-08-06 21:07:18.399','2026-08-06 21:07:18.399'),
+	 ('019fd757-6342-7eee-b1f9-2faf833db3d8'::uuid,'SSE事件','sse_event','active',NULL,'2026-08-06 21:50:56.284','2026-08-06 21:50:56.284');
 
 --
 -- TOC entry 5161 (class 0 OID 24985)

@@ -39,12 +39,12 @@
                             </Transition>
                         </div>
                         <div v-if="
-                            msg.content || msg.status === MSG_STATUS.TYPING || msg.status === MSG_STATUS.ERROR
+                            msg.content || msg.status === MESSAGE_STATUS.TYPING || msg.status === MESSAGE_STATUS.ERROR
                         " class="afc-bubble" :class="{
-                            'afc-bubble--error': msg.status === MSG_STATUS.ERROR,
-                            'afc-bubble--typing': msg.status === MSG_STATUS.TYPING && !msg.content,
+                            'afc-bubble--error': msg.status === MESSAGE_STATUS.ERROR,
+                            'afc-bubble--typing': msg.status === MESSAGE_STATUS.TYPING && !msg.content,
                         }">
-                            <span v-if="msg.status === MSG_STATUS.TYPING && !msg.content" class="afc-typing">
+                            <span v-if="msg.status === MESSAGE_STATUS.TYPING && !msg.content" class="afc-typing">
                                 <span />
                                 <span />
                                 <span />
@@ -59,7 +59,7 @@
                         </div>
                         <span class="afc-msg__time">{{ msg.time }}</span>
                         <div class="afc-msg-actions"
-                            v-if="msg.status !== MSG_STATUS.TYPING && msg.id !== messages[0]?.id">
+                            v-if="msg.status !== MESSAGE_STATUS.TYPING && msg.id !== messages[0]?.id">
                             <template v-if="msg.role === 'user'">
                                 <button class="afc-action-btn" @click="emit('copy', msg)"
                                     :title="copiedMessageId === msg.id ? '已复制' : '复制'">
@@ -137,10 +137,9 @@ import { computed, nextTick, onMounted, onUnmounted, shallowRef } from "vue";
 import { MdPreview } from "@/utils/md-editor-v3";
 import { resolveAvatarUrl } from "@/api/system";
 import { useUserStore } from "@/stores/userStore";
-import { MSG_STATUS } from "../constants";
 import type { ChatSource } from "@/api/aichat";
-import type { ChatMessage } from "../types";
-import SvgIcon from "@/components/SvgIcon.vue";
+import { MESSAGE_STATUS, type ChatMessage } from "../types";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 
 defineProps<{
     messages: ChatMessage[];

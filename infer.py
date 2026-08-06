@@ -12,6 +12,7 @@ from agent.checkpoints.postgres import (
     open_checkpointer,
     start_ttl_task,
 )
+from agent.constants.enums.chat import sync_sse_event_dict
 from agent.graph.chat_graph import chat_graph
 from core.config_snapshot import CFG
 from service.rag.chat import reset_stale_generating
@@ -37,6 +38,9 @@ async def lifespan(app: FastAPI):
     await reset_stale_generating()
     # 绘图启动清扫：同上，残留 generating 绘图消息置为 failed
     await reset_stale_draw_generating()
+    # SSE 事件名与字典同步：读取 sse_event 字典构建发帧缓存，缺失枚举项幂等补录
+    # （失败仅告警，发帧回落枚举默认值，不阻断启动）
+    await sync_sse_event_dict()
     # checkpoint TTL：启动执行一次 + 每日循环后台任务（不动业务表）
     try:
         await cleanup_expired_checkpoints()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import SvgIcon from "@/components/SvgIcon.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 import { NAV_ICON_ASSET } from "@/router/navigation";
 
 const router = useRouter();

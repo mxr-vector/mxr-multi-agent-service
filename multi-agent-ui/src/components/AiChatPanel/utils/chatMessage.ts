@@ -1,6 +1,6 @@
 import type { ChatSource } from "@/api/aichat";
-import { DATE_LABEL_TODAY, DATE_LABEL_YESTERDAY, MSG_STATUS, WELCOME_MESSAGE } from "../constants";
-import type { ChatMessage } from "../types";
+import { DATE_LABEL_TODAY, DATE_LABEL_YESTERDAY, WELCOME_MESSAGE } from "../constants";
+import { MESSAGE_STATUS, type ChatMessage } from "../types";
 
 const SOURCE_REF_PATTERN = /(?:\[([0-9０-９]+)\]|【([0-9０-９]+)】)/g;
 const FENCED_CODE_BLOCK_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
@@ -25,7 +25,7 @@ export const formatDate = (ts: number): string => {
 export const makeWelcome = (): ChatMessage => ({
   id: uid(),
   role: "assistant",
-  status: MSG_STATUS.DONE,
+  status: MESSAGE_STATUS.DONE,
   time: timeNow(),
   content: WELCOME_MESSAGE,
 });

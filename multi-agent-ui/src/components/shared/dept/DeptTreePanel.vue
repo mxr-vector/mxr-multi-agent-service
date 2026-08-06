@@ -13,7 +13,7 @@ import {
   type Dept,
   type DeptTreeNode,
 } from "@/api/system/dept";
-import SearchInput from "@/components/SearchInput.vue";
+import SearchInput from "@/components/ui/SearchInput.vue";
 
 withDefaults(
   defineProps<{

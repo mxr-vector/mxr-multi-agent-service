@@ -10,13 +10,13 @@ import {
 } from "@/api/system/menu";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
-import SearchInput from "@/components/SearchInput.vue";
-import IconSelect from "@/components/IconSelect.vue";
-import ListPageCard from "@/components/ListPageCard.vue";
-import PrimaryButton from "@/components/PrimaryButton.vue";
-import FormDialog from "@/components/FormDialog.vue";
-import StatusTag from "@/components/StatusTag.vue";
-import StatusSelect from "@/components/StatusSelect.vue";
+import SearchInput from "@/components/ui/SearchInput.vue";
+import IconSelect from "@/components/ui/IconSelect.vue";
+import ListPageCard from "@/views/system/_shared/ListPageCard.vue";
+import PrimaryButton from "@/components/ui/PrimaryButton.vue";
+import FormDialog from "@/components/ui/FormDialog.vue";
+import StatusTag from "@/views/system/_shared/StatusTag.vue";
+import StatusSelect from "@/views/system/_shared/StatusSelect.vue";
 
 // menu_type 展示配置：dir 目录 / menu 菜单 / button 按钮
 const MENU_TYPE_META: Record<string, { label: string; tag: "primary" | "success" | "info" }> = {

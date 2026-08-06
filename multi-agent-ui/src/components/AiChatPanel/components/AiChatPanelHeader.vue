@@ -61,7 +61,7 @@ import {
   FullScreen,
   ScaleToOriginal,
 } from "@element-plus/icons-vue";
-import SvgIcon from "@/components/SvgIcon.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 defineProps<{
   title: string;
   isLoading: boolean;

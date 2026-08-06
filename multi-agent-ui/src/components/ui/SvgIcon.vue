@@ -17,7 +17,7 @@ const props = withDefaults(
 );
 
 // 一次性加载 assets/icon 下全部 svg 原文（Vite 构建期内联）
-const modules = import.meta.glob("../assets/icon/**/*.svg", {
+const modules = import.meta.glob("../../assets/icon/**/*.svg", {
   query: "?raw",
   import: "default",
   eager: true,

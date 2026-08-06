@@ -3,13 +3,13 @@ import { onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { dictTypeApi, dictDataApi, type DictType, type DictData } from "@/api/system/dict";
 import { confirmDanger } from "@/utils/confirm";
-import SearchInput from "@/components/SearchInput.vue";
-import Pagination from "@/components/Pagination.vue";
-import ListPageCard from "@/components/ListPageCard.vue";
-import PrimaryButton from "@/components/PrimaryButton.vue";
-import StatusTag from "@/components/StatusTag.vue";
-import StatusSelect from "@/components/StatusSelect.vue";
-import FormDialog from "@/components/FormDialog.vue";
+import SearchInput from "@/components/ui/SearchInput.vue";
+import Pagination from "@/components/ui/Pagination.vue";
+import ListPageCard from "@/views/system/_shared/ListPageCard.vue";
+import PrimaryButton from "@/components/ui/PrimaryButton.vue";
+import StatusTag from "@/views/system/_shared/StatusTag.vue";
+import StatusSelect from "@/views/system/_shared/StatusSelect.vue";
+import FormDialog from "@/components/ui/FormDialog.vue";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 
 // ---------- 字典类型（主视图） ----------

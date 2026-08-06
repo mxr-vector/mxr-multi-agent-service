@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { documentApi, type RagDocument, type DocumentUpdatePayload } from "@/api/rag/document";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
@@ -12,11 +12,13 @@ import DocumentDetailDialog from "@/views/rag/document/DocumentDetailDialog.vue"
 import DocumentUploadDialog from "@/views/rag/document/DocumentUploadDialog.vue";
 import FolderFormDialog from "@/views/rag/document/FolderFormDialog.vue";
 import KnowledgeTree from "@/views/rag/document/KnowledgeTree.vue";
-import DeptTreePanel from "@/components/DeptTreePanel.vue";
+import DeptTreePanel from "@/components/shared/dept/DeptTreePanel.vue";
 import type { Dept } from "@/api/system/dept";
-import Pagination from "@/components/Pagination.vue";
-import SvgIcon from "@/components/SvgIcon.vue";
+import Pagination from "@/components/ui/Pagination.vue";
+import SvgIcon from "@/components/ui/SvgIcon.vue";
 import type { FolderFormPayload, DocumentUploadFormPayload } from "@/views/rag/document/types";
+import { useDocumentFilters } from "./composables/useDocumentFilters";
+import { useFolderNavigation } from "./composables/useFolderNavigation";
 
 // —— 顶部同步状态图例（与 DocumentCard 圆点保持一致）——
 const syncLegend = [
@@ -76,122 +78,23 @@ const allDocuments = ref<RagDocument[]>([]);
 const activeKb = ref<KnowledgeBase | null>(null);
 const folders = ref<Folder[]>([]);
 
-const knowledgeTreeRef = ref<InstanceType<typeof KnowledgeTree>>();
-const selectedFolderId = ref<string | null>(null);
-
-// —— 文件夹导航：前进/后退历史 + 面包屑 ——
-const history = ref<(string | null)[]>([null]);
-const histIndex = ref(0);
-const canBack = computed(() => histIndex.value > 0);
-const canForward = computed(() => histIndex.value < history.value.length - 1);
-
-function selectFolder(id: string | null, pushHistory = true) {
-  selectedFolderId.value = id;
-  page.value = 1;
-  if (pushHistory) {
-    history.value = history.value.slice(0, histIndex.value + 1);
-    history.value.push(id);
-    histIndex.value = history.value.length - 1;
-  }
-  // 根目录时高亮回知识库节点本身
-  nextTick(() => knowledgeTreeRef.value?.setCurrentKey(id ?? activeKb.value?.id ?? null));
-}
-function goBack() {
-  if (!canBack.value) return;
-  histIndex.value -= 1;
-  selectFolder(history.value[histIndex.value], false);
-}
-function goForward() {
-  if (!canForward.value) return;
-  histIndex.value += 1;
-  selectFolder(history.value[histIndex.value], false);
-}
-function goUp() {
-  const cur = folders.value.find((f) => f.id === selectedFolderId.value);
-  selectFolder(cur?.parent_id ?? null);
-}
-// 知识库切换时重置文件夹导航：选中态、前进/后退历史与面包屑回到根目录
-function resetFolderNav() {
-  selectedFolderId.value = null;
-  history.value = [null];
-  histIndex.value = 0;
-}
-
-// 面包屑：知识库（根） → …祖先链 → 当前文件夹
-const breadcrumb = computed(() => {
-  const path: { id: string | null; name: string }[] = [
-    { id: null, name: activeKb.value?.name ?? "根目录" },
-  ];
-  if (selectedFolderId.value) {
-    const byId = new Map(folders.value.map((f) => [f.id, f]));
-    const chain: Folder[] = [];
-    let cur = byId.get(selectedFolderId.value);
-    while (cur) {
-      chain.unshift(cur);
-      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-    }
-    for (const c of chain) path.push({ id: c.id, name: c.name });
-  }
-  return path;
-});
-
-// —— 筛选表单：草稿（编辑中）与已应用（生效）分离，点击「搜索」才提交 ——
-type FilterState = {
-  keyword: string;
-  dateRange: [string, string] | null;
-  tableType: "" | "yes" | "no";
-  remark: string;
-};
-function emptyFilter(): FilterState {
-  return { keyword: "", dateRange: null, tableType: "", remark: "" };
-}
-const draft = reactive<FilterState>(emptyFilter());
-const applied = reactive<FilterState>(emptyFilter());
-const tableTypeOptions = [
-  { label: "全部", value: "" },
-  { label: "是", value: "yes" },
-  { label: "否", value: "no" },
-];
-// 表格类判定：doc_type 命中电子表格类扩展视为「表格类」
-const SPREADSHEET = new Set(["excel", "xlsx", "xls"]);
-function isSpreadsheet(doc: RagDocument) {
-  return SPREADSHEET.has((doc.doc_type ?? "").toLowerCase());
-}
-
-// —— 分页（本视图为客户端分页：后端 list 仅支持按知识库分页，
-//     文件夹/多字段筛选在前端对当前知识库全量数据上完成）——
+// 本视图使用客户端分页：文件夹和多字段筛选基于当前知识库全量数据完成。
 const page = ref(1);
 const size = ref(12);
-
-// 过滤链：文件夹 → 手册名称 → 生效时间 → 表格类 → 备注
-const filteredDocuments = computed(() => {
-  const kw = applied.keyword.trim().toLowerCase();
-  const remark = applied.remark.trim().toLowerCase();
-  const [from, to] = applied.dateRange ?? [null, null];
-  return allDocuments.value.filter((doc) => {
-    if (selectedFolderId.value && doc.folder_id !== selectedFolderId.value) return false;
-    if (kw) {
-      const name = (doc.title || doc.source_uri || "").toLowerCase();
-      if (!name.includes(kw)) return false;
-    }
-    if (applied.tableType === "yes" && !isSpreadsheet(doc)) return false;
-    if (applied.tableType === "no" && isSpreadsheet(doc)) return false;
-    if (from && to && doc.valid_from) {
-      const t = doc.valid_from.slice(0, 10);
-      if (t < from.slice(0, 10) || t > to.slice(0, 10)) return false;
-    }
-    if (remark) {
-      const r = String(doc.metadata?.remark ?? "").toLowerCase();
-      if (!r.includes(remark)) return false;
-    }
-    return true;
-  });
-});
-const total = computed(() => filteredDocuments.value.length);
-const pagedDocuments = computed(() => {
-  const start = (page.value - 1) * size.value;
-  return filteredDocuments.value.slice(start, start + size.value);
-});
+const knowledgeTreeRef = ref<InstanceType<typeof KnowledgeTree>>();
+const {
+  selectedFolderId,
+  canBack,
+  canForward,
+  breadcrumb,
+  selectFolder,
+  goBack,
+  goForward,
+  goUp,
+  reset: resetFolderNav,
+} = useFolderNavigation(activeKb, folders, knowledgeTreeRef, page);
+const { draft, tableTypeOptions, total, pagedDocuments, apply, reset } =
+  useDocumentFilters(allDocuments, selectedFolderId, page, size);
 
 // —— 加载 ——
 // 未选择知识库时禁用新建文件/文件夹等操作
@@ -252,13 +155,10 @@ function onTreeCleared() {
 
 // 搜索：提交草稿并回到第 1 页（知识库切换已由左侧树承担）
 function applySearch() {
-  Object.assign(applied, draft);
-  page.value = 1;
+  apply();
 }
 function resetFilters() {
-  Object.assign(draft, emptyFilter());
-  Object.assign(applied, emptyFilter());
-  page.value = 1;
+  reset();
 }
 
 // —— 新建文件（上传文档）——
