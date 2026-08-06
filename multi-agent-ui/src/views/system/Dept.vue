@@ -11,11 +11,11 @@ import {
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
-import ListPageCard from "@/components/system/ListPageCard.vue";
-import PrimaryButton from "@/components/system/PrimaryButton.vue";
-import FormDialog from "@/components/system/FormDialog.vue";
-import StatusTag from "@/components/system/StatusTag.vue";
-import StatusSelect from "@/components/system/StatusSelect.vue";
+import ListPageCard from "@/components/ListPageCard.vue";
+import PrimaryButton from "@/components/PrimaryButton.vue";
+import FormDialog from "@/components/FormDialog.vue";
+import StatusTag from "@/components/StatusTag.vue";
+import StatusSelect from "@/components/StatusSelect.vue";
 
 const loading = ref(false);
 // 后端返回扁平列表，树由前端组装

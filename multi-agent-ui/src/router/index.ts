@@ -36,7 +36,6 @@ for (const [file, loader] of Object.entries(pageModules)) {
 // 无法由文件路径自然推导的历史组件键别名（后端菜单仍在使用）
 const viewAliases: Record<string, string> = {
   agent: "agents", // 后端菜单写作单数，目录为复数 agents
-  document: "rag-ducument", // 文件名拼写为 Ducument.vue，后端键为 document
 };
 
 for (const [alias, target] of Object.entries(viewAliases)) {

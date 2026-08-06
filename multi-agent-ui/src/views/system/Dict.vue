@@ -5,11 +5,11 @@ import { dictTypeApi, dictDataApi, type DictType, type DictData } from "@/api/sy
 import { confirmDanger } from "@/utils/confirm";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
-import ListPageCard from "@/components/system/ListPageCard.vue";
-import PrimaryButton from "@/components/system/PrimaryButton.vue";
-import StatusTag from "@/components/system/StatusTag.vue";
-import StatusSelect from "@/components/system/StatusSelect.vue";
-import FormDialog from "@/components/system/FormDialog.vue";
+import ListPageCard from "@/components/ListPageCard.vue";
+import PrimaryButton from "@/components/PrimaryButton.vue";
+import StatusTag from "@/components/StatusTag.vue";
+import StatusSelect from "@/components/StatusSelect.vue";
+import FormDialog from "@/components/FormDialog.vue";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 
 // ---------- 字典类型（主视图） ----------

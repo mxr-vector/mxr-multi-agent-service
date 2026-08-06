@@ -6,17 +6,17 @@ import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { folderApi, type Folder } from "@/api/rag/folders";
 import { confirmDanger } from "@/utils/confirm";
 import { useUserStore } from "@/stores/userStore";
-import DocumentCard from "@/components/rag/DocumentCard.vue";
-import DocumentChunkTree from "@/components/rag/DocumentChunkTree.vue";
-import DocumentDetailDialog from "@/components/rag/DocumentDetailDialog.vue";
-import DocumentUploadDialog from "@/components/rag/DocumentUploadDialog.vue";
-import FolderFormDialog from "@/components/rag/FolderFormDialog.vue";
-import KnowledgeTree from "@/components/rag/KnowledgeTree.vue";
+import DocumentCard from "@/views/rag/document/DocumentCard.vue";
+import DocumentChunkTree from "@/views/rag/document/DocumentChunkTree.vue";
+import DocumentDetailDialog from "@/views/rag/document/DocumentDetailDialog.vue";
+import DocumentUploadDialog from "@/views/rag/document/DocumentUploadDialog.vue";
+import FolderFormDialog from "@/views/rag/document/FolderFormDialog.vue";
+import KnowledgeTree from "@/views/rag/document/KnowledgeTree.vue";
 import DeptTreePanel from "@/components/DeptTreePanel.vue";
 import type { Dept } from "@/api/system/dept";
 import Pagination from "@/components/Pagination.vue";
 import SvgIcon from "@/components/SvgIcon.vue";
-import type { FolderFormPayload, DocumentUploadFormPayload } from "@/components/rag/types";
+import type { FolderFormPayload, DocumentUploadFormPayload } from "@/views/rag/document/types";
 
 // —— 顶部同步状态图例（与 DocumentCard 圆点保持一致）——
 const syncLegend = [

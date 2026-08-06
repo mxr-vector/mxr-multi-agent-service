@@ -9,11 +9,11 @@ import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
 import DeptTreePanel from "@/components/DeptTreePanel.vue";
-import ListPageCard from "@/components/system/ListPageCard.vue";
-import PrimaryButton from "@/components/system/PrimaryButton.vue";
-import FormDialog from "@/components/system/FormDialog.vue";
-import StatusTag from "@/components/system/StatusTag.vue";
-import StatusSelect from "@/components/system/StatusSelect.vue";
+import ListPageCard from "@/components/ListPageCard.vue";
+import PrimaryButton from "@/components/PrimaryButton.vue";
+import FormDialog from "@/components/FormDialog.vue";
+import StatusTag from "@/components/StatusTag.vue";
+import StatusSelect from "@/components/StatusSelect.vue";
 
 const loading = ref(false);
 const list = ref<User[]>([]);

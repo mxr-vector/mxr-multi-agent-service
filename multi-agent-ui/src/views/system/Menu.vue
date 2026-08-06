@@ -12,11 +12,11 @@ import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
 import IconSelect from "@/components/IconSelect.vue";
-import ListPageCard from "@/components/system/ListPageCard.vue";
-import PrimaryButton from "@/components/system/PrimaryButton.vue";
-import FormDialog from "@/components/system/FormDialog.vue";
-import StatusTag from "@/components/system/StatusTag.vue";
-import StatusSelect from "@/components/system/StatusSelect.vue";
+import ListPageCard from "@/components/ListPageCard.vue";
+import PrimaryButton from "@/components/PrimaryButton.vue";
+import FormDialog from "@/components/FormDialog.vue";
+import StatusTag from "@/components/StatusTag.vue";
+import StatusSelect from "@/components/StatusSelect.vue";
 
 // menu_type 展示配置：dir 目录 / menu 菜单 / button 按钮
 const MENU_TYPE_META: Record<string, { label: string; tag: "primary" | "success" | "info" }> = {

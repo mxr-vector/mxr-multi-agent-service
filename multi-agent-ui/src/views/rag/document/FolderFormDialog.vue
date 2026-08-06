@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { Folder } from "@/api/rag/folders";
 import { buildFolderTree, collectSubtreeIds } from "@/api/rag/folders";
-import type { FolderFormPayload } from "@/components/rag/types";
+import type { FolderFormPayload } from "@/views/rag/document/types";
 
 const props = defineProps<{
   visible: boolean;

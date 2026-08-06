@@ -63,21 +63,23 @@ INSERT INTO sys.sys_dict_type VALUES ('019fb769-bd93-707d-8246-edec3110ab27', '�
 -- Data for Name: sys_menu; Type: TABLE DATA; Schema: sys; Owner: postgres
 --
 
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000002', '01900000-0000-7000-8000-000000000001', 'menu', 'system-user', '/system/user', 'system-user', '用户管理', 'user', NULL, true, 1, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 13:30:44.428008+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000003', '01900000-0000-7000-8000-000000000001', 'menu', 'system-role', '/system/role', 'system-role', '角色管理', 'role', NULL, true, 2, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 13:30:44.428008+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000004', '01900000-0000-7000-8000-000000000001', 'menu', 'system-dept', '/system/dept', 'system-dept', '部门管理', 'dept', NULL, true, 3, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 13:30:44.428008+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000005', '01900000-0000-7000-8000-000000000001', 'menu', 'system-menu', '/system/menu', 'system-menu', '菜单管理', 'menu', NULL, true, 4, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 13:30:44.428008+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000006', '01900000-0000-7000-8000-000000000001', 'menu', 'system-dict', '/system/dict', 'system-dict', '字典管理', 'dict', NULL, true, 5, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 13:30:44.428008+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000007', '01900000-0000-7000-8000-000000000001', 'menu', 'system-config', '/system/config', 'system-config', '参数管理', 'config', NULL, true, 6, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 13:30:44.428008+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000001', NULL, 'dir', 'system', '/system', NULL, '系统管理', 'settings', NULL, true, 0, 'active', '2026-07-27 13:30:44.428008+08', '2026-07-27 15:55:59.920293+08');
-INSERT INTO sys.sys_menu VALUES ('019fa2b3-6a3f-73f0-bc5a-7adb54c3cf56', '019fa292-b518-785e-9422-262b2239df5b', 'menu', 'document', '/rag/document', 'document', '文档管理', 'List', NULL, true, 1, 'active', '2026-07-27 16:31:34.972524+08', '2026-07-27 16:31:34.972524+08');
-INSERT INTO sys.sys_menu VALUES ('019fa2b2-144f-7b3d-9764-178f22b49ae5', '019fa292-b518-785e-9422-262b2239df5b', 'menu', 'knowledge-base', '/rag/KnowledgeBase', 'KnowledgeBase', 'AI知识库管理', 'Management', NULL, true, 0, 'active', '2026-07-27 16:30:07.436885+08', '2026-07-27 16:31:56.427309+08');
-INSERT INTO sys.sys_menu VALUES ('019fa2bd-1633-7227-9b62-33848c740ca0', NULL, 'dir', NULL, '/agents', NULL, '智能体', '智能优化', NULL, true, 1, 'active', '2026-07-27 16:42:08.818006+08', '2026-07-27 17:17:05.654201+08');
-INSERT INTO sys.sys_menu VALUES ('019fa292-b518-785e-9422-262b2239df5b', NULL, 'dir', NULL, '/rag', NULL, 'RAG系统', 'touzijihuaguanli', NULL, true, 2, 'active', '2026-07-27 15:55:51.447521+08', '2026-07-27 17:17:16.234366+08');
-INSERT INTO sys.sys_menu VALUES ('019fa2bc-83fe-7016-a522-505abbdaf2f4', NULL, 'dir', NULL, '/script', NULL, '剧本生成', 'rizhiguanli', NULL, true, 4, 'active', '2026-07-27 16:41:31.389499+08', '2026-07-27 17:17:25.528507+08');
-INSERT INTO sys.sys_menu VALUES ('019fa2c4-50f2-7b8a-b703-94abbe1b4f31', NULL, 'dir', NULL, '/draw-design', NULL, '绘制设计', 'bangongyongpinguanli', NULL, true, 3, 'active', '2026-07-27 16:50:02.610325+08', '2026-07-30 15:36:20.128489+08');
-INSERT INTO sys.sys_menu VALUES ('01900000-0000-7000-8000-000000000008', '019fa2c4-50f2-7b8a-b703-94abbe1b4f31', 'menu', 'draw', '/draw-design/draw', 'draw', 'AI 绘图', 'workflow', NULL, true, 30, 'active', '2026-07-30 15:28:53.757799+08', '2026-07-30 16:13:47.702139+08');
-INSERT INTO sys.sys_menu VALUES ('019fb5b4-95df-77b1-b163-3ab3d460d9e6', '01900000-0000-7000-8000-000000000001', 'menu', 'model-cfg', '/system/model-cfg', 'system-model', '模型管理', 'Cpu', NULL, true, 0, 'active', '2026-07-31 09:05:38.778801+08', '2026-07-31 10:22:43.617695+08');
+INSERT INTO sys.sys_menu (id,parent_id,menu_type,"name","path",component,"label",icon,perms,visible,sort_order,status,created_at,updated_at) VALUES
+	 ('01900000-0000-7000-8000-000000000002'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','system-user','/system/user','system-user','用户管理','user',NULL,true,1,'active','2026-07-27 13:30:44.428','2026-07-27 13:30:44.428'),
+	 ('01900000-0000-7000-8000-000000000003'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','system-role','/system/role','system-role','角色管理','role',NULL,true,2,'active','2026-07-27 13:30:44.428','2026-07-27 13:30:44.428'),
+	 ('01900000-0000-7000-8000-000000000004'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','system-dept','/system/dept','system-dept','部门管理','dept',NULL,true,3,'active','2026-07-27 13:30:44.428','2026-07-27 13:30:44.428'),
+	 ('01900000-0000-7000-8000-000000000005'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','system-menu','/system/menu','system-menu','菜单管理','menu',NULL,true,4,'active','2026-07-27 13:30:44.428','2026-07-27 13:30:44.428'),
+	 ('01900000-0000-7000-8000-000000000006'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','system-dict','/system/dict','system-dict','字典管理','dict',NULL,true,5,'active','2026-07-27 13:30:44.428','2026-07-27 13:30:44.428'),
+	 ('01900000-0000-7000-8000-000000000007'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','system-config','/system/config','system-config','参数管理','config',NULL,true,6,'active','2026-07-27 13:30:44.428','2026-07-27 13:30:44.428'),
+	 ('01900000-0000-7000-8000-000000000001'::uuid,NULL,'dir','system','/system',NULL,'系统管理','settings',NULL,true,0,'active','2026-07-27 13:30:44.428','2026-07-27 15:55:59.920'),
+	 ('019fa2bd-1633-7227-9b62-33848c740ca0'::uuid,NULL,'dir',NULL,'/agents',NULL,'智能体','智能优化',NULL,true,1,'active','2026-07-27 16:42:08.818','2026-07-27 17:17:05.654'),
+	 ('019fa292-b518-785e-9422-262b2239df5b'::uuid,NULL,'dir',NULL,'/rag',NULL,'RAG系统','touzijihuaguanli',NULL,true,2,'active','2026-07-27 15:55:51.447','2026-07-27 17:17:16.234'),
+	 ('019fa2bc-83fe-7016-a522-505abbdaf2f4'::uuid,NULL,'dir',NULL,'/script',NULL,'剧本生成','rizhiguanli',NULL,true,4,'active','2026-07-27 16:41:31.389','2026-07-27 17:17:25.528');
+INSERT INTO sys.sys_menu (id,parent_id,menu_type,"name","path",component,"label",icon,perms,visible,sort_order,status,created_at,updated_at) VALUES
+	 ('019fa2c4-50f2-7b8a-b703-94abbe1b4f31'::uuid,NULL,'dir',NULL,'/draw-design',NULL,'绘制设计','bangongyongpinguanli',NULL,true,3,'active','2026-07-27 16:50:02.610','2026-07-30 15:36:20.128'),
+	 ('01900000-0000-7000-8000-000000000008'::uuid,'019fa2c4-50f2-7b8a-b703-94abbe1b4f31'::uuid,'menu','draw','/draw-design/draw','draw','AI 绘图','workflow',NULL,true,30,'active','2026-07-30 15:28:53.757','2026-07-30 16:13:47.702'),
+	 ('019fb5b4-95df-77b1-b163-3ab3d460d9e6'::uuid,'01900000-0000-7000-8000-000000000001'::uuid,'menu','model-cfg','/system/model-cfg','system-model','模型管理','Cpu',NULL,true,0,'active','2026-07-31 09:05:38.778','2026-07-31 10:22:43.617'),
+	 ('019fa2b2-144f-7b3d-9764-178f22b49ae5'::uuid,'019fa292-b518-785e-9422-262b2239df5b'::uuid,'menu','knowledge-base','/rag/knowledgebase/index','KnowledgeBase','AI知识库管理','Management',NULL,true,0,'active','2026-07-27 16:30:07.436','2026-08-06 20:52:10.095'),
+	 ('019fa2b3-6a3f-73f0-bc5a-7adb54c3cf56'::uuid,'019fa292-b518-785e-9422-262b2239df5b'::uuid,'menu','document','/rag/document/index','document','文档管理','List',NULL,true,1,'active','2026-07-27 16:31:34.972','2026-08-06 20:52:16.721');
 
 
 --

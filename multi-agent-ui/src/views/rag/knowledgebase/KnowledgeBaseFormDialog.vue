@@ -4,7 +4,7 @@ import type { FormInstance, FormRules } from "element-plus";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { buildDeptTree, type Dept } from "@/api/system/dept";
 import { useDictStore } from "@/stores/dictStore";
-import type { KnowledgeBaseFormPayload } from "@/components/rag/types";
+import type { KnowledgeBaseFormPayload } from "@/views/rag/document/types";
 
 const props = withDefaults(
   defineProps<{

@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { buildFolderTree, type Folder } from "@/api/rag/folders";
-import type { DocumentUploadFormPayload } from "@/components/rag/types";
+import type { DocumentUploadFormPayload } from "@/views/rag/document/types";
 
 const props = defineProps<{
   visible: boolean;

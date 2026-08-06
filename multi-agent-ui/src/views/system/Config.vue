@@ -6,9 +6,9 @@ import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
-import ListPageCard from "@/components/system/ListPageCard.vue";
-import PrimaryButton from "@/components/system/PrimaryButton.vue";
-import FormDialog from "@/components/system/FormDialog.vue";
+import ListPageCard from "@/components/ListPageCard.vue";
+import PrimaryButton from "@/components/PrimaryButton.vue";
+import FormDialog from "@/components/FormDialog.vue";
 
 const loading = ref(false);
 const list = ref<Config[]>([]);

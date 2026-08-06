@@ -6,12 +6,12 @@ import { statsApi, type RagStats } from "@/api/rag/stats";
 import type { Dept } from "@/api/system/dept";
 import { confirmDanger } from "@/utils/confirm";
 import { useUserStore } from "@/stores/userStore";
-import KnowledgeBaseTable from "@/components/rag/KnowledgeBaseTable.vue";
-import KnowledgeBaseFormDialog from "@/components/rag/KnowledgeBaseFormDialog.vue";
+import KnowledgeBaseTable from "@/views/rag/knowledgebase/KnowledgeBaseTable.vue";
+import KnowledgeBaseFormDialog from "@/views/rag/knowledgebase/KnowledgeBaseFormDialog.vue";
 import SearchInput from "@/components/SearchInput.vue";
 import Pagination from "@/components/Pagination.vue";
 import DeptTreePanel from "@/components/DeptTreePanel.vue";
-import type { KnowledgeBaseFormPayload } from "@/components/rag/types";
+import type { KnowledgeBaseFormPayload } from "@/views/rag/document/types";
 
 const loading = ref(false);
 const knowledgeBases = ref<KnowledgeBase[]>([]);
