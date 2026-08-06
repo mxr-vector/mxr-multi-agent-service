@@ -8,6 +8,7 @@ dataset01 评测共享设施：路径常量、配置引导、数据集加载/聚
 """
 
 import hashlib
+import math
 import random
 import statistics
 import sys
@@ -238,20 +239,20 @@ def save_json(path, data: Any) -> None:
 
 # ---- 指标计算 ---------------------------------------------------------------
 def _dedupe_ranked(ranked: list[dict], mode: str) -> list[dict]:
-    """文档级口径按 document_id 去重（保留首次出现顺序）。
+    """按口径去重（保留首次出现顺序）。
 
-    chunk 级 point_id 天然唯一无需去重；doc 级若不去重，同一文档的多个叶块
-    会重复计入命中，导致 Recall 可超 1。
+    - chunk 级：按 point_id 去重（防御性；当前 Qdrant 候选天然唯一）
+    - doc 级：按 document_id 去重（同一文档的多个叶块重复计入会使 Recall 超 1）
+    无法归属的候选（id 为 None）跳过，避免占用排名位置；比较统一走 str。
     """
-    if mode != "doc":
-        return ranked
+    key_attr = "point_id" if mode != "doc" else "document_id"
     seen: set = set()
     out: list[dict] = []
     for cand in ranked:
-        did = cand.get("document_id")
-        if did is None or did in seen:
+        hid = cand.get(key_attr)
+        if hid is None or str(hid) in seen:
             continue
-        seen.add(did)
+        seen.add(str(hid))
         out.append(cand)
     return out
 
@@ -281,30 +282,34 @@ def compute_metrics(
     ks: Iterable[int],
     mode: str = "chunk",
 ) -> dict | None:
-    """单条 query 的 Recall@K / Precision@K / MRR；gold 为空返回 None。
+    """单条 query 的 Recall@K / Precision@K / NDCG@K / MRR；gold 为空返回 None。
 
-    返回 {k: {"recall": r, "precision": p}, "mrr": m, "first_hit_rank": rank|None}；
-    Precision 分母恒为 K（候选不足 K 时按实际命中数 / K）。
+    返回 {k: {"recall": r, "precision": p, "ndcg": n}, "mrr": m,
+          "first_hit_rank": rank|None}；
+    Precision 分母恒为 K（候选不足 K 时按实际命中数 / K）；
+    NDCG 为二值相关性标准式（DCG/IDCG，IDCG 按 min(|gold|, K) 截断）。
     """
     gold_list = [g for g in gold if g]
     if not gold_list:
         return None
     gold_set = set(gold_list)
-    ranked = _dedupe_ranked(ranked, mode)
-    positions = hit_positions(ranked, gold_set, mode)
+    positions = hit_positions(ranked, gold_set, mode)  # 内部已按口径去重
     first = positions[0] if positions else None
     out: dict = {"mrr": (1.0 / first) if first else 0.0, "first_hit_rank": first}
     for k in ks:
-        topk = ranked[:k]
-        hits = sum(
-            1
-            for cand in topk
-            if (cand.get("point_id") if mode == "chunk" else cand.get("document_id"))
-            in gold_set
+        k = int(k)
+        if k <= 0:
+            out[k] = {"recall": 0.0, "precision": 0.0, "ndcg": 0.0}
+            continue
+        hits_topk = sum(1 for p in positions if p <= k)
+        dcg = sum(1.0 / math.log2(p + 1) for p in positions if p <= k)
+        idcg = sum(
+            1.0 / math.log2(i + 1) for i in range(1, min(len(gold_set), k) + 1)
         )
-        out[int(k)] = {
-            "recall": hits / len(gold_set),
-            "precision": hits / int(k) if int(k) > 0 else 0.0,
+        out[k] = {
+            "recall": hits_topk / len(gold_set),
+            "precision": hits_topk / k,
+            "ndcg": dcg / idcg,
         }
     return out
 

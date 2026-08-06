@@ -1,5 +1,5 @@
 """
-S4 指标计算与报告：从 eval_results.json 汇总 Recall@K / Precision@K / MRR，
+S4 指标计算与报告：从 eval_results.json 汇总 Recall@K / Precision@K / NDCG@K / MRR，
 输出 results/report.md（指标对比表 + K 曲线 + 失败案例抽样）。
 
 - 双口径（严格 chunk 级 / 宽松文档级） × 双管线（纯检索 A / 完整子图 B）
@@ -36,7 +36,8 @@ def _collect_metrics(results: list[dict], ks: list[int]) -> dict:
     按口径 × 管线收集每 query 指标。
 
     返回 {(mode, pipeline): {"recall": {k: [per-query]}, "precision": {k: [...]},
-                             "mrr": [...], "valid": n, "skipped_gold_empty": n}}
+                             "ndcg": {k: [...]}, "mrr": [...],
+                             "valid": n, "skipped_gold_empty": n}}
     mode: 'chunk'（严格）/ 'doc'（宽松）；pipeline: 'a' / 'b'
     """
     from common import compute_metrics
@@ -47,6 +48,7 @@ def _collect_metrics(results: list[dict], ks: list[int]) -> dict:
             acc[(mode, pipeline)] = {
                 "recall": {k: [] for k in ks},
                 "precision": {k: [] for k in ks},
+                "ndcg": {k: [] for k in ks},
                 "mrr": [],
                 "valid": 0,
                 "skipped_gold_empty": 0,
@@ -72,6 +74,7 @@ def _collect_metrics(results: list[dict], ks: list[int]) -> dict:
                 for k in ks:
                     entry["recall"][k].append(metrics[k]["recall"])
                     entry["precision"][k].append(metrics[k]["precision"])
+                    entry["ndcg"][k].append(metrics[k]["ndcg"])
     return acc
 
 
@@ -84,23 +87,28 @@ def _fmt(value: tuple[float, float] | None) -> str:
 
 
 def _metric_table(acc: dict, mode: str, ks: list[int], pipeline_b_enabled: bool) -> str:
-    """单口径指标对比表：行 = K，列 = 双管线 Recall/Precision + 增量，末行 MRR。"""
+    """单口径指标对比表：行 = K，列 = 双管线 Recall/Precision/NDCG + 增量，末行 MRR。"""
     lines = [
-        "| K | Recall@K (A) | Recall@K (B) | Δ Recall | Precision@K (A) | Precision@K (B) | Δ Precision |",
-        "|---|---|---|---|---|---|---|",
+        "| K | Recall@K (A) | Recall@K (B) | Δ Recall | Precision@K (A) | Precision@K (B) | Δ Precision | NDCG@K (A) | NDCG@K (B) | Δ NDCG |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for k in ks:
         ra = _fmt(mean_std(acc[(mode, "a")]["recall"][k]))
         rb = _fmt(mean_std(acc[(mode, "b")]["recall"][k])) if pipeline_b_enabled else "—"
         pa = _fmt(mean_std(acc[(mode, "a")]["precision"][k]))
         pb = _fmt(mean_std(acc[(mode, "b")]["precision"][k])) if pipeline_b_enabled else "—"
+        na = _fmt(mean_std(acc[(mode, "a")]["ndcg"][k]))
+        nb = _fmt(mean_std(acc[(mode, "b")]["ndcg"][k])) if pipeline_b_enabled else "—"
         delta_r = _delta(acc, mode, "recall", k, pipeline_b_enabled)
         delta_p = _delta(acc, mode, "precision", k, pipeline_b_enabled)
-        lines.append(f"| {k} | {ra} | {rb} | {delta_r} | {pa} | {pb} | {delta_p} |")
+        delta_n = _delta(acc, mode, "ndcg", k, pipeline_b_enabled)
+        lines.append(
+            f"| {k} | {ra} | {rb} | {delta_r} | {pa} | {pb} | {delta_p} | {na} | {nb} | {delta_n} |"
+        )
     mrr_a = _fmt(mean_std(acc[(mode, "a")]["mrr"]))
     mrr_b = _fmt(mean_std(acc[(mode, "b")]["mrr"])) if pipeline_b_enabled else "—"
     delta_mrr = _delta(acc, mode, "mrr", None, pipeline_b_enabled)
-    lines.append(f"| MRR | {mrr_a} | {mrr_b} | {delta_mrr} | — | — | — |")
+    lines.append(f"| MRR | {mrr_a} | {mrr_b} | {delta_mrr} | — | — | — | — | — | — |")
     return "\n".join(lines)
 
 
@@ -217,7 +225,7 @@ async def report(max_queries: int | None) -> None:
         + (f" / {acc[('doc', 'b')]['valid']}（B）" if pipeline_b_enabled else "")
     )
     lines.append("")
-    lines.append("> 注：Δ 列为完整子图（B）相对纯检索（A）的 mean 增量；K 曲线即上表 Recall@K 随 K 的变化。")
+    lines.append("> 注：Δ 列为完整子图（B）相对纯检索（A）的 mean 增量；NDCG 为二值相关性标准式（DCG/IDCG）；K 曲线即上表 Recall@K 随 K 的变化。")
     lines.append("")
 
     lines.append("## 失败案例抽样（MRR=0 且 gold 非空，每口径 3 条）")
