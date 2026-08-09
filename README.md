@@ -181,11 +181,15 @@ vllm serve ./models/chat/Qwen3.5-2B \
 
 # 四.基准测试
 
-|测试集|Recall@K(召回率)|Precision@K(准确率)|MRR(算术平均首位度)|
-|--|--|--|--|
-|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|0.847（宽松@10，jieba+rerank 生产配置）|0.722（严格@1，jieba+rerank 生产配置）|0.808（宽松，jieba+rerank 生产配置）|
-|[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)||||
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)||||
+|测试集|规模（建库）|指标口径|Recall@1|Precision@1|Recall@3|Precision@3|Recall@5|Precision@5|Recall@10|Precision@10|MRR|
+|--|--|--|--|--|--|--|--|--|--|--|--|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|严格（chunk 级）|0.395|0.722|0.665|0.484|0.748|0.349|0.748|0.174|0.762|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|宽松（文档级）|0.782|0.782|0.830|0.277|0.847|0.169|0.847|0.085|0.808|
+|[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)|1,000 文档 / 1,926 叶块|文档级|0.345|0.990|0.689|0.826|0.837|0.683|0.951|0.444|0.991|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)|5,062 文档 / 6,328 叶块|诊断性（文档级，24/200 可辩护）|0.229|0.250|0.375|0.139|0.375|0.083|0.521|0.058|0.343|
+
+> 三个数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中文 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
+> 各数据集详细评测配置、±std 波动与口径说明见下方 4.1/4.2/4.3 小节。
 
 |功能|测试模型|
 |--|--- |
@@ -193,7 +197,7 @@ vllm serve ./models/chat/Qwen3.5-2B \
 | rerank | Qwen3-Embedding-4B |
 | chat | DeepSeek-V4-Flash-high |
 | rewrite | Step-3.7-flash |
-| bm2.5 | qdrant-bm2.5 |
+| bm25（jieba） | jieba 中文 BM25（服务端 IDF，`model/sparse/bm25.py` 主路径） |
 
 ### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-06 重跑更新）
 
@@ -239,6 +243,64 @@ vllm serve ./models/chat/Qwen3.5-2B \
 `--pool/--split-query/--rerank/--sparse-encoder` 实验参数与产物缓存复用；
 生产 sparse 编码器切换与既有知识库迁移见 `utils/migrate_sparse.py`；
 完整报告（双口径 A/B 指标 + NDCG + 失败案例）见 `test/dataset01/results/report.md`。
+
+### 4.2 C-MTEB/T2Retrieval 检索质量评测（2026-08-09）
+
+数据集：[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)
+（中文 T2 检索，qrels gold 全部落在库内的 203 条可评测 query 全量）。
+
+**评测配置**：受限语料口径——corpus 前 1000 条文档建库（1,000 文档 / 1,926 叶块）；
+candidate_pool=50，final_top_k=5，rerank=on；
+**生产配置管线** = 混合检索（dense 语义 + jieba 中文 BM25 词法 RRF 融合）→ rerank 精排
+（Qwen3-Embedding-4B cohere 协议，本机 127.0.0.1:9527）。
+
+**指标口径**：文档级（gold = qrels → document_id，宏平均±std）。
+
+| K | Recall@K | Precision@K |
+|---|---|---|
+| 1 | 0.345±0.272 | 0.990±0.099 |
+| 3 | 0.689±0.293 | 0.826±0.262 |
+| 5 | 0.837±0.237 | 0.683±0.302 |
+| 10 | 0.951±0.149 | 0.444±0.285 |
+| MRR | 0.991±0.093 | — |
+
+**要点**：
+- 受限语料（前 1000 文档）下生产双路召回 + rerank 表现优秀：MRR=0.991、
+  Recall@10=0.951、Precision@1=0.990；203/203 全部成功（0 失败）
+- 22 条初始失败（query 级瞬时超时/断连，与评测目标机 Qdrant/PG 不稳定同源）
+  经 `--retry-failed` 补跑清零
+- 评测工具链：`test/dataset01/eval/t2retrieval_eval.py`
+  （支持 `--force/--max-corpus/--max-queries/--retry-failed/--no-rerank/--pool`），
+  报告见 `test/dataset01/results/t2retrieval_dual_report.md`
+
+### 4.3 zai-org/LongBench 检索质量评测（诊断性，2026-08-09）
+
+数据集：[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)
+multifieldqa_zh（200 条全量）。
+
+**评测配置**：每条 query 的 context 按换行切分为段落，每段落一个文档
+（5,062 段落文档 / 6,328 叶块，单块直存）；candidate_pool=50，rerank=on；
+生产配置管线同上。
+
+**可辩护口径（诊断性披露）**：LongBench 无标准 retrieval qrels，本评测采用
+answer 子串命中 context 段落作为可辩护证据（段落级 → 文档级）；200 条 query 中
+仅 24 条可辩护（12%），其余 176 条 answer 无法在 context 中定位
+（answer_not_in_context），不参与指标、不伪造 MRR。结果仅供参考，不参与严格对比。
+
+| K | Recall@K | Precision@K |
+|---|---|---|
+| 1 | 0.229±0.416 | 0.250±0.442 |
+| 3 | 0.375±0.495 | 0.139±0.195 |
+| 5 | 0.375±0.495 | 0.083±0.117 |
+| 10 | 0.521±0.500 | 0.058±0.058 |
+| MRR | 0.343±0.411 | — |
+
+**要点**：
+- 有效样本仅 24 条且 std 极大，指标仅供参考；LongBench 本质是问答数据集，
+  检索评测需自行构造 gold，不同构造口径的结果不可横向对比
+- 11 条初始失败（query 级瞬时超时/断连）经 `--retry-failed` 补跑清零（200/200，0 失败）
+- 评测工具链：`test/dataset01/eval/longbench_eval.py`（可辩护映射 + why 统计 + 诊断披露），
+  报告见 `test/dataset01/results/longbench_dual_report.md`
 
 
 # 其他问题
