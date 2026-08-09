@@ -238,16 +238,7 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 
 ### 5.3 启动服务
 
-```bash
-uv sync
-
-# win
-.venv/Scripts/activate
-# linux/macos
-source .venv/bin/activate
-
-uv run python infer.py
-```
+后端与前端启动步骤统一见 [README.md](../README.md) 四.启动项目（后端 `uv run python infer.py`；前端 `multi-agent-ui` 目录下 `pnpm install && pnpm dev`，端口 19527）。
 
 ### 5.4 配置模型与运行参数
 
