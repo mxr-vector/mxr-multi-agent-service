@@ -1,7 +1,7 @@
 [project]
 name = "multi-agent-service"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-agent inference service built on FastAPI + LangGraph, featuring enterprise Agentic RAG (hybrid retrieval with jieba BM25 + dense vectors, reflection and rerank), AI diagram drawing workflow and RBAC management; model inference decoupled via HTTP to local vLLM or any OpenAI-compatible API."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
