@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { documentApi, type RagDocument, type DocumentUpdatePayload } from "@/api/rag/document";
+import { documentApi, getChunkStrategyLabel, type RagDocument, type DocumentUpdatePayload } from "@/api/rag/document";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { folderApi, type Folder } from "@/api/rag/folders";
 import { confirmDanger } from "@/utils/confirm";
@@ -326,9 +326,9 @@ onUnmounted(stopPolling);
 // —— 查看分块（抽屉）——
 const chunkDrawerVisible = ref(false);
 const chunkDoc = ref<RagDocument | null>(null);
-// 分块策略展示：structure→章节分块，char/缺省（存量文档）→通用分块
+// 分块策略展示文案：以全局词典（chunk_strategy 类型）为准，未命中回退原始值
 const chunkStrategyLabel = computed(() =>
-  chunkDoc.value?.metadata?.chunk_strategy === "structure" ? "章节分块" : "通用分块"
+  getChunkStrategyLabel(chunkDoc.value?.metadata?.chunk_strategy as string | undefined)
 );
 function openChunks(doc: RagDocument) {
   chunkDoc.value = doc;

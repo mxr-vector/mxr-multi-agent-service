@@ -1,8 +1,9 @@
 """
-S3 双管线查询执行：对抽样 query 逐条执行纯检索（A）与完整子图（B），落盘明细。
+S3 双管线查询执行：对抽样 query 逐条执行纯检索（A）与完整工具管线（B），落盘明细。
 
 - A 纯检索：hybrid_retrieve_multi（dense+sparse RRF，候选池排序，无反思无重排）
-- B 完整子图：rag_graph.graph.ainvoke（反思多轮 + rerank 后 top-k）
+- B 完整工具管线：agent.tools.rag_tools.knowledge_base_search_impl
+  （混合召回 + 反思自纠错改写重检 + rerank 后 top-k）
 - 限流并发 4（embedding/rewrite/rerank 均为 HTTP 服务）；单条失败标记 failed 继续
 - 产物缓存：results/eval_results.json 的 meta 与当前配置一致时直接复用（--force 重跑）
 
@@ -35,7 +36,7 @@ from common import (
 CONCURRENCY = 4
 # 进度打印间隔
 PROGRESS_EVERY = 50
-# 单条 B 管线（rag_graph 含多轮外部 LLM 调用）超时兜底：外部 API 偶发挂起时
+# 单条 B 管线（工具含多轮外部 LLM 调用）超时兜底：外部 API 偶发挂起时
 # 标记 failed 继续，避免单条拖死全量评测（正常 1 轮反思约 6s，3 轮上限远低于此）
 PIPELINE_B_TIMEOUT = 180
 
@@ -155,23 +156,18 @@ async def rerank_candidates(query: str, candidates: list[dict]) -> list[dict]:
 
 
 async def run_pipeline_b(query: str, kb_id_hex: str) -> dict:
-    """完整子图管线：反思多轮 + 重排序，输出 reranked_docs 与检索指标。"""
-    from langchain_core.messages import HumanMessage
+    """完整工具管线：反思自纠错 + 重排序，输出 reranked docs 与检索指标。
 
-    from agent.graph.sub.rag_graph import rag_graph
+    与生产 respond 节点共用 agent.tools.rag_tools.knowledge_base_search_impl
+    （不经过对话模型，仅验证检索链路本身）。
+    """
+    from agent.tools.rag_tools import knowledge_base_search_impl
 
-    result = await asyncio.wait_for(
-        rag_graph.graph.ainvoke(
-            {
-                "messages": [HumanMessage(content=query)],
-                "question": query,
-                "knowledge_base_ids": [kb_id_hex],
-                "use_web_search": False,
-            }
-        ),
+    outcome = await asyncio.wait_for(
+        knowledge_base_search_impl(query, [kb_id_hex]),
         timeout=PIPELINE_B_TIMEOUT,
     )
-    metrics = result.get("metrics") or {}
+    metrics = outcome.metrics or {}
     return {
         "status": "ok",
         "reranked": [
@@ -181,7 +177,7 @@ async def run_pipeline_b(query: str, kb_id_hex: str) -> dict:
                 "score": doc.get("score"),
                 "text": doc.get("text", ""),
             }
-            for doc in result.get("reranked_docs") or []
+            for doc in outcome.docs
         ],
         "metrics": {
             "reflect_rounds": metrics.get("reflect_rounds", 0),

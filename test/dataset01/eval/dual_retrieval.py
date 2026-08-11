@@ -71,7 +71,11 @@ async def create_kb(session, kb_name: str, description: str) -> object:
 
 
 async def cleanup_kb(session, kb_name: str) -> int:
-    """整体删除评测知识库：Qdrant 集合 + PG 块树 + 文档行 + 知识库行。"""
+    """整体删除评测知识库：Qdrant 集合 + PG 块树 + 文档行 + 知识库行。
+
+    块树按 document_id 分批删除（asyncpg 单语句参数上限 32767，
+    评测库文档数超过该值时全量 IN 会抛 InterfaceError）。
+    """
     from database.qdrant_client import QdrantManager
     from entity.rag.chunks import Chunk
     from entity.rag.document import Document
@@ -88,7 +92,12 @@ async def cleanup_kb(session, kb_name: str) -> int:
         )
     ).scalars().all()
     if doc_ids:
-        await session.execute(delete(Chunk).where(Chunk.document_id.in_(list(doc_ids))))
+        batch_size = 10000
+        for start in range(0, len(doc_ids), batch_size):
+            batch = list(doc_ids[start : start + batch_size])
+            await session.execute(
+                delete(Chunk).where(Chunk.document_id.in_(batch))
+            )
         await session.execute(
             delete(Document).where(Document.knowledge_base_id == kb.id)
         )
@@ -258,6 +267,32 @@ async def ingest_document(
     return doc, _leaf_specs_from_chunks(kb, doc, leaf_chunks)
 
 
+async def _embed_with_retry(texts: list[str], attempts: int = 6) -> list[list[float]]:
+    """dense 向量化带退避重试（远端 vLLM 偶发连接重置/超时，同 Qdrant 写入策略）。
+
+    embedding 客户端自身的 max_retries 很小（ENV.embedding_max_retries=1，
+    避免生产作业卡死）；评测建库批量大、耗时长，这里额外兜底重试，
+    连接瞬时抖动时不会整体崩溃。
+    """
+    from model.embeddings.factory import get_embedding_client
+
+    client = get_embedding_client()
+    for attempt in range(1, attempts + 1):
+        try:
+            return client.embed_documents(texts)
+        except Exception as exc:
+            if attempt == attempts:
+                raise
+            delay = 5.0 * attempt
+            print(
+                f"[eval] dense 向量化失败({type(exc).__name__})，"
+                f"{delay:.0f}s 后重试 {attempt}/{attempts}",
+                flush=True,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError("unreachable")
+
+
 async def vectorize_batch(kb, leaf_specs: list[dict]) -> None:
     """一批叶块写入 Qdrant（dense+sparse，同步 IO 丢线程池）。
 
@@ -270,7 +305,6 @@ async def vectorize_batch(kb, leaf_specs: list[dict]) -> None:
         QdrantManager,
         SPARSE_VECTOR_NAME,
     )
-    from model.embeddings.factory import get_embedding_client
     from model.sparse.bm25 import embed_documents as sparse_embed_documents
     from qdrant_client.models import PointStruct
 
@@ -282,9 +316,7 @@ async def vectorize_batch(kb, leaf_specs: list[dict]) -> None:
         dense_vectors: list[list[float]] = []
         for estart in range(0, len(texts), EMBED_BATCH):
             dense_vectors.extend(
-                get_embedding_client().embed_documents(
-                    texts[estart : estart + EMBED_BATCH]
-                )
+                await _embed_with_retry(texts[estart : estart + EMBED_BATCH])
             )
         sparse_vectors = sparse_embed_documents(texts)
 

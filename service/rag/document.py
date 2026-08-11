@@ -44,7 +44,7 @@ class DocumentService:
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
         dept_id: str | None = None,
-        chunk_strategy: str = "auto",
+        chunk_strategy: str = "char",
     ) -> dict:
         """
         上传文件：解析 + 两级切块 + 持久化到 PG（不向量化）。
@@ -53,9 +53,10 @@ class DocumentService:
         resolve_owner_dept 换算：仅 all 档尊重显式 dept_id（须存在），
         其余档位强制本人部门；换算结果为空时继承所在知识库的归属部门，
         仍为空（存量游离库）则拒绝上传，杜绝游离文档。
-        chunk_strategy 为用户选择的切块策略（auto/char/structure），生效策略
-        （auto 归一化后）记录于 metadata.chunk_strategy；content_hash 与生效
-        策略均未变化的重复上传是幂等 no-op，任一变化则新增 document_version。
+        chunk_strategy 为用户选择的切块策略（char/structure/semantic，默认
+        char），生效策略（含 semantic 降级后的 char）记录于
+        metadata.chunk_strategy；content_hash 与生效策略均未变化的重复上传是
+        幂等 no-op，任一变化则新增 document_version。
         知识库不存在、不支持的文件类型/策略组合均转为友好失败。
         """
         # source_uri 缺省用文件名，作为 (kb, source_uri) 的增量比对键

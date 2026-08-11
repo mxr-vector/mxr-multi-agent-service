@@ -405,12 +405,15 @@ class ChatCompletionService:
             _put(SseEvent.THINK, {"text": "正在理解问题...", "session_id": session_hex})
 
             async for mode, payload in graph.astream(
-                graph_input, config, stream_mode=["updates", "messages"]
+                graph_input, config, stream_mode=["updates", "messages", "custom"]
             ):
                 if mode == "messages":
                     chunk, metadata = payload
-                    # 仅放行 respond 节点（含其内部子调用）的答案 token；
-                    # condense 改写与子图仲裁模型的 token 不外流
+                    # 仅放行 respond 节点（含其内部工具循环/子调用）的 token；
+                    # condense 改写与工具内反思模型的 token 不外流。
+                    # 工具调用轮次模型的 content 通常为空（纯 tool_calls），
+                    # 空增量不产生 answer 帧；个别模型输出的调用前文字会一并外流，
+                    # 属可接受展示（Qwen/vLLM 系实测为空）。
                     if metadata.get("langgraph_node") != ChatNode.RESPOND.value:
                         continue
                     delta = chunk.content if isinstance(chunk.content, str) else ""
@@ -426,17 +429,19 @@ class ChatCompletionService:
                             if standalone and standalone != question:
                                 text = f"已将问题改写为：{standalone}"
                             else:
-                                text = "正在检索知识库..."
-                            think_parts.append(text)
-                            _put(SseEvent.THINK, {"text": text})
-                        elif node_name == ChatNode.RAG_RETRIEVE.value:
-                            count = len(update.get("reranked_docs") or [])
-                            text = f"已检索并精选 {count} 条相关内容，正在组织回答..."
+                                text = "正在理解问题..."
                             think_parts.append(text)
                             _put(SseEvent.THINK, {"text": text})
                         elif node_name == ChatNode.RESPOND.value:
                             sources = update.get("sources") or []
                             metrics = update.get("metrics") or {}
+                elif mode == "custom":
+                    # respond 节点内 get_stream_writer 发出的检索进度事件
+                    if isinstance(payload, dict) and payload.get("type") == "think":
+                        text = payload.get("text", "")
+                        if text:
+                            think_parts.append(text)
+                            _put(SseEvent.THINK, {"text": text})
 
             # 图执行总耗时，并对 sources 做展示级富化后再外发
             metrics = {

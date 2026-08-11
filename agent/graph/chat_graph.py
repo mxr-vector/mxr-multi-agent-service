@@ -1,20 +1,23 @@
 """
-Chat 问答父图（LangGraph）—— 多轮编排 + 检索子图 + 流式生成。
+Chat 问答父图（LangGraph）—— 多轮编排 + Agentic 检索工具 + 流式生成。
 
-职责划分（方案 C）：
+职责划分：
 - 父图负责多轮状态管理（checkpointer 恢复 messages 历史）、condense 问题改写、
   流式生成答案与结构化 sources；
-- RAG 检索子图（agent.graph.sub.rag_graph）作为纯检索管线在 rag_retrieve 节点内
-  显式状态映射后调用，子图不单独挂 checkpointer（持久化边界由父图统一）。
+- 检索不再由独立节点/子图驱动，而是收敛为对话模型可自主调用的工具
+  （knowledge_base_search / web_search，见 agent.tools.rag_tools）：
+  respond 节点给对话模型 bind_tools 后进入工具调用循环，模型自主决定
+  何时检索、是否改写查询再检；混合召回/反思自纠错/重排序均在工具内部完成。
 
 节点（全部 async）：
 - condense：无历史时直通；有历史时用 rewrite/compression 模型把当前问题
   改写为指代清晰的独立问题；checkpointer 无历史（TTL 已清理/存量会话）时
   回落业务表 rag.chat_messages 读最近 N 条作为改写历史（业务表是事实源）；
-- rag_retrieve：节点内 `await rag_graph.graph.ainvoke(...)`，输入 standalone 问题
-  与 kb_ids，产出 reranked_docs；
-- respond：基于 reranked_docs 与历史生成最终答案（该节点内的模型调用 token
-  经 astream(stream_mode="messages") 外流），并构造结构化 sources。
+- respond：Agentic 回答节点——bind_tools 检索工具后逐轮调用对话模型，
+  模型返回 tool_calls 则执行对应工具（ToolMessage 回填后继续），无 tool_calls
+  则流式输出最终答案并构造结构化 sources；工具结果按全局编号 [n] 引用，
+  与 sources.index 严格对应。该节点内的模型调用 token 经
+  astream(stream_mode="messages") 外流，检索进度经 stream_mode="custom" 外发。
 
 入口：模块级单例 `chat_graph = ChatGraph()`，通过 `chat_graph.get()` 惰性编译
 （依赖 lifespan 已装配的 checkpointer，模块 import 期不建连不编译）。
@@ -26,15 +29,26 @@ use_web_search, reasoning_effort}`。
 """
 
 import uuid
-from typing import List
+from typing import List, Tuple
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from agent.constants.enums.chat import ChatNode, ChatRole
-from agent.prompts.chat import CONDENSE_PROMPT, RESPOND_PROMPT
-from agent.graph.sub.rag_graph import rag_graph
+from agent.prompts.chat import AGENT_PROMPT, CONDENSE_PROMPT
+from agent.tools.rag_tools import (
+    TOOL_IMPLS,
+    TOOL_KNOWLEDGE_BASE_SEARCH,
+    TOOL_WEB_SEARCH,
+    ToolOutcome,
+)
 from model.chat.factory import build_chat_model
 from model.compression.factory import build_compression_model
 from core.config_snapshot import CFG
@@ -50,13 +64,11 @@ class ChatState(MessagesState):
     standalone_question: str
     # 本轮检索范围（hex 无连字符列表，消息级，由调用方解析后传入）
     kb_ids: List[str]
-    # 联网搜索开关（透传给检索子图，暂未实现）
+    # 联网搜索开关（True 时绑定 web_search 工具，模型可见可调用）
     use_web_search: bool
     # 本轮思考强度（reasoning_effort，缺省用模块级默认模型）
     reasoning_effort: str | None
-    # 检索子图产出的重排序候选
-    reranked_docs: List[dict]
-    # 推理复杂度指标（子图检索指标 + 父图 token/耗时/模型，服务层补齐耗时）
+    # 推理复杂度指标（respond 节点工具轮/检索指标 + token/模型，服务层补齐耗时）
     metrics: dict
     # 最终答案与结构化来源
     answer: str
@@ -118,6 +130,51 @@ class ChatGraph:
         ]
         return "\n".join(lines)
 
+    @staticmethod
+    def _safe_stream_writer():
+        """安全获取 custom 流写入器；脱离图执行上下文（直接调用节点/单测）时返回 None。"""
+        try:
+            from langgraph.config import get_stream_writer
+
+            return get_stream_writer()
+        except RuntimeError:
+            return None
+
+    @staticmethod
+    async def _astream_accumulate(model, msgs: List[BaseMessage]) -> Tuple[AIMessage, dict]:
+        """流式调用模型并累积完整响应。
+
+        token 增量会被 langgraph 的 stream_mode="messages" 自动捕获外发
+        （metadata.langgraph_node 为 respond）；工具轮次模型的 content 通常为空
+        （纯 tool_calls），空增量不产生答案帧。
+        """
+        response: AIMessage | None = None
+        async for chunk in model.astream(msgs):
+            response = chunk if response is None else response + chunk
+        usage = getattr(response, "usage_metadata", None) or {}
+        return response, usage
+
+    @staticmethod
+    def _merge_usage(total: dict, usage: dict) -> dict:
+        """把单次模型调用的 usage 累加进汇总（缺失字段按 0 处理）。"""
+        return {
+            "input_tokens": total.get("input_tokens", 0) + (usage.get("input_tokens") or 0),
+            "output_tokens": total.get("output_tokens", 0) + (usage.get("output_tokens") or 0),
+            "total_tokens": total.get("total_tokens", 0) + (usage.get("total_tokens") or 0),
+        }
+
+    @staticmethod
+    def _merge_doc_dedup(existing: List[dict], new: List[dict]) -> List[dict]:
+        """跨工具调用合并候选并按 (knowledge_base_id, point_id) 去重，保留既有顺序。"""
+        seen = {(doc.get("knowledge_base_id"), doc["point_id"]) for doc in existing}
+        merged = list(existing)
+        for doc in new:
+            key = (doc.get("knowledge_base_id"), doc["point_id"])
+            if key not in seen:
+                seen.add(key)
+                merged.append(doc)
+        return merged
+
     # ---------- 节点 ----------
     async def condense_node(self, state: ChatState, config: RunnableConfig):
         """结合历史把当前问题改写为独立问题；无任何历史时直通原问题。"""
@@ -143,51 +200,108 @@ class ChatGraph:
         standalone = (response.content or "").strip() or question
         return {"standalone_question": standalone}
 
-    async def rag_retrieve_node(self, state: ChatState):
-        """调用 RAG 检索子图（显式状态映射）：standalone 问题进，重排序候选出。
-
-        两图 state schema 不同，走节点内调用而非 add_node(subgraph)；
-        子图内部消息不回写父图 messages，避免检索中间消息污染对话历史。
-        """
-        standalone = state["standalone_question"]
-        result = await rag_graph.graph.ainvoke(
-            {
-                "messages": [HumanMessage(content=standalone)],
-                "question": standalone,
-                "knowledge_base_ids": state.get("kb_ids") or [],
-                "use_web_search": state.get("use_web_search", False),
-            }
-        )
-        reranked = result.get("reranked_docs", [])
-        metrics = result.get("metrics", {})
-        logger.info(f"[CHAT] 检索子图完成：candidates={len(reranked)}")
-        return {"reranked_docs": reranked, "metrics": metrics}
-
     async def respond_node(self, state: ChatState):
-        """基于重排序候选与历史生成最终答案，并构造结构化 sources。
+        """Agentic 回答节点：对话模型自主调用检索工具，循环至无工具调用后生成答案。
 
-        本节点的模型调用 token 会被 astream(stream_mode='messages') 捕获外发；
-        父图 messages 只追加最终 AIMessage（用户问题在进图输入中已追加）。
+        工具循环：bind_tools([knowledge_base_search, web_search?]) 后逐轮调用模型——
+        模型返回 tool_calls 则按 TOOL_IMPLS 分派执行（混合检索/反思自纠错/重排序
+        收敛在 agent.tools.rag_tools 内），结果作为 ToolMessage 回填并继续；
+        无 tool_calls 则输出最终答案。循环上限复用 CFG.rag_reflect_round_cap，
+        超限后以无工具模型强制收尾，避免无限调用。
+
+        编号策略：所有工具调用返回的候选统一追加进 all_docs（跨轮去重），
+        ToolMessage 内容按全局编号 [n] 重建——与 sources.index 严格对应，
+        模型引用角标即来源索引。工具中间消息只存节点局部，不回写 state
+        messages，保持 checkpointer 历史干净（仅追加最终 AIMessage）。
+        检索进度经 stream_mode="custom"（get_stream_writer）外发 think 事件。
         """
+        writer = self._safe_stream_writer()
         question = state["question"]
-        docs = state.get("reranked_docs", [])
+        standalone = state.get("standalone_question") or question
         history = self._format_history(
             state["messages"][:-1], CFG.chat_history_max_messages
         )
-        # 为各候选标注 [n] 序号（与 sources.index 对应），引导答案引用角标
-        context = "\n\n".join(
-            f"[{idx}] {doc.get('text', '')}" for idx, doc in enumerate(docs, start=1)
-        )
-
-        prompt = RESPOND_PROMPT.format(
-            history=history, question=question, context=context
-        )
-        # 每次按当前配置快照现造对话模型（携带思考强度时透传 reasoning_effort）
+        kb_hint = ", ".join(state.get("kb_ids") or []) or "（未指定，检索返回空）"
+        msgs: List[BaseMessage] = [
+            SystemMessage(
+                content=AGENT_PROMPT.format(history=history, knowledge_base_ids=kb_hint)
+            ),
+            HumanMessage(content=standalone),
+        ]
+        # use_web_search=False 时不绑定 web_search 工具（模型不可见，开关语义保留）
+        tools = [TOOL_KNOWLEDGE_BASE_SEARCH]
+        if state.get("use_web_search"):
+            tools.append(TOOL_WEB_SEARCH)
         reasoning_effort = state.get("reasoning_effort")
-        model = build_chat_model(reasoning_effort=reasoning_effort)
-        response = await model.ainvoke(
-            [{"role": ChatRole.USER.value, "content": prompt}]
-        )
+        model = build_chat_model(reasoning_effort=reasoning_effort).bind_tools(tools)
+
+        all_docs: List[dict] = []
+        tool_rounds = 0
+        reflect_rounds = 0
+        retrieved_count = 0
+        usage_total: dict = {}
+        response: AIMessage | None = None
+        while True:
+            response, usage = await self._astream_accumulate(model, msgs)
+            usage_total = self._merge_usage(usage_total, usage)
+            if not getattr(response, "tool_calls", None):
+                break
+            if tool_rounds >= CFG.rag_reflect_round_cap:
+                # 达到工具循环上限：切无工具模型强制收尾
+                msgs.append(
+                    SystemMessage(
+                        content="已达到检索轮数上限，请直接基于已有检索结果组织回答。"
+                    )
+                )
+                response, usage = await self._astream_accumulate(
+                    build_chat_model(reasoning_effort=reasoning_effort), msgs
+                )
+                usage_total = self._merge_usage(usage_total, usage)
+                break
+            tool_rounds += 1
+            msgs.append(response)
+            # 本轮全部工具调用执行完毕后统一分配全局编号（并行调用编号不冲突）
+            outcomes: List[Tuple[str, ToolOutcome]] = []
+            for tool_call in response.tool_calls:
+                name = tool_call.get("name", "")
+                args = tool_call.get("args") or {}
+                impl = TOOL_IMPLS.get(name)
+                if impl is None:
+                    logger.warning(f"[CHAT] respond 收到未知工具调用: {name}")
+                    outcomes.append(
+                        (
+                            tool_call["id"],
+                            ToolOutcome(
+                                text=f"未知工具 {name}，请改用可用工具。",
+                                docs=[],
+                                metrics={},
+                            ),
+                        )
+                    )
+                    continue
+                if writer is not None:
+                    writer({"type": "think", "text": f"正在检索知识库（第 {tool_rounds} 轮）..."})
+                outcome = await impl(**args)
+                reflect_rounds += outcome.metrics.get("reflect_rounds", 0)
+                retrieved_count += outcome.metrics.get("retrieved_count", 0)
+                outcomes.append((tool_call["id"], outcome))
+            for tool_call_id, outcome in outcomes:
+                # 全局编号重建工具结果文本（fresh 为去重后新增候选，编号从 len(all_docs)+1 起）；
+                # 无新增候选（空检索/未实现降级提示）时回落工具的原始 text，避免空消息
+                fresh = self._merge_doc_dedup([], outcome.docs)
+                all_docs = self._merge_doc_dedup(all_docs, fresh)
+                if fresh:
+                    start = len(all_docs) - len(fresh)
+                    content = "\n\n".join(
+                        f"[{start + idx}] {doc.get('text', '')}"
+                        for idx, doc in enumerate(fresh, start=1)
+                    )
+                else:
+                    content = outcome.text
+                msgs.append(ToolMessage(content=content, tool_call_id=tool_call_id))
+            if writer is not None:
+                writer({"type": "think", "text": f"已检索到 {len(all_docs)} 条相关内容..."})
+
         sources = [
             {
                 "index": idx,
@@ -201,17 +315,20 @@ class ChatGraph:
                 "page_start": doc.get("page_start"),
                 "page_end": doc.get("page_end"),
             }
-            for idx, doc in enumerate(docs, start=1)
+            for idx, doc in enumerate(all_docs, start=1)
         ]
-        # 汇入 respond 模型的 token 用量与模型名（usage 缺失时为 None）
-        usage = getattr(response, "usage_metadata", None) or {}
         metrics = {
-            **state.get("metrics", {}),
-            "input_tokens": usage.get("input_tokens"),
-            "output_tokens": usage.get("output_tokens"),
-            "total_tokens": usage.get("total_tokens"),
+            "tool_rounds": tool_rounds,
+            "reflect_rounds": reflect_rounds,
+            "retrieved_count": retrieved_count,
+            "reranked_count": len(all_docs),
+            **usage_total,
             "model": CFG.chat.model_name,
         }
+        logger.info(
+            f"[CHAT] 回答完成：tool_rounds={tool_rounds}, docs={len(all_docs)}, "
+            f"tokens={usage_total.get('total_tokens', 0)}"
+        )
         return {
             "messages": [response],
             "answer": response.content,
@@ -225,12 +342,10 @@ class ChatGraph:
         workflow = StateGraph(ChatState)
 
         workflow.add_node(ChatNode.CONDENSE.value, self.condense_node)
-        workflow.add_node(ChatNode.RAG_RETRIEVE.value, self.rag_retrieve_node)
         workflow.add_node(ChatNode.RESPOND.value, self.respond_node)
 
         workflow.add_edge(START, ChatNode.CONDENSE.value)
-        workflow.add_edge(ChatNode.CONDENSE.value, ChatNode.RAG_RETRIEVE.value)
-        workflow.add_edge(ChatNode.RAG_RETRIEVE.value, ChatNode.RESPOND.value)
+        workflow.add_edge(ChatNode.CONDENSE.value, ChatNode.RESPOND.value)
         workflow.add_edge(ChatNode.RESPOND.value, END)
 
         return workflow.compile(checkpointer=checkpointer)

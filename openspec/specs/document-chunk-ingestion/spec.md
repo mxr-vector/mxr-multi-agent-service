@@ -140,6 +140,28 @@ permanently blocked from re-triggering.
 - **THEN** after startup the document's status is `failed` and it can be
   re-triggered manually
 
+### Requirement: Chunk strategy selection on upload
+The upload operation SHALL accept a `chunk_strategy` parameter with one of three explicit values: `char` (character-based recursive chunking), `structure` (heading-aware chunking for markdown/docx/excel), or `semantic` (embedding-similarity chunking for all file types). The default SHALL be `char` when the parameter is omitted. Any other value SHALL be rejected with a business failure.
+
+#### Scenario: Upload without a strategy uses char
+- **WHEN** a file is uploaded without a `chunk_strategy` parameter
+- **THEN** the document is chunked with the `char` strategy and `metadata.chunk_strategy` records `char`
+
+#### Scenario: Unknown strategy is rejected
+- **WHEN** a file is uploaded with a `chunk_strategy` value other than `char`/`structure`/`semantic` (including the removed legacy `auto`)
+- **THEN** the system returns a business failure and persists nothing
+
+### Requirement: Strategy change triggers re-split on re-upload
+The re-upload idempotency check SHALL compare both the content hash and the effective chunk strategy recorded in document metadata: an unchanged content hash with the same effective strategy is a no-op, while a strategy change alone SHALL create a new document version with a freshly split chunk set.
+
+#### Scenario: Same strategy re-upload stays a no-op
+- **WHEN** a file with the same content and the same effective strategy is re-uploaded
+- **THEN** the system returns the existing document without new chunks
+
+#### Scenario: Strategy change re-splits without content change
+- **WHEN** a file with the same content is re-uploaded with a different effective strategy (e.g. `char` → `semantic`)
+- **THEN** the system increments the document version and writes a new chunk set split with the new strategy
+
 ### Requirement: content_hash skip-if-unchanged on re-upload
 The system SHALL compute a `content_hash` over the parsed document text and, on re-upload of the same knowledge base and `source_uri`, skip re-splitting and re-vectorizing when the hash is unchanged, and otherwise create a new `document_version` chunk set for the changed content.
 

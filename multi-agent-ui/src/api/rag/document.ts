@@ -1,5 +1,23 @@
 import request, { type ApiResult } from "@/utils/request";
+import { useDictStore } from "@/stores/dictStore";
 import { DOCUMENT_URL, type PageResult } from "./index";
+
+/** 分块策略字典类型键（全局词典维护，字典项值：char/structure/semantic） */
+const CHUNK_STRATEGY_DICT_TYPE = "chunk_strategy";
+
+/** 分块策略下拉选项：直接取全局词典（chunk_strategy 类型，字典管理页维护），字典为空则无选项 */
+export function getChunkStrategyOptions(): { label: string; value: string }[] {
+  const dictStore = useDictStore();
+  dictStore.ensureLoaded();
+  return dictStore.getOptions(CHUNK_STRATEGY_DICT_TYPE).map((d) => ({ label: d.label, value: d.value }));
+}
+
+/** 分块策略展示文案：以全局词典为准，命中取 label，未命中回退原始值 */
+export function getChunkStrategyLabel(raw: string | null | undefined): string {
+  const dictStore = useDictStore();
+  dictStore.ensureLoaded();
+  return dictStore.getLabel(CHUNK_STRATEGY_DICT_TYPE, raw ?? "");
+}
 
 /** 文档实体（对应后端 rag_documents.to_dict） */
 export interface RagDocument {
@@ -45,7 +63,7 @@ export interface DocumentUploadParams {
   valid_until?: string;
   /** 备注，存入 metadata.remark */
   remark?: string;
-  /** 分块策略：auto 自动（默认）/ char 通用 / structure 章节（仅 md/docx/xlsx）；生效策略存入 metadata.chunk_strategy */
+  /** 分块策略：char 通用（默认）/ structure 章节（仅 md/docx/xlsx）/ semantic 语义（所有格式）；取值见 CHUNK_STRATEGY_DICT_TYPE 字典，生效策略存入 metadata.chunk_strategy */
   chunk_strategy?: string;
   /** 归属部门（仅 data_scope=all 生效，须为已存在部门）；缺省由服务端按用户上下文注入 */
   dept_id?: string | null;
