@@ -138,7 +138,8 @@ class KnowledgeBaseService:
         列出当前用户可检索的全部 active 知识库 id（hex 无连字符，不分页）。
 
         供问答链路在用户未选择知识库时解析缺省检索范围（跨库扇出，
-        见 agent.graph.sub.rag_graph 的 knowledge_base_ids），为纯可见性三支并集：
+        见 agent.tools.rag_tools.knowledge_base_search 的 knowledge_base_ids），
+        为纯可见性三支并集：
         - owner 支：本人库（含本人 private）；机器通道无 username 时此支为空；
         - department 支：visibility='department' 且属本人部门边界（按 data_scope
           展开：all 不限、dept_and_child 本部门子树、dept/self 本部门）；

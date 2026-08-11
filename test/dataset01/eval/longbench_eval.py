@@ -1,13 +1,16 @@
 """
-zai-org/LongBench multifieldqa_zh 双路召回评测适配器（诊断性披露）。
+zai-org/LongBench 多语言（中英）双路召回评测适配器（诊断性披露）。
 
 LongBench 是问答数据集（无标准 retrieval qrels），本适配器采用"可辩护证据"
 映射口径：query 的 answer 规范化后出现在某 context 段落文本中，则该段落为
 gold（段落级 → 文档级）；answer 不可定位的 query 不参与指标，单独统计 why
 （answer_not_in_context），不伪造指标。
 
+- 多语言构成：默认 6 个 QA 类子集（字段统一为 input/context/answers/_id）
+  中文 multifieldqa_zh + 英文 multifieldqa_en/hotpotqa/2wikimqa/qasper/musique；
+  全量 1,150 条，默认评测前 1,000 条（zh 200 + en 800），--subsets 可换。
 - 建库：每条 query 的 context 按换行切分为段落，每段落一个文档（单块；
-  超长段落走 ingest_file 切块），source_uri=lb:{qid}:{para_idx}。
+  超长段落走 ingest_file 切块），source_uri=lb:{subset}:{qid}:{para_idx}。
 - 管线：hybrid_retrieve_multi（dense + jieba BM25 RRF，candidate_pool=50）
   + rerank 精排（Qwen3-Embedding-4B cohere 协议），与生产配置一致。
 - 指标：Recall@K / Precision@K / MRR（K∈{1,3,5,10}，文档级，宏平均±std），
@@ -17,11 +20,13 @@ gold（段落级 → 文档级）；answer 不可定位的 query 不参与指标
   - results/longbench_dual_results.json：逐 query 明细
   - results/longbench_dual_summary.json：汇总指标 + why 统计
 
-数据来源（HF）：THUDM/LongBench data.zip → multifieldqa_zh.jsonl（200 条全量）。
+数据来源（HF）：zai-org/LongBench（THUDM/LongBench 镜像）data.zip →
+data/ 目录下各子集 jsonl（仅需上述 6 个文件）。
 
 用法：
   uv run python test/dataset01/eval/longbench_eval.py [--force] [--cleanup]
-      [--max-queries N] [--no-rerank] [--pool 50] [--retry-failed]
+      [--subsets s1,s2,...] [--max-queries 1000] [--no-rerank]
+      [--pool 50] [--retry-failed]
 """
 
 import argparse
@@ -46,21 +51,35 @@ from dual_retrieval import (
 )
 
 KB_NAME = "dataset01-longbench"
-KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench multifieldqa_zh（context 段落单块，诊断性）"
+KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench 多语言（zh/en 6 QA 子集，context 段落单块，诊断性）"
 
-SUBSET = "multifieldqa_zh"
-DATA_PATH = DATA_DIR / "longbench_data" / "data" / f"{SUBSET}.jsonl"
+# 多语言 QA 类子集（字段统一：input/context/answers/_id；按子集顺序拼接）
+SUBSETS = [
+    "multifieldqa_zh",
+    "multifieldqa_en",
+    "hotpotqa",
+    "2wikimqa",
+    "qasper",
+    "musique",
+]
+# 默认评测条数：6 子集全量 1,150 条，默认取前 1,000 条（zh 200 + en 800）
+DEFAULT_MAX_QUERIES = 1000
 DOC_MAP_PATH = GOLD_DIR / "longbench_doc_map.json"
 RESULTS_PATH = RESULTS_DIR / "longbench_dual_results.json"
 SUMMARY_PATH = RESULTS_DIR / "longbench_dual_summary.json"
 
 
-def _require_data() -> None:
-    if not DATA_PATH.exists():
+def _data_path(subset: str) -> Path:
+    return DATA_DIR / "longbench_data" / "data" / f"{subset}.jsonl"
+
+
+def _require_data(subsets: list[str]) -> None:
+    missing = [s for s in subsets if not _data_path(s).exists()]
+    if missing:
         raise SystemExit(
-            f"缺少数据文件: {DATA_PATH}\n"
-            "请从 HF 下载 THUDM/LongBench data.zip 并解压到 "
-            "test/dataset01/data/longbench_data/（HF_ENDPOINT=https://hf-mirror.com）"
+            f"缺少数据文件: {[str(_data_path(s)) for s in missing]}\n"
+            "请从 HF 下载 zai-org/LongBench（THUDM/LongBench 镜像）data.zip "
+            "并解压到 test/dataset01/data/longbench_data/（HF_ENDPOINT=https://hf-mirror.com）"
         )
 
 
@@ -89,22 +108,28 @@ def defensible_paragraphs(context: str, answers: list[str]) -> tuple[list[int], 
     return [], "answer_not_in_context"
 
 
-def load_rows() -> list[dict]:
-    """读 multifieldqa_zh.jsonl，统一字段为 question/context/answers/_id。"""
+def load_rows(subsets: list[str]) -> list[dict]:
+    """读多个子集 jsonl（顺序拼接），统一字段为 subset/qid/question/context/answers。
+
+    qid 以 {subset}:{_id} 唯一化（各子集 _id 独立编号，跨子集会重复）。
+    """
     import json
 
     rows = []
-    with open(DATA_PATH, encoding="utf-8") as fh:
-        for line in fh:
-            raw = json.loads(line)
-            rows.append(
-                {
-                    "qid": str(raw["_id"]),
-                    "question": str(raw.get("input") or ""),
-                    "context": str(raw.get("context") or ""),
-                    "answers": [str(a) for a in (raw.get("answers") or [])],
-                }
-            )
+    for subset in subsets:
+        path = _data_path(subset)
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                raw = json.loads(line)
+                rows.append(
+                    {
+                        "subset": subset,
+                        "qid": f"{subset}:{raw['_id']}",
+                        "question": str(raw.get("input") or ""),
+                        "context": str(raw.get("context") or ""),
+                        "answers": [str(a) for a in (raw.get("answers") or [])],
+                    }
+                )
     return rows
 
 
@@ -115,7 +140,7 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     规避评测目标机 PG 间歇断连。
     """
     fp = hashlib.sha256(
-        ("\n".join(r["qid"] + r["context"][:200] for r in rows)).encode("utf-8")
+        ("\n".join(r["subset"] + r["qid"] + r["context"][:200] for r in rows)).encode("utf-8")
     ).hexdigest()[:16]
 
     async with session_factory() as session:
@@ -149,7 +174,7 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     processed = 0
     for row in rows:
         for para_idx, para in enumerate(split_paragraphs(row["context"])):
-            uri = f"lb:{SUBSET}:{row['qid']}:{para_idx}"
+            uri = f"lb:{row['qid']}:{para_idx}"
             ingested, leaf_specs = await ingest_document_retry(
                 session_factory,
                 kb,
@@ -157,7 +182,7 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
                 text=para,
                 source_uri=uri,
                 source_system="LongBench",
-                metadata={"subset": SUBSET, "lb_qid": row["qid"], "para_idx": para_idx},
+                metadata={"subset": row["subset"], "lb_qid": row["qid"], "para_idx": para_idx},
             )
             if ingested is None:
                 continue
@@ -176,7 +201,7 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     save_json(
         DOC_MAP_PATH,
         {
-            "dataset": f"THUDM/LongBench {SUBSET}",
+            "dataset": f"zai-org/LongBench {'+'.join({r['subset'] for r in rows})}",
             "fingerprint": fp,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "kb_id": kb.id.hex,
@@ -192,11 +217,12 @@ def build_queries(rows: list[dict], mapping: dict[str, str]) -> list[dict]:
     queries = []
     for row in rows:
         gold_docs = [
-            mapping[f"lb:{SUBSET}:{row['qid']}:{i}"] for i in row["gold_para_idx"]
+            mapping[f"lb:{row['qid']}:{i}"] for i in row["gold_para_idx"]
         ]
         queries.append(
             {
                 "qid": row["qid"],
+                "subset": row["subset"],
                 "question": row["question"],
                 "gold_docs": gold_docs,
                 "why": row["why"],
@@ -206,10 +232,23 @@ def build_queries(rows: list[dict], mapping: dict[str, str]) -> list[dict]:
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="LongBench multifieldqa_zh 双路召回评测（诊断性）")
+    parser = argparse.ArgumentParser(
+        description="LongBench 多语言（zh/en）双路召回评测（诊断性）"
+    )
     parser.add_argument("--force", action="store_true", help="已存在评测知识库时清理重建")
     parser.add_argument("--cleanup", action="store_true", help="整体删除评测知识库后退出")
-    parser.add_argument("--max-queries", type=int, default=None, help="仅评测前 N 条 query（冒烟）")
+    parser.add_argument(
+        "--subsets",
+        type=str,
+        default=",".join(SUBSETS),
+        help=f"评测子集列表（逗号分隔，默认全 6 个）",
+    )
+    parser.add_argument(
+        "--max-queries",
+        type=int,
+        default=DEFAULT_MAX_QUERIES,
+        help=f"仅评测前 N 条 query（默认 {DEFAULT_MAX_QUERIES}；冒烟可设小值）",
+    )
     parser.add_argument("--no-rerank", action="store_true", help="跳过 rerank（仅双路召回检索层）")
     parser.add_argument("--pool", type=int, default=None, help="候选池大小（默认取系统 RAG_CANDIDATE_POOL_SIZE）")
     parser.add_argument("--retry-failed", action="store_true", help="仅补跑上次失败（status!=ok）的 query 并合并结果")
@@ -218,7 +257,8 @@ async def main() -> None:
     await ensure_cfg_async()
     from core.config_snapshot import CFG
 
-    _require_data()
+    subsets = [s.strip() for s in args.subsets.split(",") if s.strip()]
+    _require_data(subsets)
     pool_size = args.pool or CFG.rag_candidate_pool_size
 
     if args.cleanup:
@@ -227,8 +267,11 @@ async def main() -> None:
         print(f"[lb] 已删除评测知识库 {KB_NAME}" if removed else f"[lb] 评测知识库 {KB_NAME} 不存在")
         return
 
-    rows = load_rows()
-    print(f"[lb] 数据就绪：{len(rows)} 条 query（{SUBSET} 全量）")
+    rows = load_rows(subsets)
+    from collections import Counter
+
+    per_subset = Counter(r["subset"] for r in rows)
+    print(f"[lb] 数据就绪：{len(rows)} 条 query（{dict(per_subset)}）")
 
     # 可辩护证据映射（建库前完成，gold 为段落 → 文档）
     for row in rows:
@@ -258,7 +301,11 @@ async def main() -> None:
     queries = build_queries(rows, mapping)
     if args.max_queries:
         queries = queries[: args.max_queries]
-    print(f"[lb] 执行 {len(queries)} 条 query（其中可辩护 {sum(1 for q in queries if q['gold_docs'])} 条）")
+    executed = Counter(q["subset"] for q in queries)
+    print(
+        f"[lb] 执行 {len(queries)} 条 query（{dict(executed)}；"
+        f"其中可辩护 {sum(1 for q in queries if q['gold_docs'])} 条）"
+    )
 
     if args.retry_failed:
         if not RESULTS_PATH.exists():
@@ -291,10 +338,11 @@ async def main() -> None:
         results = await run_eval(queries, kb, pool_size, use_rerank=not args.no_rerank)
         payload = {
             "meta": {
-                "dataset": f"longbench/{SUBSET}",
+                "dataset": f"zai-org/LongBench 多语言（{'/'.join(subsets)}）",
                 "kb_id": kb.id.hex,
                 "pool_size": pool_size,
                 "rerank": not args.no_rerank,
+                "subsets": subsets,
                 "executed_queries": len(queries),
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -304,13 +352,11 @@ async def main() -> None:
 
     summary = summarize(results, BASE_K_VALUES)
     summary["meta"] = payload["meta"]
-    from collections import Counter
-
     summary["why"] = dict(Counter(q["why"] for q in queries if q["why"]))
     save_json(SUMMARY_PATH, summary)
 
     lines = report_lines(
-        "LongBench multifieldqa_zh 双路召回评测报告（诊断性）",
+        "LongBench 多语言（zh/en）双路召回评测报告（诊断性）",
         payload["meta"],
         summary,
         BASE_K_VALUES,

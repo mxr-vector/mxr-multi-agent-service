@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { buildFolderTree, type Folder } from "@/api/rag/folders";
+import { getChunkStrategyOptions } from "@/api/rag/document";
 import type { DocumentUploadFormPayload } from "@/views/rag/document/types";
 
 const props = defineProps<{
@@ -33,15 +34,11 @@ const form = reactive({
   title: "",
   folder_id: null as string | null,
   remark: "",
-  chunk_strategy: "auto",
+  chunk_strategy: "char",
 });
 
-// 分块策略选项：auto 有结构按章节、否则字符；structure 仅支持 md/docx/xlsx
-const chunkStrategyOptions = [
-  { label: "自动（推荐）", value: "auto" },
-  { label: "通用分块", value: "char" },
-  { label: "章节分块", value: "structure" },
-];
+// 分块策略选项：直接取全局词典（chunk_strategy 类型，字典管理页维护），字典为准
+const chunkStrategyOptions = computed(() => getChunkStrategyOptions());
 
 // 归属文件夹候选树（仅当前知识库内的文件夹）
 const folderTree = computed(() => buildFolderTree(props.folders));
@@ -63,7 +60,7 @@ watch(
     form.folder_id = props.defaultFolderId;
     form.title = "";
     form.remark = "";
-    form.chunk_strategy = "auto";
+    form.chunk_strategy = "char";
     selectedFile.value = null;
     dateRange.value = null;
     isSpreadsheet.value = false;
@@ -160,7 +157,7 @@ async function handleSubmit() {
             :value="o.value"
           />
         </el-select>
-        <div class="strategy-tip">章节分块按标题切分，仅支持 Markdown、DOCX、Excel</div>
+        <div class="strategy-tip">章节分块按标题切分（仅 Markdown、DOCX、Excel）；语义分块按内容相似度切分（所有格式）</div>
       </el-form-item>
       <el-form-item label="表格类">
         <!-- doc_type 由后端依据文件类型自动判定，此处随所选文件展示 -->

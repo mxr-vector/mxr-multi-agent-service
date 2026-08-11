@@ -1,5 +1,5 @@
 """
-BM25 稀疏向量编码器（中文 jieba 词法编码，主路径）。
+BM25 稀疏向量编码器（jieba 中文 + 英文词法编码，主路径）。
 
 背景：fastembed 的 Qdrant/bm25 模型 tokenizer 面向英文（空格分词），中文文本
 无空格，query 整句被哈希成单个 token，与文档侧 token 空间几乎无交集，导致
@@ -7,8 +7,10 @@ sparse 通道对中文 query 几乎零命中（混合检索实际退化为 dense
 评测（test/dataset01，1000 条分层抽样）验证 jieba 中文 BM25 使严格 Recall@10
 0.798 → 0.865、宽松 Recall@10 0.888 → 0.930。
 
-本编码器以 jieba 中文分词 + 词频（TF）权重产出稀疏向量，token 以稳定 hash
-映射为非负 int 下标；IDF 部分仍由 Qdrant 服务端（Modifier.IDF）按集合统计算。
+本编码器对中英双语统一支持：中文连续块走 jieba 分词，英文/数字块按空格与
+标点切词并统一小写（消除大小写导致的 token 错位），中英混合文本自动分流；
+以词频（TF）权重产出稀疏向量，token 以稳定 hash 映射为非负 int 下标；
+IDF 部分仍由 Qdrant 服务端（Modifier.IDF）按集合统计算。
 接口保持 embed_query / embed_documents（返回 qdrant_client.models.SparseVector），
 调用方（upsert_hybrid / hybrid_search / agent 检索）零改动。
 
@@ -33,6 +35,17 @@ _STOPWORDS = frozenset(
     "一个 这个 那个 ？ 。 ， 、 ： ； ！ （ ） ( ) 【 】 [ ] 《 》".split()
 )
 
+# 英文高频虚词（轻量集合；BM25 的 IDF 会再压高频词）
+_EN_STOPWORDS = frozenset(
+    "a an the and or but of in on at to for with by from as is are was were "
+    "be been being it its this that these those i you he she we they them his "
+    "her their our your do does did done have has had not no nor so if then "
+    "than while what which who whom when where why how all any each every few "
+    "more most other some such only own same too very can will just should "
+    "could would may might must about into over after before under again once "
+    "here there".split()
+)
+
 # 词 → 稳定非负 int 下标（crc32 截断；集合 token 规模数万，碰撞概率可忽略）
 _HASH_MASK = 0x7FFFFFFF
 
@@ -50,19 +63,35 @@ def _jieba():
     return jieba
 
 
-_SEG_SPLIT = re.compile(r"[\s，。？！、；：（）()【】\[\]《》\"'“”‘’…—\-:：,.;!?]+")
+# 分隔符切段（不含 ' 与 -：连字符/撇号词保留给 _MIX_BLOCK，如 O'Brien、state-of-the-art）
+_SEG_SPLIT = re.compile(r"[\s，。？！、；：（）()【】\[\]《》\"“”‘’…—:：,.;!?]+")
+
+# 中英混合文本分流：连续中文块 | 英文/数字块（含连字符/撇号，如 O'Brien）
+_MIX_BLOCK = re.compile(r"[\u4e00-\u9fff]+|[a-zA-Z0-9]+(?:['\-][a-zA-Z0-9]+)*")
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 def _tokenize(text: str) -> List[str]:
-    """jieba 分词 + 停用词过滤，保留单字/数字/字母（中文单字亦有区分度）。"""
+    """中英双语分词：中文连续块走 jieba，英文/数字块切词统一小写。
+
+    英文统一小写以消除大小写 token 错位（Football vs football）；
+    中英紧邻文本（如"使用Python开发"）由 _MIX_BLOCK 自动分流。
+    """
     tokens: List[str] = []
     for segment in _SEG_SPLIT.split(text):
         if not segment:
             continue
-        for word in _jieba().cut(segment):
-            word = word.strip()
-            if word and word not in _STOPWORDS:
-                tokens.append(word)
+        for block in _MIX_BLOCK.findall(segment):
+            if _CJK_RE.search(block):
+                for word in _jieba().cut(block):
+                    word = word.strip()
+                    if word and word not in _STOPWORDS:
+                        tokens.append(word)
+            else:
+                word = block.lower()
+                if word not in _EN_STOPWORDS:
+                    tokens.append(word)
     return tokens
 
 

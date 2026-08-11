@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
-import type { RagDocument, DocumentUpdatePayload } from "@/api/rag/document";
+import {
+  getChunkStrategyLabel,
+  type RagDocument,
+  type DocumentUpdatePayload,
+} from "@/api/rag/document";
 import { buildFolderTree, type Folder } from "@/api/rag/folders";
 
 const props = defineProps<{
@@ -51,9 +55,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const statusLabel = computed(() => STATUS_LABEL[props.document?.status ?? ""] ?? "未同步");
 
-// 分块策略展示：structure→章节分块，char/缺省（存量文档）→通用分块
+// 分块策略展示文案：以全局词典（chunk_strategy 类型）为准，未命中回退原始值
 const chunkStrategyLabel = computed(() =>
-  props.document?.metadata?.chunk_strategy === "structure" ? "章节分块" : "通用分块"
+  getChunkStrategyLabel(props.document?.metadata?.chunk_strategy as string | undefined)
 );
 
 /** ISO 时间转 "YYYY-MM-DD HH:mm:ss" 展示，空值回退占位符 */

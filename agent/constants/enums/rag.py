@@ -1,24 +1,14 @@
 """
-Agentic RAG 图相关的枚举常量（rag_graph 模块局部概念）。
+Agentic RAG 检索工具相关的枚举常量（agent.tools.rag_tools 使用的概念）。
 
-集中管理 LangGraph 节点名、路由标签、文档相关性打分与消息角色，
-避免在图定义与节点函数中散落魔法值字符串。
+集中管理二值判断分数与消息角色，避免在工具实现中散落魔法值字符串。
 """
 
 from enum import Enum
 
 
-class RagNode(str, Enum):
-    """RAG 图节点名（同时用于节点注册与边的引用，必须保持一致）。"""
-
-    RETRIEVE = "retrieve"
-    REFLECT = "reflect"
-    RERANK = "rerank"
-    GENERATE_ANSWER = "generate_answer"
-
-
 class GradeScore(str, Enum):
-    """二值判断分数（用于反思节点判断上下文是否充分）。"""
+    """二值判断分数（用于反思逻辑判断上下文是否充分）。"""
 
     YES = "yes"
     NO = "no"

@@ -24,8 +24,9 @@ docker.io/qdrant/qdrant
 5. 配置分两处：postgres/qdrant/embedding 等部署级配置在 `env/.env.development`；
    chat/rewrite/rerank/visual 模型与 RAG 运行参数在数据库，启动后于前端「模型管理 / 参数管理」页维护（免重启热更新）
 
-> **BM25 稀疏通道**：主路径为 jieba 中文分词编码器（`model/sparse/bm25.py`），纯本地实现，**无需下载任何模型**；
+> **BM25 稀疏通道**：主路径为 jieba 中英双语分词编码器（`model/sparse/bm25.py`，中文 jieba + 英文小写化切词，混合文本自动分流），纯本地实现，**无需下载任何模型**；
 > 旧 fastembed `Qdrant/bm25` 降级为 legacy（`legacy_*` 函数），仅供迁移回滚（`utils/migrate_sparse.py`）与对照评测。
+> 分词器升级后既有知识库需重算 sparse 向量：`uv run python utils/migrate_sparse.py --kb-id <uuid>`（dense/payload 保留）。
 
 ## 2. 检索存储方案选择
 
@@ -86,16 +87,16 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|严格（chunk 级）|0.395|0.722|0.665|0.484|0.748|0.349|0.748|0.174|0.762|
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|宽松（文档级）|0.782|0.782|0.830|0.277|0.847|0.169|0.847|0.085|0.808|
 |[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)|1,000 文档 / 1,926 叶块|文档级|0.345|0.990|0.689|0.826|0.837|0.683|0.951|0.444|0.991|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)|5,062 文档 / 6,328 叶块|诊断性（文档级，24/200 可辩护）|0.229|0.250|0.375|0.139|0.375|0.083|0.521|0.058|0.343|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)|500 条多语言 query（zh 200 + en 300，3 个 QA 子集）|诊断性（文档级，162/500 可辩护）|0.086|0.228|0.164|0.169|0.189|0.138|0.251|0.102|0.343|
 
-> 三个数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中文 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
+> 三个数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
 > 各数据集详细评测配置、±std 波动与口径说明见下方 4.1/4.2/4.3 小节。
 
 |功能|测试模型|
 |--|--- |
 | embedding | Qwen3-Embedding-4B |
 | rerank | Qwen3-Embedding-4B |
-| bm25（jieba） | jieba 中文 BM25（服务端 IDF，`model/sparse/bm25.py` 主路径） |
+| bm25（jieba） | jieba 中英双语 BM25（中文分词 + 英文小写切词，服务端 IDF，`model/sparse/bm25.py` 主路径） |
 
 ### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-06 重跑更新）
 
@@ -104,7 +105,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 
 **评测配置**：1000 条分层抽样（seed=42，覆盖 1,000 个页面）；按页面聚合建库
 （2,919 文档 / 23,953 叶块，两级切块 2000/400/80）；candidate_pool=50，final_top_k=5；
-**生产配置管线** = 混合检索（dense 语义 + jieba 中文 BM25 词法 RRF 融合）→ rerank 精排。
+**生产配置管线** = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排。
 
 **指标口径**：严格 = chunk 级（证据句命中具体叶块）；宽松 = 文档级（同页面任意叶块，按文档去重）。
 下表为生产配置（B 完整子图：反思多轮 + rerank）指标；A 纯检索（无反思无重排）见下方检索层上限。
@@ -149,7 +150,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 
 **评测配置**：受限语料口径——corpus 前 1000 条文档建库（1,000 文档 / 1,926 叶块）；
 candidate_pool=50，final_top_k=5，rerank=on；
-**生产配置管线** = 混合检索（dense 语义 + jieba 中文 BM25 词法 RRF 融合）→ rerank 精排
+**生产配置管线** = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排
 （Qwen3-Embedding-4B cohere 协议，本机 127.0.0.1:9527）。
 
 **指标口径**：文档级（gold = qrels → document_id，宏平均±std）。
@@ -171,34 +172,45 @@ candidate_pool=50，final_top_k=5，rerank=on；
   （支持 `--force/--max-corpus/--max-queries/--retry-failed/--no-rerank/--pool`），
   报告见 `test/dataset01/results/t2retrieval_dual_report.md`
 
-### 4.3 zai-org/LongBench 检索质量评测（诊断性，2026-08-09）
+### 4.3 zai-org/LongBench 多语言检索质量评测（诊断性，2026-08-11）
 
-数据集：[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)
-multifieldqa_zh（200 条全量）。
+数据集：[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)（THUDM/LongBench 镜像，中英双语）
+3 个 QA 类子集共 **500 条 query**：中文 multifieldqa_zh（200）+
+英文 multifieldqa_en（150，全量）/ hotpotqa（150，取前 150 条）。
 
 **评测配置**：每条 query 的 context 按换行切分为段落，每段落一个文档
-（5,062 段落文档 / 6,328 叶块，单块直存）；candidate_pool=50，rerank=on；
+（单块直存，超长段落走 ingest_file 两级切块）；candidate_pool=50，rerank=on；
 生产配置管线同上。
 
 **可辩护口径（诊断性披露）**：LongBench 无标准 retrieval qrels，本评测采用
-answer 子串命中 context 段落作为可辩护证据（段落级 → 文档级）；200 条 query 中
-仅 24 条可辩护（12%），其余 176 条 answer 无法在 context 中定位
+answer 子串命中 context 段落作为可辩护证据（段落级 → 文档级）；500 条 query 中
+仅 162 条可辩护（32.4%），其余 338 条 answer 无法在 context 中定位
 （answer_not_in_context），不参与指标、不伪造 MRR。结果仅供参考，不参与严格对比。
 
 | K | Recall@K | Precision@K |
 |---|---|---|
-| 1 | 0.229±0.416 | 0.250±0.442 |
-| 3 | 0.375±0.495 | 0.139±0.195 |
-| 5 | 0.375±0.495 | 0.083±0.117 |
-| 10 | 0.521±0.500 | 0.058±0.058 |
-| MRR | 0.343±0.411 | — |
+| 1 | 0.086±0.241 | 0.228±0.421 |
+| 3 | 0.164±0.311 | 0.169±0.227 |
+| 5 | 0.189±0.323 | 0.138±0.186 |
+| 10 | 0.251±0.360 | 0.102±0.145 |
+| MRR | 0.343±0.392 | — |
 
 **要点**：
-- 有效样本仅 24 条且 std 极大，指标仅供参考；LongBench 本质是问答数据集，
-  检索评测需自行构造 gold，不同构造口径的结果不可横向对比
-- 11 条初始失败（query 级瞬时超时/断连）经 `--retry-failed` 补跑清零（200/200，0 失败）
-- 评测工具链：`test/dataset01/eval/longbench_eval.py`（可辩护映射 + why 统计 + 诊断披露），
-  报告见 `test/dataset01/results/longbench_dual_report.md`
+- 多语言（中英）混合：中文 200 / 英文 300，3 个 QA 类子集（字段统一
+  input/context/answers/_id）；子集构成可经 `--subsets` 调整，本次取
+  multifieldqa_zh 全量 + multifieldqa_en 全量 + hotpotqa 前 150 条（共 500）
+- 可辩护 162/500（32.4%）：multifieldqa_zh 24 / multifieldqa_en 9 / hotpotqa 129；
+  按子集拆分 MRR：hotpotqa 0.351（n=129）/ zh 0.328（n=24）/ en 0.277（n=9）
+- sparse 通道已升级为**中英双语分词**（`model/sparse/bm25.py`：中文 jieba +
+  英文小写化切词 + 英文停用词，混合文本自动分流），英文 query 不再依赖
+  jieba 兜底（旧实现英文大小写敏感，词法通道会漏配）
+- 0 失败（500/500，rerank=on）；首跑 500 条全败系 rerank 角色 api_url 指向
+  本机死地址（127.0.0.1:9527，vLLM 已迁至 192.168.245.213），已修复为远端地址
+- 历史单语结果（2026-08-09，multifieldqa_zh 200 条全量，24/200 可辩护）：
+  MRR=0.343 / Recall@10=0.521 / Precision@1=0.250，作为多语言对比基线
+  （本次 zh 子集 24 条 MRR=0.328 与历史同源、口径一致，波动在 std 内）
+- 评测工具链：`test/dataset01/eval/longbench_eval.py`（--subsets/--max-queries
+  /--retry-failed 等），报告见 `test/dataset01/results/longbench_dual_report.md`
 
 ## 5. 快速开始
 
@@ -282,7 +294,7 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 
 ### 6.2 BM25 需要下载模型吗?
 
-不需要。主路径 jieba 中文 BM25（`model/sparse/bm25.py`）为纯本地分词编码，无模型下载；
+不需要。主路径 jieba 中英双语 BM25（`model/sparse/bm25.py`）为纯本地分词编码，无模型下载；
 仅回滚到 legacy fastembed `Qdrant/bm25` 时才需下载（`HF_ENDPOINT` 镜像 + `BM25_CACHE_DIR` 缓存）。
 
 ### 6.3 文档向量化失败（failed）?
