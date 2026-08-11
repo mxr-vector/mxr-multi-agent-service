@@ -4,7 +4,7 @@ from langchain_core.embeddings import Embeddings
 
 from model.embeddings.factory import get_embedding_client
 
-
+@deprecated
 class LangChainEmbeddingAdapter(Embeddings):
     """
     将统一封装的 BaseEmbeddingClient 适配为 LangChain 的 Embeddings 类型。
