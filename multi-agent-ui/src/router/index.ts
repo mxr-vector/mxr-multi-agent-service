@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import MainLayout from "@/layout/MainLayout.vue";
-import Workspace from "@/views/Workspace.vue";
+import UnderDevelopment from "@/components/ui/UnderDevelopment.vue";
 import { getToken } from "@/utils/auth";
 import { useMenuStore } from "@/stores/menuStore";
 import { useUserStore } from "@/stores/userStore";
@@ -8,7 +8,7 @@ import { useDictStore } from "@/stores/dictStore";
 import { navigationItems, type NavigationItem } from "./navigation";
 
 // 自动扫描 @/views 下的页面组件（登录页除外），生成 组件键 -> 异步加载函数 映射；
-// 键名规则：目录-文件（system/User.vue -> system-user），index.vue 取目录名（agents/index.vue -> agents），
+// 键名规则：目录-文件（system/User.vue -> system-user），index.vue 取目录名（overview/index.vue -> overview），
 // 非目录首页额外登记文件名短键（KnowledgeBase.vue -> knowledge-base），兼容后端菜单省略目录前缀的写法
 const pageModules = import.meta.glob(["@/views/**/*.vue", "!@/views/login/**"]);
 
@@ -33,17 +33,7 @@ for (const [file, loader] of Object.entries(pageModules)) {
   if (!viewIndex.has(shortKey)) viewIndex.set(shortKey, loader);
 }
 
-// 无法由文件路径自然推导的历史组件键别名（后端菜单仍在使用）
-const viewAliases: Record<string, string> = {
-  agent: "agents", // 后端菜单写作单数，目录为复数 agents
-};
-
-for (const [alias, target] of Object.entries(viewAliases)) {
-  const loader = viewIndex.get(normalizeViewKey(target));
-  if (loader) viewIndex.set(normalizeViewKey(alias), loader);
-}
-
-/** 依次用 component 键、路由名、路径末段解析页面组件，均未命中回退 Workspace 占位页 */
+/** 依次用 component 键、路由名、路径末段解析页面组件；均未命中回退「正在开发中」占位组件 */
 function resolveViewComponent(item: NavigationItem): RouteRecordRaw["component"] {
   const candidates = [item.component, item.name, item.path.split("/").pop()];
   for (const candidate of candidates) {
@@ -51,14 +41,14 @@ function resolveViewComponent(item: NavigationItem): RouteRecordRaw["component"]
     const loader = viewIndex.get(normalizeViewKey(candidate));
     if (loader) return loader as RouteRecordRaw["component"];
   }
-  return Workspace;
+  return UnderDevelopment;
 }
 
 /** 将导航项（静态或后端菜单转换结果）展开为 MainLayout 下的子路由记录 */
 function createChildRoutes(items: readonly NavigationItem[]): RouteRecordRaw[] {
   return items.flatMap((item) => {
     if (item.children?.length) return createChildRoutes(item.children);
-    // dir 目录仅作侧边栏分组，空目录不注册路由（否则会兜底渲染 Workspace 占位页）
+    // dir 目录仅作侧边栏分组，空目录不注册路由（否则会兜底渲染占位组件）
     if (item.type === "dir") return [];
     return {
       path: item.path.slice(1),
@@ -70,7 +60,7 @@ function createChildRoutes(items: readonly NavigationItem[]): RouteRecordRaw[] {
   });
 }
 
-// 静态路由仅含登录页与工作台/会话中心；其余路由登录后由后端菜单动态注册。
+// 静态路由仅含登录页与工作台；其余路由登录后由后端菜单动态注册。
 // 兜底重定向也随动态路由注册，避免刷新深链接时被提前劫持到 /overview。
 const routes: RouteRecordRaw[] = [
   // 登录页脱离 MainLayout，独立全屏渲染
