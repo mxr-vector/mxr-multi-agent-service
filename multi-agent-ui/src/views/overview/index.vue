@@ -16,7 +16,6 @@ const stats = computed(() => [
 
 // 快捷入口：跳转到各业务模块
 const shortcuts = computed(() => [
-  { icon: "chat", title: "会话中心", desc: "回顾近期对话与智能体产出", to: "/conversations" },
   { icon: "workflow", title: "工作流", desc: "编排可复用的自动化流程", to: "/workflows" },
   { icon: "agent", title: "智能体", desc: "创建、配置并监控你的智能体", to: "/agents" },
   { icon: "rag", title: "RAG 系统", desc: "管理知识库与文档", to: "/rag/knowledge-base" },

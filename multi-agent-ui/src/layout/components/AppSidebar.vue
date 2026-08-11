@@ -13,7 +13,7 @@ const route = useRoute();
 const menuStore = useMenuStore();
 const expandedItemNames = ref<string[]>(["rag"]);
 
-// 静态导航（工作台/会话中心）在前，后端路由菜单接口返回的动态菜单在后
+// 静态导航（工作台）在前，后端路由菜单接口返回的动态菜单在后
 const items = computed<readonly NavigationItem[]>(() => [
   ...navigationItems,
   ...menuStore.dynamicItems,

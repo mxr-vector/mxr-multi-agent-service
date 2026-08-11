@@ -62,6 +62,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     SearchInput: typeof import('./src/components/ui/SearchInput.vue')['default']
     SvgIcon: typeof import('./src/components/ui/SvgIcon.vue')['default']
+    UnderDevelopment: typeof import('./src/components/ui/UnderDevelopment.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

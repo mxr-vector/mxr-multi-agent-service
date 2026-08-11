@@ -18,7 +18,6 @@ export interface NavigationItem extends RouteMeta {
 /** icon 键 -> assets/icon/left_icon 下的资源基础名，供侧边栏与顶栏共用 */
 export const NAV_ICON_ASSET: Record<string, string> = {
   dashboard: "zhihuizhongxin",
-  chat: "zhishihudong",
   workflow: "lunhuantuguanli",
   rag: "shujufenxi",
   knowledge: "danganhe",
@@ -33,7 +32,7 @@ export const NAV_ICON_ASSET: Record<string, string> = {
   config: "bianmaguize",
 };
 
-/** 静态导航：仅保留工作台与会话中心，其余菜单均来自后端路由菜单接口 */
+/** 静态导航：仅保留工作台，其余菜单均来自后端路由菜单接口 */
 export const navigationItems: readonly NavigationItem[] = [
   {
     path: "/overview",
@@ -41,13 +40,6 @@ export const navigationItems: readonly NavigationItem[] = [
     label: "工作台",
     description: "掌握团队与任务的实时进展。",
     icon: "dashboard",
-  },
-  {
-    path: "/conversations",
-    name: "conversations",
-    label: "会话中心",
-    description: "回顾近期对话和智能体产出。",
-    icon: "chat",
   },
 ];
 
