@@ -22,18 +22,19 @@ const providerLabel = computed(() =>
         : ""
 );
 
-/** 角色标签配色（仅视觉区分，无业务语义） */
-const ROLE_TAG: Record<string, string> = {
-    chat: "primary",
-    rewrite: "success",
-    visual: "warning",
-    rerank: "info",
-    image: "danger",
-};
+/** 模型角色分类（字典 model_types：value 为角色 key，label 为中文名） */
+const modelTypes = computed(() => dictStore.getOptions("model_types"));
+
+/** 角色标签配色（仅视觉区分，无业务语义；按字典顺序循环取色，新增角色自动分配） */
+const ROLE_COLORS = ["primary", "success", "warning", "info", "danger"];
 
 function tagType(role: string) {
-    return ROLE_TAG[role] ?? "info";
+    const idx = modelTypes.value.findIndex((d) => d.value === role);
+    return idx >= 0 ? ROLE_COLORS[idx % ROLE_COLORS.length] : "info";
 }
+
+/** 角色展示名：命中字典 model_types 取中文 label，未命中回退英文 role */
+const roleLabel = computed(() => dictStore.getLabel("model_types", props.config.role));
 </script>
 
 <template>
@@ -41,7 +42,7 @@ function tagType(role: string) {
         <template #header>
             <div class="model-card__header">
                 <span class="model-card__title">{{ config.name }}</span>
-                <el-tag :type="tagType(config.role)" size="small">{{ config.role }}</el-tag>
+                <el-tag :type="tagType(config.role)" size="small">{{ roleLabel }}</el-tag>
             </div>
         </template>
 
