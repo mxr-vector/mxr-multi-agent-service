@@ -33,6 +33,7 @@ INT_SCALAR_KEYS = (
     "RAG_REFLECT_ROUND_CAP",
     "CHAT_CHECKPOINT_TTL_DAYS",
     "CHAT_HISTORY_MAX_MESSAGES",
+    "CHAT_MAX_OUTPUT_TOKENS",
 )
 # 自托管 drawio embed 实例地址（http(s) URL，前端 iframe 加载与 postMessage origin 校验用）
 DRAWIO_EMBED_URL_KEY = "DRAWIO_EMBED_URL"
@@ -87,6 +88,7 @@ class ConfigSnapshot:
     rag_reflect_round_cap: int
     chat_checkpoint_ttl_days: int
     chat_history_max_messages: int
+    chat_max_output_tokens: int
     drawio_embed_url: str
 
 
@@ -185,6 +187,7 @@ async def _build_snapshot() -> ConfigSnapshot:
         rag_reflect_round_cap=scalars["RAG_REFLECT_ROUND_CAP"],
         chat_checkpoint_ttl_days=scalars["CHAT_CHECKPOINT_TTL_DAYS"],
         chat_history_max_messages=scalars["CHAT_HISTORY_MAX_MESSAGES"],
+        chat_max_output_tokens=scalars["CHAT_MAX_OUTPUT_TOKENS"],
         drawio_embed_url=drawio_embed_url,
     )
 
@@ -288,6 +291,10 @@ class _ConfigManager:
     @property
     def chat_history_max_messages(self) -> int:
         return self._current.chat_history_max_messages
+
+    @property
+    def chat_max_output_tokens(self) -> int:
+        return self._current.chat_max_output_tokens
 
     @property
     def drawio_embed_url(self) -> str:
