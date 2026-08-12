@@ -57,12 +57,7 @@ INSERT INTO sys.sys_dict_data (id,dict_type,"label",value,sort_order,is_default,
 	 ('019fd75a-69ca-7385-b0a8-049f8c538112'::uuid,'sse_event','feed','feed',0,false,'active','追问','2026-08-06 21:54:14.532','2026-08-06 21:54:14.532'),
 	 ('019feef7-e14e-7ab9-824b-b6a626d881f0', 'chunk_strategy', '通用标点分块', 'char', 0, true, 'active', null, '2026-08-11 03:57:30.313879 +00:00', '2026-08-11 03:58:47.340032 +00:00'),
 	 ('019feef8-848a-7137-8b25-611cd525a44f', 'chunk_strategy', '语义分块', 'semantic', 1, false, 'active', null, '2026-08-11 03:58:12.101374 +00:00', '2026-08-11 03:58:55.851215 +00:00'),
-	 ('019feef8-2bba-7798-8a9e-4ce26330f3dc', 'chunk_strategy', '章节分块', 'structure', 2, false, 'active', null, '2026-08-11 03:57:49.366409 +00:00', '2026-08-11 03:59:03.106178 +00:00'),
-	 ('019ff38a-04c9-77b1-84e8-56d53f9231f8', 'model_type', '多模态模型', 'visual', 0, false, 'active', null, '2026-08-12 01:15:36.514422 +00:00', '2026-08-12 01:15:36.514422 +00:00'),
-	 ('019ff38a-42cd-7c95-ac5c-a4720bedbf36', 'model_type', '改写压缩模型', 'rewrite', 0, false, 'active', null, '2026-08-12 01:15:52.393948 +00:00', '2026-08-12 01:15:52.393948 +00:00'),
-	 ('019ff38a-6f8c-7502-8f73-9d9951511091', 'model_type', '对话模型', 'chat', 0, false, 'active', null, '2026-08-12 01:16:03.848333 +00:00', '2026-08-12 01:16:03.848333 +00:00'),
-	 ('019ff38a-96f0-7072-a10b-a25915b5c500', 'model_type', '重排序模型', 'rerank', 0, false, 'active', null, '2026-08-12 01:16:13.933348 +00:00', '2026-08-12 01:16:13.933348 +00:00');
-;
+	 ('019feef8-2bba-7798-8a9e-4ce26330f3dc', 'chunk_strategy', '章节分块', 'structure', 2, false, 'active', null, '2026-08-11 03:57:49.366409 +00:00', '2026-08-11 03:59:03.106178 +00:00');
 
 --
 -- TOC entry 5155 (class 0 OID 24864)
@@ -77,9 +72,7 @@ INSERT INTO sys.sys_dict_type (id,"name","type",status,remark,created_at,updated
 	 ('019fb769-bd93-707d-8246-edec3110ab27'::uuid,'模型上下文窗口','context_window','active',NULL,'2026-07-31 17:03:08.176','2026-07-31 17:21:50.180'),
 	 ('019fd72f-7363-7768-8fc9-79e7d2bb291b'::uuid,'嵌入模型协议','embedding_provider','active',NULL,'2026-08-06 21:07:18.399','2026-08-06 21:07:18.399'),
 	 ('019fd757-6342-7eee-b1f9-2faf833db3d8'::uuid,'SSE事件','sse_event','active',NULL,'2026-08-06 21:50:56.284','2026-08-06 21:50:56.284'),
-	 ('019feef7-72bb-7615-a9aa-64f7ec5974aa', 'chunk策略', 'chunk_strategy', 'active', null, '2026-08-11 03:57:02.008430 +00:00', '2026-08-11 03:57:02.008430 +00:00'),
-	 ('019ff389-9ade-7518-b2dc-1b1a1ded962b', '模型类型', 'model_type', 'active', null, '2026-08-12 01:15:09.401847 +00:00', '2026-08-12 01:15:09.401847 +00:00');
-
+	 ('019feef7-72bb-7615-a9aa-64f7ec5974aa', 'chunk策略', 'chunk_strategy', 'active', null, '2026-08-11 03:57:02.008430 +00:00', '2026-08-11 03:57:02.008430 +00:00');
 --
 -- TOC entry 5161 (class 0 OID 24985)
 -- Dependencies: 228
