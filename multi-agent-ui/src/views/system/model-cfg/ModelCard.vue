@@ -28,6 +28,7 @@ const ROLE_TAG: Record<string, string> = {
     rewrite: "success",
     visual: "warning",
     rerank: "info",
+    image: "danger",
 };
 
 function tagType(role: string) {
@@ -61,9 +62,9 @@ function tagType(role: string) {
                 <dt>Provider</dt>
                 <dd>{{ providerLabel }}</dd>
             </div>
-            <div v-if="config.timeout !== null" class="model-card__row">
+            <div v-if="config.timeout !== null || config.max_retries !== null" class="model-card__row">
                 <dt>超时 / 重试</dt>
-                <dd>{{ config.timeout }}s / {{ config.max_retries ?? "—" }} 次</dd>
+                <dd>{{ config.timeout ?? "—" }}s / {{ config.max_retries ?? "—" }} 次</dd>
             </div>
             <div v-if="config.role === 'chat'" class="model-card__row">
                 <dt>上下文窗口</dt>

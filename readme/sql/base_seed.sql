@@ -109,6 +109,7 @@ INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-76ec-ac2e-34c3c8a588b7',
 INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-4B', 'http://127.0.0.1:9527', '95279527', 'cohere', NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:17.41671+08');
 INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '', NULL, 60, 2, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:08:56.0961+08');
 INSERT INTO sys.sys_model_config VALUES ('019fb5e7-d9ce-7c24-8853-c06e3c973c8e', 'rewrite', '改写压缩模型', 'Qwen3.5-2B', 'http://127.0.0.1:9528/v1', '95279527', NULL, NULL, NULL, 200000, NULL, true, NULL, '2026-07-31 10:01:38.510209+08', '2026-07-31 10:39:04.185031+08');
+INSERT INTO sys.sys_model_config VALUES('019ff50f-47ad-767b-98fe-f3fa59f511f1', 'image', '图像模型', 'gpt-5.6-terra', 'https://api.openai.com/v1', '95279527', null, 60, 2, null, true, null, '2026-08-12 08:20:47.149101 +00:00', '2026-08-12 08:29:40.768145 +00:00', 200000);
 
 
 --
