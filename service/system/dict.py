@@ -173,11 +173,11 @@ class DictDataService:
             )
             return build_page_result([i.to_dict() for i in items], total, page, size)
 
-    async def list_by_type(self, dict_type: str) -> list[dict]:
-        """按类型键取全量字典项（sort_order 升序），供前端下拉框消费。"""
+    async def list_by_type(self, dict_type: str, status: str = "") -> list[dict]:
+        """按类型键取全量字典项（sort_order 升序），status 非空时按状态过滤，供前端下拉框消费。"""
         async with get_session() as session:
             repo = DictDataRepository(session)
-            items = await repo.list_by_type(dict_type)
+            items = await repo.list_by_type(dict_type, status=status)
             return [i.to_dict() for i in items]
 
     async def get(self, dict_data_id: uuid.UUID) -> dict:

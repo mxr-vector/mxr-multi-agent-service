@@ -3,8 +3,9 @@
 
 设计（见 openspec/changes/add-model-config-hot-reload/design.md D2/D3）：
 - 读写分离：数据库读取是 async，而模型工厂等消费方是同步函数。CFG 在启动时
-  一次性把 sys_model_config（chat/rewrite/visual/rerank/image 五行）与
-  sys_config 白名单标量参数加载为不可变快照，运行期以同步属性访问读取（零 IO）。
+  一次性把 sys_model_config 全部角色行（角色集合来自字典 model_types，运行期
+  可增删）与 sys_config 白名单标量参数加载为不可变快照，运行期以同步属性
+  访问读取（零 IO）。
 - fail-fast：`await CFG.load()` 在 lifespan 启动执行，任一必需项缺失或校验失败
   即抛异常拒绝启动（与 ENV_CONFIG.require 语义一致）。
 - 写时刷新 + last-known-good：配置写接口 commit 成功后调用 `await CFG.refresh()`，
@@ -24,8 +25,10 @@ from database.system.config import ConfigRepository
 from database.system.model_config import ModelConfigRepository
 from utils.logger import logger
 
-# 全部模型角色（sys_model_config.role），各行必须齐全（缺一行即拒绝启动）
-MODEL_ROLES = ("chat", "rewrite", "visual", "rerank", "image")
+# 模型角色分类字典类型键（sys_dict_type.type / sys_dict_data.dict_type）：
+# 字典项的 value 即 sys_model_config.role，新增模型类型只需维护字典与配置行，
+# 无需改代码（对齐前端 ModelCard 的 model_types 消费约定）
+MODEL_TYPES_DICT_KEY = "model_types"
 # 正整数标量运行参数键（sys_config.key），全部为必需正整数
 INT_SCALAR_KEYS = (
     "RAG_CANDIDATE_POOL_SIZE",
@@ -77,13 +80,14 @@ class ModelRoleConfig:
 
 @dataclass(frozen=True)
 class ConfigSnapshot:
-    """一次加载得到的完整配置快照（不可变；刷新时整体原子替换）。"""
+    """一次加载得到的完整配置快照（不可变；刷新时整体原子替换）。
 
-    chat: ModelRoleConfig
-    rewrite: ModelRoleConfig
-    visual: ModelRoleConfig
-    rerank: ModelRoleConfig
-    image: ModelRoleConfig
+    roles 为 {模型角色: 配置} 映射：角色集合来自字典 model_types（运行期可
+    增删），新增模型类型只需维护字典与 sys_model_config 行，无需改代码；
+    标量运行参数仍为固定契约字段。
+    """
+
+    roles: dict[str, ModelRoleConfig]
     rag_candidate_pool_size: int
     rag_final_top_k: int
     rag_reflect_round_cap: int
@@ -152,6 +156,27 @@ def _coerce_http_url(key: str, raw: str | None, errors: list[str]) -> str:
     return value
 
 
+async def _load_model_roles() -> tuple[str, ...]:
+    """从字典 model_types 读取全部启用模型角色（value 即 sys_model_config.role）。
+
+    角色集合随字典增删自动变化：新增模型类型只需在系统字典维护 model_types
+    项并插入对应 sys_model_config 行，无需改代码；字典类型缺失或没有任何
+    启用项时抛错拒绝启动（fail-fast，语义与 ENV_CONFIG.require 一致）。
+    字典数据属系统字典模块，统一经 DictDataService 查询（不直接触碰其 repository），
+    status="active" 由 service 过滤，仅返回启用角色。
+    """
+    from service.system.dict import DictDataService
+
+    rows = await DictDataService().list_by_type(MODEL_TYPES_DICT_KEY, status="active")
+    roles = tuple(row["value"] for row in rows)
+    if not roles:
+        raise ValueError(
+            f"缺少模型角色分类字典: {MODEL_TYPES_DICT_KEY}"
+            "（请先在系统字典中维护模型类型）"
+        )
+    return roles
+
+
 async def _build_snapshot() -> ConfigSnapshot:
     """从数据库全量加载并校验，返回不可变快照；任一必需项缺失/非法则抛 ValueError。"""
     errors: list[str] = []
@@ -159,10 +184,12 @@ async def _build_snapshot() -> ConfigSnapshot:
         model_rows = await ModelConfigRepository(session).list()
         config_repo = ConfigRepository(session)
         scalar_raw = {key: (await config_repo.get_by_key(key)) for key in SCALAR_KEYS}
+    # 字典数据经 DictDataService 查询（service 内部自管会话）
+    model_roles = await _load_model_roles()
 
     by_role = {row.role: row for row in model_rows}
     roles = {
-        role: _coerce_role(role, by_role.get(role), errors) for role in MODEL_ROLES
+        role: _coerce_role(role, by_role.get(role), errors) for role in model_roles
     }
     scalars = {
         key: _coerce_positive_int(
@@ -179,11 +206,7 @@ async def _build_snapshot() -> ConfigSnapshot:
         raise ValueError("配置快照加载失败：\n- " + "\n- ".join(errors))
 
     return ConfigSnapshot(
-        chat=roles["chat"],
-        rewrite=roles["rewrite"],
-        visual=roles["visual"],
-        rerank=roles["rerank"],
-        image=roles["image"],
+        roles=roles,
         rag_candidate_pool_size=scalars["RAG_CANDIDATE_POOL_SIZE"],
         rag_final_top_k=scalars["RAG_FINAL_TOP_K"],
         rag_reflect_round_cap=scalars["RAG_REFLECT_ROUND_CAP"],
@@ -195,7 +218,11 @@ async def _build_snapshot() -> ConfigSnapshot:
 
 
 class _ConfigManager:
-    """配置快照单例管理器：启动加载、写时刷新、运行期同步读取。"""
+    """配置快照单例管理器：启动加载、写时刷新、运行期同步读取。
+
+    模型角色配置通过 __getattr__ 按角色名动态访问（CFG.<role>），角色集合
+    由字典 model_types 决定；标量运行参数保持显式 property。
+    """
 
     def __init__(self) -> None:
         self._snapshot: ConfigSnapshot | None = None
@@ -204,7 +231,8 @@ class _ConfigManager:
         """lifespan 启动加载；失败直接抛出以拒绝启动（fail-fast）。"""
         self._snapshot = await _build_snapshot()
         logger.info(
-            f"[CFG] 配置快照加载完成（模型角色 {len(MODEL_ROLES)} + 标量参数 {len(SCALAR_KEYS)}）"
+            f"[CFG] 配置快照加载完成（模型角色 {len(self._snapshot.roles)}"
+            f" + 标量参数 {len(SCALAR_KEYS)}）"
         )
 
     def load_blocking(self) -> None:
@@ -256,26 +284,20 @@ class _ConfigManager:
             )
         return self._snapshot
 
-    # ---------- 模型角色配置（同步读取） ----------
-    @property
-    def chat(self) -> ModelRoleConfig:
-        return self._current.chat
+    # ---------- 模型角色配置（同步读取；角色集合来自字典 model_types） ----------
+    def __getattr__(self, name: str) -> ModelRoleConfig:
+        """按角色名读取模型配置（CFG.<role>，角色由字典 model_types 动态决定）。
 
-    @property
-    def rewrite(self) -> ModelRoleConfig:
-        return self._current.rewrite
-
-    @property
-    def visual(self) -> ModelRoleConfig:
-        return self._current.visual
-
-    @property
-    def rerank(self) -> ModelRoleConfig:
-        return self._current.rerank
-
-    @property
-    def image(self) -> ModelRoleConfig:
-        return self._current.image
+        新增模型类型无需修改本类；角色名不存在时抛 AttributeError，快照未加载
+        时由 _current 抛出明确 RuntimeError。
+        """
+        roles = self._current.roles
+        if name in roles:
+            return roles[name]
+        raise AttributeError(
+            f"模型角色不在配置快照中: {name!r}"
+            "（字典 model_types 未定义该分类，或 sys_model_config 缺少对应角色行）"
+        )
 
     # ---------- 标量运行参数（同步读取） ----------
     @property
