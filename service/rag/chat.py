@@ -410,7 +410,7 @@ class ChatCompletionService:
                 if mode == "messages":
                     chunk, metadata = payload
                     # 仅放行 respond 节点（含其内部工具循环/子调用）的 token；
-                    # condense 改写与工具内反思模型的 token 不外流。
+                    # 工具内反思模型的 token 不外流。
                     # 工具调用轮次模型的 content 通常为空（纯 tool_calls），
                     # 空增量不产生 answer 帧；个别模型输出的调用前文字会一并外流，
                     # 属可接受展示（Qwen/vLLM 系实测为空）。
@@ -424,15 +424,7 @@ class ChatCompletionService:
                     for node_name, update in (payload or {}).items():
                         if not isinstance(update, dict):
                             continue
-                        if node_name == ChatNode.CONDENSE.value:
-                            standalone = update.get("standalone_question")
-                            if standalone and standalone != question:
-                                text = f"已将问题改写为：{standalone}"
-                            else:
-                                text = "正在理解问题..."
-                            think_parts.append(text)
-                            _put(SseEvent.THINK, {"text": text})
-                        elif node_name == ChatNode.RESPOND.value:
+                        if node_name == ChatNode.RESPOND.value:
                             sources = update.get("sources") or []
                             metrics = update.get("metrics") or {}
                 elif mode == "custom":

@@ -13,7 +13,6 @@ from utils.logger import logger
 class ChatNode(str, Enum):
     """chat 父图节点名（同时用于节点注册与边的引用，必须保持一致）。"""
 
-    CONDENSE = "condense"
     RESPOND = "respond"
 
 

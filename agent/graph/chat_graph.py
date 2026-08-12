@@ -2,22 +2,21 @@
 Chat 问答父图（LangGraph）—— 多轮编排 + Agentic 检索工具 + 流式生成。
 
 职责划分：
-- 父图负责多轮状态管理（checkpointer 恢复 messages 历史）、condense 问题改写、
-  流式生成答案与结构化 sources；
-- 检索不再由独立节点/子图驱动，而是收敛为对话模型可自主调用的工具
-  （knowledge_base_search / web_search，见 agent.tools.rag_tools）：
-  respond 节点给对话模型 bind_tools 后进入工具调用循环，模型自主决定
-  何时检索、是否改写查询再检；混合召回/反思自纠错/重排序均在工具内部完成。
+- 父图负责多轮状态管理（checkpointer 恢复 messages 历史）、将历史注入系统
+  提示供对话模型自主消解指代、流式生成答案与结构化 sources；
+- 检索与问题改写均由对话模型自主决策：模型绑定
+  knowledge_base_search / web_search 工具（见 agent.tools.rag_tools）后进入
+  工具调用循环，模型自行判断当前问题是否依赖历史指代、需要时以改写后的
+  独立查询调用检索工具；混合召回/反思自纠错/重排序均在工具内部完成。
 
 节点（全部 async）：
-- condense：无历史时直通；有历史时用 rewrite/compression 模型把当前问题
-  改写为指代清晰的独立问题；checkpointer 无历史（TTL 已清理/存量会话）时
-  回落业务表 rag.chat_messages 读最近 N 条作为改写历史（业务表是事实源）；
-- respond：Agentic 回答节点——bind_tools 检索工具后逐轮调用对话模型，
-  模型返回 tool_calls 则执行对应工具（ToolMessage 回填后继续），无 tool_calls
-  则流式输出最终答案并构造结构化 sources；工具结果按全局编号 [n] 引用，
-  与 sources.index 严格对应。该节点内的模型调用 token 经
-  astream(stream_mode="messages") 外流，检索进度经 stream_mode="custom" 外发。
+- respond：Agentic 回答节点——系统提示注入对话历史与可用知识库 id，
+  bind_tools 检索工具后逐轮调用对话模型：模型返回 tool_calls 则执行对应
+  工具（ToolMessage 回填后继续），无 tool_calls 则流式输出最终答案并构造
+  结构化 sources；checkpointer 无历史（TTL 已清理/存量会话）时回落业务表
+  rag.chat_messages 读最近 N 条作为历史（业务表是事实源）。工具结果按
+  全局编号 [n] 引用，与 sources.index 严格对应。该节点内的模型调用 token
+  经 astream(stream_mode="messages") 外流，检索进度经 stream_mode="custom" 外发。
 
 入口：模块级单例 `chat_graph = ChatGraph()`，通过 `chat_graph.get()` 惰性编译
 （依赖 lifespan 已装配的 checkpointer，模块 import 期不建连不编译）。
@@ -42,7 +41,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from agent.constants.enums.chat import ChatNode, ChatRole
-from agent.prompts.chat import AGENT_PROMPT, CONDENSE_PROMPT
+from agent.prompts.chat import AGENT_PROMPT
 from agent.tools.rag_tools import (
     TOOL_IMPLS,
     TOOL_KNOWLEDGE_BASE_SEARCH,
@@ -50,7 +49,6 @@ from agent.tools.rag_tools import (
     ToolOutcome,
 )
 from model.chat.factory import build_chat_model
-from model.compression.factory import build_compression_model
 from core.config_snapshot import CFG
 from utils.logger import logger
 
@@ -58,10 +56,8 @@ from utils.logger import logger
 class ChatState(MessagesState):
     """父图状态：messages 跨轮累积（checkpointer 持久化），其余字段每轮覆盖。"""
 
-    # 本轮原始问题
+    # 本轮原始问题（改写决策由 respond 节点内对话模型自主决定）
     question: str
-    # condense 改写后的独立问题（无历史时等于原始问题）
-    standalone_question: str
     # 本轮检索范围（hex 无连字符列表，消息级，由调用方解析后传入）
     kb_ids: List[str]
     # 联网搜索开关（True 时绑定 web_search 工具，模型可见可调用）
@@ -176,32 +172,12 @@ class ChatGraph:
         return merged
 
     # ---------- 节点 ----------
-    async def condense_node(self, state: ChatState, config: RunnableConfig):
-        """结合历史把当前问题改写为独立问题；无任何历史时直通原问题。"""
-        question = state["question"]
-        # messages 末尾是本轮刚追加的 HumanMessage，历史取其之前的部分
-        history_messages = state["messages"][:-1]
-        max_messages = CFG.chat_history_max_messages
-        history = self._format_history(history_messages, max_messages)
+    async def respond_node(self, state: ChatState, config: RunnableConfig):
+        """Agentic 回答节点：对话模型自主决定改写与检索，循环至无工具调用后生成答案。
 
-        if not history:
-            # checkpoint 无历史（新会话 / TTL 已清理 / 存量会话）：回落业务表
-            thread_id = (config.get("configurable") or {}).get("thread_id")
-            history = await self._load_fallback_history(thread_id, max_messages)
-
-        if not history:
-            # 首轮：无需改写，节约一次模型调用
-            return {"standalone_question": question}
-
-        prompt = CONDENSE_PROMPT.format(history=history, question=question)
-        response = await build_compression_model().ainvoke(
-            [{"role": ChatRole.USER.value, "content": prompt}]
-        )
-        standalone = (response.content or "").strip() or question
-        return {"standalone_question": standalone}
-
-    async def respond_node(self, state: ChatState):
-        """Agentic 回答节点：对话模型自主调用检索工具，循环至无工具调用后生成答案。
+        问题改写决策属于对话模型：系统提示注入对话历史（checkpointer 无历史
+        时回落业务表，见 _load_fallback_history），模型自行判断当前问题是否
+        依赖指代、需要时以改写后的独立查询调用检索工具。
 
         工具循环：bind_tools([knowledge_base_search, web_search?]) 后逐轮调用模型——
         模型返回 tool_calls 则按 TOOL_IMPLS 分派执行（混合检索/反思自纠错/重排序
@@ -217,16 +193,23 @@ class ChatGraph:
         """
         writer = self._safe_stream_writer()
         question = state["question"]
-        standalone = state.get("standalone_question") or question
+        # messages 末尾是本轮刚追加的 HumanMessage，历史取其之前的部分；
+        # checkpoint 无历史（新会话 / TTL 已清理 / 存量会话）：回落业务表
+        history_messages = state["messages"][:-1]
         history = self._format_history(
-            state["messages"][:-1], CFG.chat_history_max_messages
+            history_messages, CFG.chat_history_max_messages
         )
+        if not history:
+            thread_id = (config.get("configurable") or {}).get("thread_id")
+            history = await self._load_fallback_history(
+                thread_id, CFG.chat_history_max_messages
+            )
         kb_hint = ", ".join(state.get("kb_ids") or []) or "（未指定，检索返回空）"
         msgs: List[BaseMessage] = [
             SystemMessage(
                 content=AGENT_PROMPT.format(history=history, knowledge_base_ids=kb_hint)
             ),
-            HumanMessage(content=standalone),
+            HumanMessage(content=question),
         ]
         # use_web_search=False 时不绑定 web_search 工具（模型不可见，开关语义保留）
         tools = [TOOL_KNOWLEDGE_BASE_SEARCH]
@@ -341,11 +324,9 @@ class ChatGraph:
         """构建并编译 chat 父图；checkpointer 由调用方（lifespan 装配层）传入。"""
         workflow = StateGraph(ChatState)
 
-        workflow.add_node(ChatNode.CONDENSE.value, self.condense_node)
         workflow.add_node(ChatNode.RESPOND.value, self.respond_node)
 
-        workflow.add_edge(START, ChatNode.CONDENSE.value)
-        workflow.add_edge(ChatNode.CONDENSE.value, ChatNode.RESPOND.value)
+        workflow.add_edge(START, ChatNode.RESPOND.value)
         workflow.add_edge(ChatNode.RESPOND.value, END)
 
         return workflow.compile(checkpointer=checkpointer)

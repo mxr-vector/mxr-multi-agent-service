@@ -110,7 +110,7 @@ async def cleanup_expired_checkpoints() -> int:
 
     以 rag.chat_sessions.last_message_at 早于 CFG.chat_checkpoint_ttl_days
     为过期判据（业务表是事实源），逐一删除对应 thread 的 checkpoint 数据；
-    业务表中的会话与消息完整保留（过期会话续聊由 condense 回落业务表历史）。
+    业务表中的会话与消息完整保留（过期会话续聊由 respond 回落业务表历史）。
     """
     saver = get_checkpointer()
     threshold = datetime.now(timezone.utc) - timedelta(
