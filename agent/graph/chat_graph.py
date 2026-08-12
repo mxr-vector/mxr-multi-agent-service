@@ -44,9 +44,9 @@ from agent.constants.enums.chat import ChatNode, ChatRole
 from agent.prompts.chat import AGENT_PROMPT
 from agent.tools.rag_tools import (
     TOOL_IMPLS,
-    TOOL_KNOWLEDGE_BASE_SEARCH,
-    TOOL_WEB_SEARCH,
     ToolOutcome,
+    knowledge_base_search,
+    web_search,
 )
 from model.chat.factory import build_chat_model
 from core.config_snapshot import CFG
@@ -212,9 +212,9 @@ class ChatGraph:
             HumanMessage(content=question),
         ]
         # use_web_search=False 时不绑定 web_search 工具（模型不可见，开关语义保留）
-        tools = [TOOL_KNOWLEDGE_BASE_SEARCH]
+        tools = [knowledge_base_search]
         if state.get("use_web_search"):
-            tools.append(TOOL_WEB_SEARCH)
+            tools.append(web_search)
         reasoning_effort = state.get("reasoning_effort")
         model = build_chat_model(reasoning_effort=reasoning_effort).bind_tools(tools)
 
