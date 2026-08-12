@@ -34,6 +34,7 @@ from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
+    RemoveMessage,
     SystemMessage,
     ToolMessage,
 )
@@ -51,6 +52,12 @@ from agent.tools.rag_tools import (
 from model.chat.factory import build_chat_model
 from core.config_snapshot import CFG
 from utils.logger import logger
+from utils.token_count import count_messages_tokens, count_tokens
+
+# 输入预算安全边际：context_window 的固定比例（覆盖 tiktoken 估算偏差）
+_INPUT_BUDGET_SAFETY_MARGIN = 0.10
+# 历史文本行级固定开销（行分隔符/角色标记）
+_LINE_FIXED_TOKENS = 2
 
 
 class ChatState(MessagesState):
@@ -101,9 +108,12 @@ class ChatGraph:
 
     @staticmethod
     async def _load_fallback_history(
-        session_id_hex: str | None, max_messages: int
+        session_id_hex: str | None,
+        max_messages: int,
+        history_budget: int,
+        model_name: str,
     ) -> str:
-        """checkpointer 无历史时回落业务表读最近 N 条消息（业务表是事实源）。"""
+        """checkpointer 无历史时回落业务表读最近 N 条消息并过输入预算裁剪。"""
         if not session_id_hex:
             return ""
         # 局部导入：避免 agent 层与 database 层在模块加载期的耦合
@@ -124,7 +134,7 @@ class ChatGraph:
             if record.content
             and record.role in (ChatRole.USER.value, ChatRole.ASSISTANT.value)
         ]
-        return "\n".join(lines)
+        return ChatGraph._trim_text_lines_to_budget(lines, history_budget, model_name)
 
     @staticmethod
     def _safe_stream_writer():
@@ -171,6 +181,99 @@ class ChatGraph:
                 merged.append(doc)
         return merged
 
+    # ---------- 输入预算守卫 ----------
+    @staticmethod
+    def _input_budget() -> int:
+        """输入预算 = context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。"""
+        context_window = CFG.chat.context_window
+        return context_window - CFG.chat_max_output_tokens - int(
+            context_window * _INPUT_BUDGET_SAFETY_MARGIN
+        )
+
+    @staticmethod
+    def _trim_messages_to_budget(
+        messages: List[BaseMessage], budget: int, model_name: str
+    ) -> Tuple[List[BaseMessage], List[str]]:
+        """从最旧丢弃历史消息直到估算 ≤ 预算；返回 (保留列表, 被删消息 id 列表)。
+
+        预算 ≤ 0（固定开销已超限）时全部丢弃，系统提示与本轮问题仍由
+        _ensure_within_budget 尽力兜底。
+        """
+        if budget <= 0:
+            return [], [m.id for m in messages if getattr(m, "id", None)]
+        costs = [count_messages_tokens(model_name, [m]) for m in messages]
+        acc = 0
+        keep_count = 0
+        for cost in reversed(costs):
+            if acc + cost > budget:
+                break
+            acc += cost
+            keep_count += 1
+        kept = messages[-keep_count:] if keep_count else []
+        removed_ids = [
+            m.id
+            for m in messages[: len(messages) - keep_count]
+            if getattr(m, "id", None)
+        ]
+        if removed_ids:
+            logger.warning(
+                f"[CHAT] 输入预算裁剪：丢弃 {len(removed_ids)} 条历史消息"
+                f"（预算 {budget} token）"
+            )
+        return kept, removed_ids
+
+    @staticmethod
+    def _trim_text_lines_to_budget(
+        lines: List[str], budget: int, model_name: str
+    ) -> str:
+        """从最旧丢弃文本行直到估算 ≤ 预算（fallback 历史用，无消息 id 可删）。"""
+        if budget <= 0 or not lines:
+            return ""
+        acc = 0
+        kept: List[str] = []
+        for line in reversed(lines):
+            cost = count_tokens(model_name, line) + _LINE_FIXED_TOKENS
+            if acc + cost > budget:
+                break
+            acc += cost
+            kept.append(line)
+        if len(kept) < len(lines):
+            logger.warning(
+                f"[CHAT] fallback 历史预算裁剪：{len(lines)} → {len(kept)} 行"
+                f"（预算 {budget} token）"
+            )
+        return "\n".join(reversed(kept))
+
+    @staticmethod
+    def _ensure_within_budget(
+        msgs: List[BaseMessage], budget: int, model_name: str
+    ) -> None:
+        """每次模型调用前兜底：超预算时从最早的工具结果开始截断（保留前缀）。
+
+        仅剩系统提示与本轮问题仍超预算（配置异常）时告警并尽力发送。
+        """
+        for _ in range(50):  # 渐进截断上限，防御异常输入下的死循环
+            if count_messages_tokens(model_name, msgs) <= budget:
+                return
+            trimmed = False
+            for idx, msg in enumerate(msgs):
+                if (
+                    isinstance(msg, ToolMessage)
+                    and isinstance(msg.content, str)
+                    and msg.content
+                ):
+                    keep_chars = max(1, len(msg.content) // 2)
+                    msgs[idx] = msg.model_copy(
+                        update={"content": msg.content[:keep_chars]}
+                    )
+                    trimmed = True
+                    break
+            if not trimmed:
+                logger.warning(
+                    f"[CHAT] 输入仍超预算 {budget}（系统提示/问题本身超限，尽力发送）"
+                )
+                return
+
     # ---------- 节点 ----------
     async def respond_node(self, state: ChatState, config: RunnableConfig):
         """Agentic 回答节点：对话模型自主决定改写与检索，循环至无工具调用后生成答案。
@@ -189,22 +292,42 @@ class ChatGraph:
         ToolMessage 内容按全局编号 [n] 重建——与 sources.index 严格对应，
         模型引用角标即来源索引。工具中间消息只存节点局部，不回写 state
         messages，保持 checkpointer 历史干净（仅追加最终 AIMessage）。
+        输入预算守卫：历史按 token 预算从最旧裁剪，裁剪结果经 RemoveMessage
+        同步进 checkpoint（消息窗口有界，业务表完整历史不受影响）；工具结果
+        在每次模型调用前兜底截断；系统提示与本轮问题永不裁剪。
         检索进度经 stream_mode="custom"（get_stream_writer）外发 think 事件。
         """
         writer = self._safe_stream_writer()
         question = state["question"]
+        model_name = CFG.chat.model_name
+        kb_hint = ", ".join(state.get("kb_ids") or []) or "（未指定，检索返回空）"
+        # 输入预算守卫：context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。
+        # 固定开销（系统提示模板 + 本轮问题）先扣除，余量作为历史预算；
+        # 系统提示与本轮问题永不裁剪（循环级兜底见 _ensure_within_budget）。
+        budget = self._input_budget()
+        fixed_cost = count_tokens(
+            model_name,
+            AGENT_PROMPT.format(history="", knowledge_base_ids=kb_hint),
+        ) + count_tokens(model_name, question)
+        history_budget = budget - fixed_cost
+        remove_ids: List[str] = []
         # messages 末尾是本轮刚追加的 HumanMessage，历史取其之前的部分；
+        # checkpoint 历史按 token 预算从最旧裁剪（remove_ids 随返回同步删除）；
         # checkpoint 无历史（新会话 / TTL 已清理 / 存量会话）：回落业务表
         history_messages = state["messages"][:-1]
-        history = self._format_history(
-            history_messages, CFG.chat_history_max_messages
-        )
-        if not history:
+        if history_messages:
+            kept, remove_ids = self._trim_messages_to_budget(
+                history_messages, history_budget, model_name
+            )
+            history = self._format_history(kept, CFG.chat_history_max_messages)
+        else:
             thread_id = (config.get("configurable") or {}).get("thread_id")
             history = await self._load_fallback_history(
-                thread_id, CFG.chat_history_max_messages
+                thread_id,
+                CFG.chat_history_max_messages,
+                history_budget,
+                model_name,
             )
-        kb_hint = ", ".join(state.get("kb_ids") or []) or "（未指定，检索返回空）"
         msgs: List[BaseMessage] = [
             SystemMessage(
                 content=AGENT_PROMPT.format(history=history, knowledge_base_ids=kb_hint)
@@ -225,6 +348,8 @@ class ChatGraph:
         usage_total: dict = {}
         response: AIMessage | None = None
         while True:
+            # 每次模型调用前兜底：工具结果超预算时截断（见 _ensure_within_budget）
+            self._ensure_within_budget(msgs, budget, model_name)
             response, usage = await self._astream_accumulate(model, msgs)
             usage_total = self._merge_usage(usage_total, usage)
             if not getattr(response, "tool_calls", None):
@@ -236,6 +361,7 @@ class ChatGraph:
                         content="已达到检索轮数上限，请直接基于已有检索结果组织回答。"
                     )
                 )
+                self._ensure_within_budget(msgs, budget, model_name)
                 response, usage = await self._astream_accumulate(
                     build_chat_model(reasoning_effort=reasoning_effort), msgs
                 )
@@ -312,8 +438,11 @@ class ChatGraph:
             f"[CHAT] 回答完成：tool_rounds={tool_rounds}, docs={len(all_docs)}, "
             f"tokens={usage_total.get('total_tokens', 0)}"
         )
+        # 裁剪同步进 checkpoint：被预算裁掉的旧消息经 RemoveMessage 从
+        # state messages 删除（业务表 chat_messages 完整历史不受影响）
+        removals = [RemoveMessage(id=msg_id) for msg_id in remove_ids]
         return {
-            "messages": [response],
+            "messages": [response, *removals],
             "answer": response.content,
             "sources": sources,
             "metrics": metrics,

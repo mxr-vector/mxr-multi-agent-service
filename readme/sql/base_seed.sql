@@ -10,6 +10,7 @@ INSERT INTO sys.sys_config VALUES ('019fb5e7-d9cf-7095-a47b-946fe95b3005', 'chec
 INSERT INTO sys.sys_config VALUES ('019fb5e7-d9cf-70a5-8ed2-277056efad89', '回落历史消息条数上限', 'CHAT_HISTORY_MAX_MESSAGES', '20', true, 'checkpoint 缺失时 condense 回落业务表读取的历史消息条数上限', '2026-07-31 10:01:38.510209+08', '2026-07-31 10:01:38.510209+08');
 INSERT INTO sys.sys_config VALUES ('019fb5e7-d9ce-7e12-b5d9-db5c8d82bcf5', '混合召回候选池大小', 'RAG_CANDIDATE_POOL_SIZE', '50', true, '混合召回(dense+sparse RRF 融合)后保留的候选池上限', '2026-07-31 10:01:38.510209+08', '2026-07-31 10:35:31.152852+08');
 INSERT INTO sys.sys_config VALUES ('019fb6c6-95ca-7c4e-a8fe-e99080f18e5a', '自托管DrawIO服务地址', 'DRAWIO_EMBED_URL', 'http://127.0.0.1:8080', true, '绘图设计 自托管DrawIO服务地址', '2026-07-31 10:01:38.510209+08', '2026-07-31 10:35:31.152852+08');
+INSERT INTO sys.sys_config VALUES ('019ff44c-8950-7422-9d2c-fe4c49ea7285', '对话输出token上限', 'CHAT_MAX_OUTPUT_TOKENS', '8192', true, '对话模型请求的输出上限(max_tokens)，参与输入预算计算(输入预算=context_window-max_output_tokens-10%边际)', '2026-08-12 00:00:00+08', '2026-08-12 00:00:00+08');
 
 
 --

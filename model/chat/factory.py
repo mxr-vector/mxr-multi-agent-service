@@ -35,8 +35,9 @@ def build_chat_model(
         api_key=CFG.chat.api_key,
         temperature=temperature,
         reasoning_effort=effort,
-        # 上下文窗口（token）由配置快照决定，以 OpenAI 兼容的 max_tokens 入参下发。
-        max_tokens=CFG.chat.context_window,
+        # 输出上限（max_tokens）由配置快照决定（CHAT_MAX_OUTPUT_TOKENS），
+        # 以 OpenAI 兼容的 max_tokens 入参下发；context_window 仅作输入预算计算。
+        max_tokens=CFG.chat_max_output_tokens,
         # 单请求超时（秒）与失败重试次数，均由配置快照决定（缺省 60s / 2 次）。
         # 外部 chat API 卡死不返回时按超时中断，避免 respond 节点无限等待。
         timeout=CFG.chat.timeout,
