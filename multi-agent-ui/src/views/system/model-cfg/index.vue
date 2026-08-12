@@ -50,8 +50,8 @@ const rules: FormRules = {
     api_url: [{ required: true, message: "请输入接口地址", trigger: "blur" }],
 };
 
-// chat/visual 显示超时/重试；仅 rerank 显示 provider；仅 chat 显示上下文窗口
-const showTimeout = computed(() => ["chat", "visual"].includes(editing.value?.role ?? ""));
+// chat/visual/image 显示超时/重试；仅 rerank 显示 provider；仅 chat 显示上下文窗口
+const showTimeout = computed(() => ["chat", "visual", "image"].includes(editing.value?.role ?? ""));
 const showProvider = computed(() => editing.value?.role === "rerank");
 const showContextWindow = computed(() => editing.value?.role === "chat");
 
@@ -115,7 +115,7 @@ onMounted(loadConfigs);
         <header class="model-cfg-page__head">
             <h2 class="model-cfg-page__title">模型配置</h2>
             <p class="model-cfg-page__subtitle">
-                对话 / 改写 / 多模态 / 重排序模型的运行参数，保存后免重启、自下一请求生效。
+                对话 / 改写 / 多模态 / 重排序 / 图像模型的运行参数，保存后免重启、自下一请求生效。
             </p>
         </header>
 

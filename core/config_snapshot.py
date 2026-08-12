@@ -3,8 +3,8 @@
 
 设计（见 openspec/changes/add-model-config-hot-reload/design.md D2/D3）：
 - 读写分离：数据库读取是 async，而模型工厂等消费方是同步函数。CFG 在启动时
-  一次性把 sys_model_config（chat/rewrite/visual/rerank 四行）与 sys_config
-  白名单标量参数加载为不可变快照，运行期以同步属性访问读取（零 IO）。
+  一次性把 sys_model_config（chat/rewrite/visual/rerank/image 五行）与
+  sys_config 白名单标量参数加载为不可变快照，运行期以同步属性访问读取（零 IO）。
 - fail-fast：`await CFG.load()` 在 lifespan 启动执行，任一必需项缺失或校验失败
   即抛异常拒绝启动（与 ENV_CONFIG.require 语义一致）。
 - 写时刷新 + last-known-good：配置写接口 commit 成功后调用 `await CFG.refresh()`，
@@ -24,8 +24,8 @@ from database.system.config import ConfigRepository
 from database.system.model_config import ModelConfigRepository
 from utils.logger import logger
 
-# 四个模型角色（sys_model_config.role），四行必须齐全
-MODEL_ROLES = ("chat", "rewrite", "visual", "rerank")
+# 全部模型角色（sys_model_config.role），各行必须齐全（缺一行即拒绝启动）
+MODEL_ROLES = ("chat", "rewrite", "visual", "rerank", "image")
 # 正整数标量运行参数键（sys_config.key），全部为必需正整数
 INT_SCALAR_KEYS = (
     "RAG_CANDIDATE_POOL_SIZE",
@@ -83,6 +83,7 @@ class ConfigSnapshot:
     rewrite: ModelRoleConfig
     visual: ModelRoleConfig
     rerank: ModelRoleConfig
+    image: ModelRoleConfig
     rag_candidate_pool_size: int
     rag_final_top_k: int
     rag_reflect_round_cap: int
@@ -182,6 +183,7 @@ async def _build_snapshot() -> ConfigSnapshot:
         rewrite=roles["rewrite"],
         visual=roles["visual"],
         rerank=roles["rerank"],
+        image=roles["image"],
         rag_candidate_pool_size=scalars["RAG_CANDIDATE_POOL_SIZE"],
         rag_final_top_k=scalars["RAG_FINAL_TOP_K"],
         rag_reflect_round_cap=scalars["RAG_REFLECT_ROUND_CAP"],
@@ -270,6 +272,10 @@ class _ConfigManager:
     @property
     def rerank(self) -> ModelRoleConfig:
         return self._current.rerank
+
+    @property
+    def image(self) -> ModelRoleConfig:
+        return self._current.image
 
     # ---------- 标量运行参数（同步读取） ----------
     @property
