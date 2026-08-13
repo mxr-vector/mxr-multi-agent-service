@@ -12,4 +12,3 @@ export const REASONING_EFFORT_DICT_TYPE = "reasoning_effort";
  * 事件名映射解析见 api/aichat/ai.ts 的 resolveSseEventMap，缺失时回落协议默认名）
  */
 export const SSE_EVENT_DICT_TYPE = "sse_event";
-

@@ -157,7 +157,9 @@ async function handleSubmit() {
             :value="o.value"
           />
         </el-select>
-        <div class="strategy-tip">章节分块按标题切分（仅 Markdown、DOCX、Excel）；语义分块按内容相似度切分（所有格式）</div>
+        <div class="strategy-tip">
+          章节分块按标题切分（仅 Markdown、DOCX、Excel）；语义分块按内容相似度切分（所有格式）
+        </div>
       </el-form-item>
       <el-form-item label="表格类">
         <!-- doc_type 由后端依据文件类型自动判定，此处随所选文件展示 -->

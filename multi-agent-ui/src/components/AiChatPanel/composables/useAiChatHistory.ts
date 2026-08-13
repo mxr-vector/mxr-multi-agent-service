@@ -5,7 +5,13 @@ import type { ChatMessageVO, ChatSessionVO } from "@/api/aichat";
 import { knowledgeBaseApi } from "@/api/rag/knowledgeBase";
 
 import { SESSION_TITLE_ELLIPSIS, SESSION_TITLE_MAX_LEN } from "../constants";
-import { MESSAGE_STATUS, type ChatMessage, type ChatSession, type KnowledgeOption, type MessageStatus } from "../types";
+import {
+  MESSAGE_STATUS,
+  type ChatMessage,
+  type ChatSession,
+  type KnowledgeOption,
+  type MessageStatus,
+} from "../types";
 import { formatDate, makeWelcome, normalizeSources } from "../utils/chatMessage";
 
 /** 会话列表单页拉取量（暂不做滚动分页） */
