@@ -85,7 +85,7 @@ const folders = ref<Folder[]>([]);
 
 // 本视图使用客户端分页：文件夹和多字段筛选基于当前知识库全量数据完成。
 const page = ref(1);
-const size = ref(12);
+const size = ref(24);
 const knowledgeTreeRef = ref<InstanceType<typeof KnowledgeTree>>();
 const {
   selectedFolderId,
@@ -799,7 +799,7 @@ async function onDetailSubmit(payload: DocumentUpdatePayload) {
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
+  gap: 8px;
   padding: 4px 0;
 }
 

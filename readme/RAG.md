@@ -82,13 +82,18 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 
 ## 4. 基准测试
 
-|测试集|规模（建库）|指标口径|Recall@1|Precision@1|Recall@3|Precision@3|Recall@5|Precision@5|Recall@10|Precision@10|MRR|
-|--|--|--|--|--|--|--|--|--|--|--|--|
-|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|严格（chunk 级）|0.395|0.722|0.665|0.484|0.748|0.349|0.748|0.174|0.762|
-|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|宽松（文档级）|0.782|0.782|0.830|0.277|0.847|0.169|0.847|0.085|0.808|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)|500 条多语言 query（zh 200 + en 300，3 个 QA 子集）|诊断性（文档级，162/500 可辩护）|0.086|0.228|0.164|0.169|0.189|0.138|0.251|0.102|0.343|
+|测试集|规模（建库）|指标口径|Recall@1|Precision@1|Recall@3|Precision@3|Recall@5|Precision@5|Recall@10|Precision@10|NDCG@10|MRR|
+|--|--|--|--|--|--|--|--|--|--|--|--|--|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|严格（chunk 级）|0.357|0.789|0.650|0.566|0.753|0.428|0.753|0.214|0.751|0.826|
+|[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|宽松（文档级）|0.847|0.847|0.904|0.301|0.904|0.181|0.904|0.090|0.882|0.874|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：dureader（中文，多文档 QA）|200 条 query（共享库 156,131 段落文档 / 163,274 叶块）|诊断性（文档级，16/200 可辩护）|0.062|0.125|0.354|0.188|0.698|0.213|0.781|0.119|0.457|0.354|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：2wikimqa（英文，多跳 QA）|200 条 query（共享库 156,131 段落文档 / 163,274 叶块）|诊断性（文档级，155/200 可辩护）|0.032|0.103|0.094|0.088|0.144|0.074|0.169|0.046|0.127|0.172|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：musique（英文，多跳 QA）|200 条 query（共享库 156,131 段落文档 / 163,274 叶块）|诊断性（文档级，185/200 可辩护）|0.015|0.076|0.032|0.049|0.047|0.043|0.073|0.036|0.068|0.121|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：hotpotqa（英文，多跳 QA）|200 条 query（共享库 156,131 段落文档 / 163,274 叶块）|诊断性（文档级，172/200 可辩护）|0.065|0.233|0.124|0.167|0.156|0.145|0.188|0.106|0.206|0.341|
+|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：multifieldqa_zh（中文，单文档 QA）|200 条 query（共享库 156,131 段落文档 / 163,274 叶块）|诊断性（文档级，24/200 可辩护）|0.229|0.250|0.354|0.125|0.396|0.083|0.438|0.046|0.335|0.329|
 
-> 两个数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
+> 各数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
+> LongBench 各子集共享同一评测语料库（156,131 段落文档 / 163,274 叶块），逐子集独立计指标；
 > 各数据集详细评测配置、±std 波动与口径说明见下方 4.1/4.2 小节。
 
 |功能|测试模型|
@@ -97,28 +102,30 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 | rerank | Qwen3-Embedding-4B |
 | bm25（jieba） | jieba 中英双语 BM25（中文分词 + 英文小写切词，服务端 IDF，`model/sparse/bm25.py` 主路径） |
 
-### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-06 重跑更新）
+### 4.1 Agricultrue_Wiki_QA_110K 检索质量评测（2026-08-13 重跑更新）
 
 数据集：[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K)
 （111,824 条记录 / 2,919 个维基页面，每条自带证据片段 `content`，构成 query→gold 评测对）。
 
-**评测配置**：1000 条分层抽样（seed=42，覆盖 1,000 个页面）；按页面聚合建库
+**评测配置**：200 条分层抽样（seed=42，覆盖 200 个页面，样本量为历史 1000 条的 1/5）；按页面聚合建库
 （2,919 文档 / 23,953 叶块，两级切块 2000/400/80）；candidate_pool=50，final_top_k=5；
 **生产配置管线** = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排。
 
 **指标口径**：严格 = chunk 级（证据句命中具体叶块）；宽松 = 文档级（同页面任意叶块，按文档去重）。
-下表为生产配置（B 完整子图：反思多轮 + rerank）指标；A 纯检索（无反思无重排）见下方检索层上限。
+下表为双管线指标：A 纯检索（无反思无重排）与 B 完整子图（反思多轮 + rerank，生产配置），均含 NDCG@K（二值相关性标准式）。
 
-| K | 严格 Recall@K | 严格 Precision@K | 宽松 Recall@K | 宽松 Precision@K |
-|---|---|---|---|---|
-| 1 | 0.395 | 0.722 | 0.782 | 0.782 |
-| 3 | 0.665 | 0.484 | 0.830 | 0.277 |
-| 5 | 0.748 | 0.349 | 0.847 | 0.169 |
-| 10 | 0.748 | 0.174 | 0.847 | 0.085 |
-| MRR | 0.762 | — | 0.808 | — |
+| K | 严格 Recall@K (A) | 严格 Recall@K (B) | 严格 NDCG@K (A) | 严格 NDCG@K (B) | 宽松 Recall@K (A) | 宽松 Recall@K (B) | 宽松 NDCG@K (A) | 宽松 NDCG@K (B) |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.363±0.297 | 0.357±0.297 | 0.808±0.395 | 0.789±0.409 | 0.830±0.377 | 0.847±0.361 | 0.830±0.377 | 0.847±0.361 |
+| 3 | 0.667±0.364 | 0.650±0.384 | 0.760±0.344 | 0.745±0.371 | 0.900±0.301 | 0.904±0.295 | 0.872±0.309 | 0.882±0.302 |
+| 5 | 0.781±0.338 | 0.753±0.361 | 0.784±0.322 | 0.766±0.353 | 0.930±0.256 | 0.904±0.295 | 0.885±0.280 | 0.882±0.302 |
+| 10 | 0.861±0.295 | 0.753±0.361 | 0.813±0.301 | 0.751±0.351 | 0.955±0.208 | 0.904±0.295 | 0.893±0.258 | 0.882±0.302 |
+| MRR | 0.855±0.310 | 0.826±0.352 | — | — | 0.875±0.288 | 0.874±0.311 | — | — |
+
+（Precision@K 与完整 ±std 见 `test/dataset01/results/report.md`，双口径 A/B 指标 + NDCG + 失败案例齐全。）
 
 **检索层上限**（A 纯检索，jieba 混合检索不叠加 rerank，供调参参考）：
-严格 Recall@10 = 0.865 / MRR = 0.815；宽松 Recall@10 = 0.930 / MRR = 0.851。
+严格 Recall@10 = 0.861 / MRR = 0.855；宽松 Recall@10 = 0.955 / MRR = 0.875。
 
 **关键发现与实验结论**（同规模对比）：
 - **中文词法通道是决定性短板**：fastembed `Qdrant/bm25` 的 tokenizer 面向英文，
@@ -127,60 +134,111 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
   词频权重 + 服务端 IDF）后：严格 Recall@10 **0.798 → 0.865**（+6.7pt）、宽松
   Recall@10 **0.888 → 0.930**（+4.2pt）
 - **rerank 必须保留**（生产最终排序与回答质量依赖精排）：本次重跑检索层（A）严格
-  Recall@10=0.865，完整子图（B）严格 Recall@10=0.748，降幅含 B 失败子集剔除偏差
-  （33.4% 审查失败，成功子集与全量的 gold 分布不均），以生产真实配置（jieba+rerank）
+  Recall@10=0.861，完整子图（B）严格 Recall@10=0.753，降幅含 B 失败子集剔除偏差
+  （21.5% 审查失败，成功子集与全量的 gold 分布不均），以生产真实配置（jieba+rerank）
   为基线，检索层上限单独披露
 - **外部审查是评测噪声源**：stepfun rewrite/反思模型对含政治、争议、动物福利等主题
   query 返回 451 拦截，失败条目不参与指标但使 B 指标子集偏置；A 纯检索不受影响
 - 候选池扩容（50→100）、query 拆分多路检索经实测**无增益或负优化**（拼接式 query
-  占池外失败 83%）
-- 严格口径 gold 为空占比 3.9%（证据句被切块截断），不计入严格指标
+  占池外失败 83%）；严格口径 gold 为空占比 3.5%（证据句被切块截断），不计入严格指标
 
 **评测工具链**（可复现）：`test/dataset01/`——四阶段脚本
 `build_corpus → build_gold → run_queries → report`，支持
 `--pool/--split-query/--rerank/--sparse-encoder` 实验参数与产物缓存复用；
+样本量经 `build_gold --sample-size N` 调整（本次 200）；
 生产 sparse 编码器切换与既有知识库迁移见 `utils/migrate_sparse.py`；
 完整报告（双口径 A/B 指标 + NDCG + 失败案例）见 `test/dataset01/results/report.md`。
 
-### 4.2 zai-org/LongBench 多语言检索质量评测（诊断性，2026-08-11）
+### 4.2 zai-org/LongBench 多语言检索质量评测（诊断性，2026-08-13）
 
 数据集：[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)（THUDM/LongBench 镜像，中英双语）
-3 个 QA 类子集共 **500 条 query**：中文 multifieldqa_zh（200）+
-英文 multifieldqa_en（150，全量）/ hotpotqa（150，取前 150 条）。
+5 个 QA 类子集共 **1000 条 query**（每子集 200 条全量），按任务类型与语言分开测：
+
+| 子集 | 语言 | 任务类型 | 条数 |
+|---|---|---|---|
+| dureader（DuReader） | 中文 | 多文档 QA | 200 |
+| 2wikimqa（2WikiMultihopQA） | 英文 | 多跳 QA | 200 |
+| musique（MuSiQue） | 英文 | 多跳 QA | 200 |
+| hotpotqa（HotpotQA） | 英文 | 多跳 QA | 200 |
+| multifieldqa_zh（MultiFieldQA-zh） | 中文 | 单文档 QA | 200 |
 
 **评测配置**：每条 query 的 context 按换行切分为段落，每段落一个文档
-（单块直存，超长段落走 ingest_file 两级切块）；candidate_pool=50，rerank=on；
-生产配置管线同上。
+（单块直存，超长段落走 ingest_file 两级切块），共 156,131 段落文档 / 163,274 叶块；
+candidate_pool=50，rerank=on；生产配置管线同上。
 
 **可辩护口径（诊断性披露）**：LongBench 无标准 retrieval qrels，本评测采用
-answer 子串命中 context 段落作为可辩护证据（段落级 → 文档级）；500 条 query 中
-仅 162 条可辩护（32.4%），其余 338 条 answer 无法在 context 中定位
+answer 子串命中 context 段落作为可辩护证据（段落级 → 文档级）；1000 条 query 中
+仅 552 条可辩护（55.2%），其余 448 条 answer 无法在 context 中定位
 （answer_not_in_context），不参与指标、不伪造 MRR。结果仅供参考，不参与严格对比。
+各子集独立计指标（可辩护数见各节标题），不合并汇总。
 
-| K | Recall@K | Precision@K |
-|---|---|---|
-| 1 | 0.086±0.241 | 0.228±0.421 |
-| 3 | 0.164±0.311 | 0.169±0.227 |
-| 5 | 0.189±0.323 | 0.138±0.186 |
-| 10 | 0.251±0.360 | 0.102±0.145 |
-| MRR | 0.343±0.392 | — |
+#### dureader（中文，多文档 QA）——16/200 可辩护
+
+| K | Recall@K | Precision@K | NDCG@K |
+|---|---|---|---|
+| 1 | 0.062±0.171 | 0.125±0.342 | 0.125±0.342 |
+| 3 | 0.354±0.443 | 0.188±0.242 | 0.271±0.343 |
+| 5 | 0.698±0.440 | 0.213±0.171 | 0.427±0.312 |
+| 10 | 0.781±0.407 | 0.119±0.091 | 0.457±0.293 |
+| MRR | 0.354±0.307 | — | — |
+
+#### 2wikimqa（英文，多跳 QA）——155/200 可辩护
+
+| K | Recall@K | Precision@K | NDCG@K |
+|---|---|---|---|
+| 1 | 0.032±0.120 | 0.103±0.305 | 0.103±0.305 |
+| 3 | 0.094±0.228 | 0.088±0.201 | 0.107±0.239 |
+| 5 | 0.144±0.287 | 0.074±0.144 | 0.119±0.225 |
+| 10 | 0.169±0.307 | 0.046±0.091 | 0.127±0.228 |
+| MRR | 0.172±0.312 | — | — |
+
+#### musique（英文，多跳 QA）——185/200 可辩护
+
+| K | Recall@K | Precision@K | NDCG@K |
+|---|---|---|---|
+| 1 | 0.015±0.084 | 0.076±0.265 | 0.076±0.265 |
+| 3 | 0.032±0.125 | 0.049±0.137 | 0.060±0.174 |
+| 5 | 0.047±0.149 | 0.043±0.106 | 0.060±0.156 |
+| 10 | 0.073±0.175 | 0.036±0.081 | 0.068±0.154 |
+| MRR | 0.121±0.277 | — | — |
+
+#### hotpotqa（英文，多跳 QA）——172/200 可辩护
+
+| K | Recall@K | Precision@K | NDCG@K |
+|---|---|---|---|
+| 1 | 0.065±0.198 | 0.233±0.424 | 0.233±0.424 |
+| 3 | 0.124±0.261 | 0.167±0.235 | 0.213±0.305 |
+| 5 | 0.156±0.279 | 0.145±0.194 | 0.212±0.282 |
+| 10 | 0.188±0.295 | 0.106±0.152 | 0.206±0.269 |
+| MRR | 0.341±0.396 | — | — |
+
+#### multifieldqa_zh（中文，单文档 QA）——24/200 可辩护
+
+| K | Recall@K | Precision@K | NDCG@K |
+|---|---|---|---|
+| 1 | 0.229±0.416 | 0.250±0.442 | 0.250±0.442 |
+| 3 | 0.354±0.477 | 0.125±0.165 | 0.307±0.425 |
+| 5 | 0.396±0.489 | 0.083±0.101 | 0.323±0.420 |
+| 10 | 0.438±0.496 | 0.046±0.051 | 0.335±0.415 |
+| MRR | 0.329±0.421 | — | — |
 
 **要点**：
-- 多语言（中英）混合：中文 200 / 英文 300，3 个 QA 类子集（字段统一
-  input/context/answers/_id）；子集构成可经 `--subsets` 调整，本次取
-  multifieldqa_zh 全量 + multifieldqa_en 全量 + hotpotqa 前 150 条（共 500）
-- 可辩护 162/500（32.4%）：multifieldqa_zh 24 / multifieldqa_en 9 / hotpotqa 129；
-  按子集拆分 MRR：hotpotqa 0.351（n=129）/ zh 0.328（n=24）/ en 0.277（n=9）
+- 多语言（中英）混合：中文 400 / 英文 600，5 个 QA 类子集（字段统一
+  input/context/answers/_id，数据自带 language/dataset 字段供校验）；子集构成可经
+  `--subsets` 调整，本次为 5 子集各 200 条全量（共 1000）
+- 可辩护 552/1000（55.2%）：dureader 16 / 2wikimqa 155 / musique 185 /
+  hotpotqa 172 / multifieldqa_zh 24；中文子集可辩护率显著低于英文
+  （dureader/multifieldqa_zh 答案多为改写式，难以子串定位，指标样本小、参考性有限）
+- 任务类型差异明显：单文档 QA（multifieldqa_zh）与中文多文档 QA（dureader）指标
+  最高（MRR 0.329/0.354）；多跳 QA（2wikimqa/musique）检索难度大（MRR 0.172/0.121）
 - sparse 通道已升级为**中英双语分词**（`model/sparse/bm25.py`：中文 jieba +
   英文小写化切词 + 英文停用词，混合文本自动分流），英文 query 不再依赖
   jieba 兜底（旧实现英文大小写敏感，词法通道会漏配）
-- 0 失败（500/500，rerank=on）；首跑 500 条全败系 rerank 角色 api_url 指向
-  本机死地址（127.0.0.1:9527，vLLM 已迁至 192.168.245.213），已修复为远端地址
-- 历史单语结果（2026-08-09，multifieldqa_zh 200 条全量，24/200 可辩护）：
-  MRR=0.343 / Recall@10=0.521 / Precision@1=0.250，作为多语言对比基线
-  （本次 zh 子集 24 条 MRR=0.328 与历史同源、口径一致，波动在 std 内）
+- 0 失败（1000/1000，rerank=on）；历史多语言基线（2026-08-11，3 子集 500 条，
+  162/500 可辩护）子集构成与本次不同，不可直接对比
 - 评测工具链：`test/dataset01/eval/longbench_eval.py`（--subsets/--max-queries
-  /--retry-failed 等），报告见 `test/dataset01/results/longbench_dual_report.md`
+  /--retry-failed 等），报告（按子集分节，标注中英文/任务类型）见
+  `test/dataset01/results/longbench_dual_report.md`
 
 ## 5. 快速开始
 

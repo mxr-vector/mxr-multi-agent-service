@@ -1,6 +1,6 @@
 # 生成物与大文件不入库：数据 / gold 基准 / 评测结果均为可再生成的产物
 data/
 gold/
-results/
+results/*.json
 *.pyc
 __pycache__/
