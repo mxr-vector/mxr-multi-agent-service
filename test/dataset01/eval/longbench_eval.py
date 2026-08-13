@@ -6,22 +6,24 @@ LongBench 是问答数据集（无标准 retrieval qrels），本适配器采用
 gold（段落级 → 文档级）；answer 不可定位的 query 不参与指标，单独统计 why
 （answer_not_in_context），不伪造指标。
 
-- 多语言构成：默认 6 个 QA 类子集（字段统一为 input/context/answers/_id）
-  中文 multifieldqa_zh + 英文 multifieldqa_en/hotpotqa/2wikimqa/qasper/musique；
-  全量 1,150 条，默认评测前 1,000 条（zh 200 + en 800），--subsets 可换。
+- 多语言构成：默认 5 个 QA 类子集（字段统一为 input/context/answers/_id）
+  中文 dureader/multifieldqa_zh + 英文 2wikimqa/musique/hotpotqa；
+  全量 1,000 条（每子集 200 条全量），--subsets 可换。
 - 建库：每条 query 的 context 按换行切分为段落，每段落一个文档（单块；
   超长段落走 ingest_file 切块），source_uri=lb:{subset}:{qid}:{para_idx}。
 - 管线：hybrid_retrieve_multi（dense + jieba BM25 RRF，candidate_pool=50）
   + rerank 精排（Qwen3-Embedding-4B cohere 协议），与生产配置一致。
-- 指标：Recall@K / Precision@K / MRR（K∈{1,3,5,10}，文档级，宏平均±std），
+- 指标：Recall@K / Precision@K / NDCG@K / MRR（K∈{1,3,5,10}，文档级，宏平均±std），
   仅统计可辩护 query；结果标注"诊断性，不参与严格对比"。
 - 产物：
   - gold/longbench_doc_map.json：lb 标识 → PG 文档 id 映射
   - results/longbench_dual_results.json：逐 query 明细
-  - results/longbench_dual_summary.json：汇总指标 + why 统计
+  - results/longbench_dual_summary.json：整体汇总 + why 统计
+  - results/longbench_{subset}_summary.json：每子集独立汇总
+  - results/longbench_dual_report.md：报告（整体表 + 按子集分节标注中英文/任务类型）
 
 数据来源（HF）：zai-org/LongBench（THUDM/LongBench 镜像）data.zip →
-data/ 目录下各子集 jsonl（仅需上述 6 个文件）。
+data/ 目录下各子集 jsonl（仅需上述 5 个文件）。
 
 用法：
   uv run python test/dataset01/eval/longbench_eval.py [--force] [--cleanup]
@@ -35,6 +37,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 
 from common import BASE_K_VALUES, DATA_DIR, GOLD_DIR, RESULTS_DIR, ensure_cfg_async, load_json, normalize, save_json
 
@@ -42,6 +45,7 @@ from dual_retrieval import (
     cleanup_kb,
     create_kb,
     find_kb,
+    fmt_ms,
     get_eval_session,
     ingest_document_retry,
     report_lines,
@@ -51,18 +55,25 @@ from dual_retrieval import (
 )
 
 KB_NAME = "dataset01-longbench"
-KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench 多语言（zh/en 6 QA 子集，context 段落单块，诊断性）"
+KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench 中英 5 QA 子集（context 段落单块，诊断性）"
 
-# 多语言 QA 类子集（字段统一：input/context/answers/_id；按子集顺序拼接）
+# 中英 QA 类子集（字段统一：input/context/answers/_id；按子集顺序拼接）
 SUBSETS = [
-    "multifieldqa_zh",
-    "multifieldqa_en",
-    "hotpotqa",
+    "dureader",
     "2wikimqa",
-    "qasper",
     "musique",
+    "hotpotqa",
+    "multifieldqa_zh",
 ]
-# 默认评测条数：6 子集全量 1,150 条，默认取前 1,000 条（zh 200 + en 800）
+# 子集元数据：语言与任务类型标注（报告分节使用）
+SUBSET_INFO = {
+    "dureader": {"lang": "中文", "task": "多文档 QA"},
+    "2wikimqa": {"lang": "英文", "task": "多跳 QA"},
+    "musique": {"lang": "英文", "task": "多跳 QA"},
+    "hotpotqa": {"lang": "英文", "task": "多跳 QA"},
+    "multifieldqa_zh": {"lang": "中文", "task": "单文档 QA"},
+}
+# 默认评测条数：5 子集全量 1,000 条（每子集 200 条全量，无需截断）
 DEFAULT_MAX_QUERIES = 1000
 DOC_MAP_PATH = GOLD_DIR / "longbench_doc_map.json"
 RESULTS_PATH = RESULTS_DIR / "longbench_dual_results.json"
@@ -231,6 +242,37 @@ def build_queries(rows: list[dict], mapping: dict[str, str]) -> list[dict]:
     return queries
 
 
+def _subset_of(qid: str) -> str:
+    """从 qid（{subset}:{_id}）提取子集名。"""
+    return qid.split(":", 1)[0]
+
+
+def _subset_section_lines(
+    subset: str, summary: dict, ks: Sequence[int]
+) -> list[str]:
+    """单子集报告分节：标题（含中英文/任务类型标注）+ 独立指标表 + 可辩护统计。"""
+    info = SUBSET_INFO.get(subset, {})
+    label = f"{subset}（{info.get('lang', '')}，{info.get('task', '')}）"
+    counts = summary["counts"]
+    metrics = summary["metrics"]
+    lines = [
+        f"### {label}",
+        "",
+        f"- 执行 query：{counts['valid'] + counts['empty_gold'] + counts['failed']} 条"
+        f"（有效 {counts['valid']} / gold 为空 {counts['empty_gold']} / 失败 {counts['failed']}）",
+    ]
+    if summary.get("why"):
+        lines.append(f"- 不可辩护统计：{summary['why']}")
+    lines.extend(["", "| K | Recall@K | Precision@K | NDCG@K |", "|---|---|---|---|"])
+    for k in ks:
+        k = int(k)
+        lines.append(
+            f"| {k} | {fmt_ms(metrics[k]['recall'])} | {fmt_ms(metrics[k]['precision'])} | {fmt_ms(metrics[k]['ndcg'])} |"
+        )
+    lines.append(f"| MRR | {fmt_ms(metrics['mrr'])} | — | — |")
+    return lines
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(
         description="LongBench 多语言（zh/en）双路召回评测（诊断性）"
@@ -355,6 +397,17 @@ async def main() -> None:
     summary["why"] = dict(Counter(q["why"] for q in queries if q["why"]))
     save_json(SUMMARY_PATH, summary)
 
+    # 按子集拆分汇总：每子集独立 summary 落盘（供分节报告与断点续跑）
+    per_subset: dict[str, dict] = {}
+    for subset in subsets:
+        sub_results = [r for r in results if _subset_of(r["qid"]) == subset]
+        sub_queries = [q for q in queries if _subset_of(q["qid"]) == subset]
+        sub_summary = summarize(sub_results, BASE_K_VALUES)
+        sub_summary["meta"] = payload["meta"]
+        sub_summary["why"] = dict(Counter(q["why"] for q in sub_queries if q["why"]))
+        per_subset[subset] = sub_summary
+        save_json(RESULTS_DIR / f"longbench_{subset}_summary.json", sub_summary)
+
     lines = report_lines(
         "LongBench 多语言（zh/en）双路召回评测报告（诊断性）",
         payload["meta"],
@@ -369,9 +422,13 @@ async def main() -> None:
             "结果仅供参考，不参与严格对比。",
         ],
     )
+    lines.extend(["", "## 按子集拆分（中英文 / 任务类型标注）", ""])
+    for subset in subsets:
+        lines.extend(_subset_section_lines(subset, per_subset[subset], BASE_K_VALUES))
+        lines.append("")
     report_path = RESULTS_DIR / "longbench_dual_report.md"
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"[lb] 汇总已落盘: {SUMMARY_PATH}；报告: {report_path}")
+    print(f"[lb] 汇总已落盘: {SUMMARY_PATH}；分集汇总: {len(per_subset)} 份；报告: {report_path}")
     m = summary["metrics"]
     if m["mrr"]:
         print(

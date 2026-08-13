@@ -1,11 +1,11 @@
 """
-T2Retrieval / LongBench 双路召回评测共享设施（对齐生产管线）。
+LongBench 双路召回评测共享设施（对齐生产管线）。
 
 生产双路召回 = dense（embedding 工厂，Qwen3-Embedding-4B）+ sparse（jieba 中文
 BM25，model/sparse/bm25.py 主路径）→ Qdrant 服务端 RRF 融合 → rerank 精排
 （Qwen3-Embedding-4B，cohere 协议）。本模块提供该管线在离线评测中的
 建库（专用评测知识库 + 文档摄入 + dense/sparse 向量化）与批量执行设施，
-供 t2retrieval_eval.py / longbench_eval.py 复用。
+供 longbench_eval.py 复用。
 
 与 dataset01（农业维基）评测的区别：
 - gold 为文档级（数据集天然无 chunk 级证据），指标仅走 mode="doc"；
@@ -496,14 +496,16 @@ async def run_eval(
 # ---- 指标汇总 ---------------------------------------------------------------
 
 def summarize(results: list[dict], ks: Sequence[int]) -> dict:
-    """文档级口径（mode='doc'）宏平均 Recall@K / Precision@K / MRR。
+    """文档级口径（mode='doc'）宏平均 Recall@K / Precision@K / NDCG@K / MRR。
 
-    返回 {metrics: {k: {recall: [mean,std], precision: [mean,std]}, mrr: [mean,std]},
+    返回 {metrics: {k: {recall: [mean,std], precision: [mean,std],
+                          ndcg: [mean,std]}, mrr: [mean,std]},
           valid, failed, empty_gold}；gold 为空的 query 不计入指标（单列统计）。
     """
     acc: dict = {
         "recall": {int(k): [] for k in ks},
         "precision": {int(k): [] for k in ks},
+        "ndcg": {int(k): [] for k in ks},
         "mrr": [],
     }
     counts = {"valid": 0, "failed": 0, "empty_gold": 0}
@@ -525,12 +527,14 @@ def summarize(results: list[dict], ks: Sequence[int]) -> dict:
             k = int(k)
             acc["recall"][k].append(metrics[k]["recall"])
             acc["precision"][k].append(metrics[k]["precision"])
+            acc["ndcg"][k].append(metrics[k]["ndcg"])
     out: dict = {"metrics": {}, "counts": counts}
     for k in ks:
         k = int(k)
         out["metrics"][k] = {
             "recall": mean_std(acc["recall"][k]),
             "precision": mean_std(acc["precision"][k]),
+            "ndcg": mean_std(acc["ndcg"][k]),
         }
     out["metrics"]["mrr"] = mean_std(acc["mrr"])
     return out
@@ -566,14 +570,14 @@ def report_lines(
         if key not in ("kb_id", "pool_size", "rerank", "created_at"):
             lines.append(f"- {key}：{value}")
     lines.extend(["", "## 文档级指标（gold = qrels/可辩护证据 → document_id，mode=doc）", ""])
-    lines.append("| K | Recall@K | Precision@K |")
-    lines.append("|---|---|---|")
+    lines.append("| K | Recall@K | Precision@K | NDCG@K |")
+    lines.append("|---|---|---|---|")
     for k in ks:
         k = int(k)
         lines.append(
-            f"| {k} | {fmt_ms(metrics[k]['recall'])} | {fmt_ms(metrics[k]['precision'])} |"
+            f"| {k} | {fmt_ms(metrics[k]['recall'])} | {fmt_ms(metrics[k]['precision'])} | {fmt_ms(metrics[k]['ndcg'])} |"
         )
-    lines.append(f"| MRR | {fmt_ms(metrics['mrr'])} | — |")
+    lines.append(f"| MRR | {fmt_ms(metrics['mrr'])} | — | — |")
     lines.extend(["", f"有效 query 数：{counts['valid']}"])
     if extra:
         lines.extend(["", *extra])

@@ -86,11 +86,10 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 |--|--|--|--|--|--|--|--|--|--|--|--|
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|严格（chunk 级）|0.395|0.722|0.665|0.484|0.748|0.349|0.748|0.174|0.762|
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|宽松（文档级）|0.782|0.782|0.830|0.277|0.847|0.169|0.847|0.085|0.808|
-|[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)|1,000 文档 / 1,926 叶块|文档级|0.345|0.990|0.689|0.826|0.837|0.683|0.951|0.444|0.991|
 |[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)|500 条多语言 query（zh 200 + en 300，3 个 QA 子集）|诊断性（文档级，162/500 可辩护）|0.086|0.228|0.164|0.169|0.189|0.138|0.251|0.102|0.343|
 
-> 三个数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
-> 各数据集详细评测配置、±std 波动与口径说明见下方 4.1/4.2/4.3 小节。
+> 两个数据集均采用生产配置管线 = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排（candidate_pool=50）；
+> 各数据集详细评测配置、±std 波动与口径说明见下方 4.1/4.2 小节。
 
 |功能|测试模型|
 |--|--- |
@@ -143,36 +142,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 生产 sparse 编码器切换与既有知识库迁移见 `utils/migrate_sparse.py`；
 完整报告（双口径 A/B 指标 + NDCG + 失败案例）见 `test/dataset01/results/report.md`。
 
-### 4.2 C-MTEB/T2Retrieval 检索质量评测（2026-08-09）
-
-数据集：[C-MTEB/T2Retrieval](https://huggingface.co/datasets/C-MTEB/T2Retrieval)
-（中文 T2 检索，qrels gold 全部落在库内的 203 条可评测 query 全量）。
-
-**评测配置**：受限语料口径——corpus 前 1000 条文档建库（1,000 文档 / 1,926 叶块）；
-candidate_pool=50，final_top_k=5，rerank=on；
-**生产配置管线** = 混合检索（dense 语义 + jieba 中英双语 BM25 词法 RRF 融合）→ rerank 精排
-（Qwen3-Embedding-4B cohere 协议，本机 127.0.0.1:9527）。
-
-**指标口径**：文档级（gold = qrels → document_id，宏平均±std）。
-
-| K | Recall@K | Precision@K |
-|---|---|---|
-| 1 | 0.345±0.272 | 0.990±0.099 |
-| 3 | 0.689±0.293 | 0.826±0.262 |
-| 5 | 0.837±0.237 | 0.683±0.302 |
-| 10 | 0.951±0.149 | 0.444±0.285 |
-| MRR | 0.991±0.093 | — |
-
-**要点**：
-- 受限语料（前 1000 文档）下生产双路召回 + rerank 表现优秀：MRR=0.991、
-  Recall@10=0.951、Precision@1=0.990；203/203 全部成功（0 失败）
-- 22 条初始失败（query 级瞬时超时/断连，与评测目标机 Qdrant/PG 不稳定同源）
-  经 `--retry-failed` 补跑清零
-- 评测工具链：`test/dataset01/eval/t2retrieval_eval.py`
-  （支持 `--force/--max-corpus/--max-queries/--retry-failed/--no-rerank/--pool`），
-  报告见 `test/dataset01/results/t2retrieval_dual_report.md`
-
-### 4.3 zai-org/LongBench 多语言检索质量评测（诊断性，2026-08-11）
+### 4.2 zai-org/LongBench 多语言检索质量评测（诊断性，2026-08-11）
 
 数据集：[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)（THUDM/LongBench 镜像，中英双语）
 3 个 QA 类子集共 **500 条 query**：中文 multifieldqa_zh（200）+
