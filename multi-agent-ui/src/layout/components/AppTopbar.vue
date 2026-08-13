@@ -90,7 +90,18 @@ onMounted(() => {
             <path d="M9.5 21v-6h5v6" />
           </svg>
         </RouterLink>
-        <span class="breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="breadcrumb-sep" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </span>
         <span class="breadcrumb-current">
           <NavIcon v-if="currentIcon" class="breadcrumb-icon" :icon="currentIcon" :size="18" />
           <strong>{{ currentLabel }}</strong>
@@ -99,7 +110,7 @@ onMounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button class="icon-button" type="button" aria-label="全局搜索">
+      <button class="search-trigger" type="button" aria-label="全局搜索">
         <svg
           viewBox="0 0 24 24"
           fill="none"
@@ -111,6 +122,8 @@ onMounted(() => {
           <circle cx="11" cy="11" r="7" />
           <path d="m21 21-4.3-4.3" />
         </svg>
+        <span class="search-text">搜索功能、文档、知识库</span>
+        <kbd class="search-kbd" aria-hidden="true">⌘K</kbd>
       </button>
       <button class="icon-button notification-button" type="button" aria-label="查看通知">
         <svg
@@ -130,8 +143,10 @@ onMounted(() => {
       <el-dropdown trigger="click" @command="onProfileCommand">
         <button class="profile" type="button" aria-label="账户菜单">
           <span class="profile-avatar" aria-hidden="true">
-            <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-            <template v-else>{{ avatarInitial }}</template>
+            <span class="profile-avatar-inner">
+              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+              <template v-else>{{ avatarInitial }}</template>
+            </span>
           </span>
           <span class="profile-copy">
             <strong>{{ displayName }}</strong>
@@ -172,8 +187,9 @@ onMounted(() => {
   gap: 20px;
   padding: 0 28px;
   border-bottom: 1px solid #eef1f8;
-  background: rgb(255 255 255 / 88%);
-  backdrop-filter: blur(12px);
+  background: rgb(255 255 255 / 72%);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
 }
 
 .topbar-leading,
@@ -194,6 +210,7 @@ onMounted(() => {
   border-radius: 11px;
   color: #64708c;
   background: transparent;
+  cursor: pointer;
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
@@ -211,6 +228,64 @@ onMounted(() => {
   background: #f3f6ff;
 }
 
+/* 全局搜索：类输入框的触发按钮 */
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 232px;
+  height: 38px;
+  padding: 0 8px 0 12px;
+  border: 1px solid #e6eaf3;
+  border-radius: 11px;
+  color: #8b95ad;
+  background: #f7f9fd;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.search-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: #8b95ad;
+}
+
+.search-text {
+  overflow: hidden;
+  flex: 1;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #e3e8f2;
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  color: #9aa4bd;
+  background: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.search-trigger:hover {
+  border-color: #cfd9f7;
+  background: #fff;
+  box-shadow: 0 4px 14px rgb(43 56 86 / 6%);
+}
+
 .breadcrumb {
   display: flex;
   align-items: center;
@@ -224,8 +299,16 @@ onMounted(() => {
   place-items: center;
   border-radius: 10px;
   color: #4c6ef5;
-  background: #eef2ff;
+  background: linear-gradient(135deg, #eef2ff 0%, #f3efff 100%);
   text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.breadcrumb-home:hover {
+  color: #fff;
+  background: linear-gradient(135deg, #5b8bff, #6c63ff);
 }
 
 .breadcrumb-home svg {
@@ -234,17 +317,24 @@ onMounted(() => {
 }
 
 .breadcrumb-sep {
-  color: #cbd2e2;
-  font-size: 14px;
+  display: grid;
+  place-items: center;
+  color: #cdd4e4;
+}
+
+.breadcrumb-sep svg {
+  width: 14px;
+  height: 14px;
 }
 
 .breadcrumb-current {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: #2f3a58;
+  color: #1b2337;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.1px;
 }
 
 .breadcrumb-icon {
@@ -253,8 +343,8 @@ onMounted(() => {
 
 .notification-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 3px;
+  right: 3px;
   display: grid;
   min-width: 17px;
   height: 17px;
@@ -263,7 +353,8 @@ onMounted(() => {
   border: 2px solid #fff;
   border-radius: 9px;
   color: #fff;
-  background: #f5455c;
+  background: linear-gradient(135deg, #ff6b81, #f5455c);
+  box-shadow: 0 2px 6px rgb(245 69 92 / 35%);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -285,6 +376,7 @@ onMounted(() => {
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
+  cursor: pointer;
   transition:
     background-color 150ms ease,
     border-color 150ms ease;
@@ -295,21 +387,33 @@ onMounted(() => {
   background: #f5f7fd;
 }
 
+/* 头像：品牌渐变 ring + 圆形 */
 .profile-avatar {
   display: grid;
-  overflow: hidden;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 10px;
-  color: #fff;
-  background: linear-gradient(145deg, #5b8bff, #6c63ff);
-  font-size: 15px;
+  padding: 2px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5b8bff, #7c5cff);
+  box-shadow: 0 4px 12px rgb(92 107 255 / 30%);
+}
+
+.profile-avatar-inner {
+  display: grid;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border-radius: 50%;
+  color: #4c6ef5;
+  background: #eef1fa;
+  font-size: 14px;
   font-weight: 700;
 }
 
-.profile-avatar img {
+.profile-avatar-inner img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -323,7 +427,7 @@ onMounted(() => {
 }
 
 .profile-copy strong {
-  color: #2f3a58;
+  color: #1b2337;
   font-size: 13px;
   font-weight: 600;
 }
@@ -337,6 +441,11 @@ onMounted(() => {
   display: grid;
   place-items: center;
   color: #a6afc6;
+  transition: transform 150ms ease;
+}
+
+.profile:hover .profile-chevron {
+  transform: rotate(180deg);
 }
 
 .profile-chevron svg {
@@ -352,14 +461,15 @@ onMounted(() => {
   .app-topbar {
     padding: 0 18px;
   }
-}
 
-@media (max-width: 520px) {
-  .app-topbar {
-    padding: 0 12px;
+  .search-trigger {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
   }
 
-  .profile-copy {
+  .search-text,
+  .search-kbd {
     display: none;
   }
 }
