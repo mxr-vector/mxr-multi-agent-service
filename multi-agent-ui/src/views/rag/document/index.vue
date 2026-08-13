@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { documentApi, getChunkStrategyLabel, type RagDocument, type DocumentUpdatePayload } from "@/api/rag/document";
+import {
+  documentApi,
+  getChunkStrategyLabel,
+  type RagDocument,
+  type DocumentUpdatePayload,
+} from "@/api/rag/document";
 import type { KnowledgeBase } from "@/api/rag/knowledgeBase";
 import { folderApi, type Folder } from "@/api/rag/folders";
 import { confirmDanger } from "@/utils/confirm";
@@ -93,8 +98,12 @@ const {
   goUp,
   reset: resetFolderNav,
 } = useFolderNavigation(activeKb, folders, knowledgeTreeRef, page);
-const { draft, tableTypeOptions, total, pagedDocuments, apply, reset } =
-  useDocumentFilters(allDocuments, selectedFolderId, page, size);
+const { draft, tableTypeOptions, total, pagedDocuments, apply, reset } = useDocumentFilters(
+  allDocuments,
+  selectedFolderId,
+  page,
+  size
+);
 
 // —— 加载 ——
 // 未选择知识库时禁用新建文件/文件夹等操作

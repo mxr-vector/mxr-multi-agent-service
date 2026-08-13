@@ -9,7 +9,9 @@ const CHUNK_STRATEGY_DICT_TYPE = "chunk_strategy";
 export function getChunkStrategyOptions(): { label: string; value: string }[] {
   const dictStore = useDictStore();
   dictStore.ensureLoaded();
-  return dictStore.getOptions(CHUNK_STRATEGY_DICT_TYPE).map((d) => ({ label: d.label, value: d.value }));
+  return dictStore
+    .getOptions(CHUNK_STRATEGY_DICT_TYPE)
+    .map((d) => ({ label: d.label, value: d.value }));
 }
 
 /** 分块策略展示文案：以全局词典为准，命中取 label，未命中回退原始值 */

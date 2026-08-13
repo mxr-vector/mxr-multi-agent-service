@@ -2,7 +2,7 @@
   <header class="afc-header">
     <div class="afc-header__left">
       <span class="afc-header__ava">
-            <SvgIcon  name="智能优化" :size="15"/>
+        <SvgIcon name="智能优化" :size="15" />
       </span>
       <div>
         <p class="afc-header__name">{{ title }}</p>
@@ -54,13 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  Clock,
-  Close,
-  Delete,
-  FullScreen,
-  ScaleToOriginal,
-} from "@element-plus/icons-vue";
+import { Clock, Close, Delete, FullScreen, ScaleToOriginal } from "@element-plus/icons-vue";
 import SvgIcon from "@/components/ui/SvgIcon.vue";
 defineProps<{
   title: string;
