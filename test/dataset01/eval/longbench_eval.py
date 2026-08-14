@@ -2,15 +2,18 @@
 zai-org/LongBench 多语言（中英）双路召回评测适配器（诊断性披露）。
 
 LongBench 是问答数据集（无标准 retrieval qrels），本适配器采用"可辩护证据"
-映射口径：query 的 answer 规范化后出现在某 context 段落文本中，则该段落为
-gold（段落级 → 文档级）；answer 不可定位的 query 不参与指标，单独统计 why
-（answer_not_in_context），不伪造指标。
+映射口径（v2）：query 的 answer 大小写不敏感子串命中 context 段落，则该段落
+为 gold（段落级 → 文档级）；完整 answer 不可定位时，取答案最长 N 个标点切分
+片段兜底匹配（改写式答案，中英文通用）；命中段落数超过上限的 query 视为答案
+过泛（answer_too_ambiguous），不参与指标、不伪造 MRR。建库按段落文本跨
+query/子集去重（相同段落复用同一文档），避免重复副本稀释检索排名。
 
 - 多语言构成：默认 5 个 QA 类子集（字段统一为 input/context/answers/_id）
   中文 dureader/multifieldqa_zh + 英文 2wikimqa/musique/hotpotqa；
   全量 1,000 条（每子集 200 条全量），--subsets 可换。
 - 建库：每条 query 的 context 按换行切分为段落，每段落一个文档（单块；
-  超长段落走 ingest_file 切块），source_uri=lb:{subset}:{qid}:{para_idx}。
+  超长段落走 ingest_file 切块），source_uri=lb:{subset}:{qid}:{para_idx}；
+  段落文本跨 query/子集按 hash 去重，重复段落复用既有文档。
 - 管线：hybrid_retrieve_multi（dense + jieba BM25 RRF，candidate_pool=50）
   + rerank 精排（Qwen3-Embedding-4B cohere 协议），与生产配置一致。
 - 指标：Recall@K / Precision@K / NDCG@K / MRR（K∈{1,3,5,10}，文档级，宏平均±std），
@@ -50,12 +53,15 @@ from dual_retrieval import (
     ingest_document_retry,
     report_lines,
     run_eval,
+    sha256_of_text,
     summarize,
     vectorize_batch,
 )
 
-KB_NAME = "dataset01-longbench"
-KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench 中英 5 QA 子集（context 段落单块，诊断性）"
+# 评测知识库按子集分库：每子集独立语料库（dataset01-longbench-{subset}），
+# 检索在子集自身语料内进行，避免跨子集语料污染
+KB_NAME_PREFIX = "dataset01-longbench"
+KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench {subset} 子集（context 段落单块，诊断性）"
 
 # 中英 QA 类子集（字段统一：input/context/answers/_id；按子集顺序拼接）
 SUBSETS = [
@@ -79,9 +85,27 @@ DOC_MAP_PATH = GOLD_DIR / "longbench_doc_map.json"
 RESULTS_PATH = RESULTS_DIR / "longbench_dual_results.json"
 SUMMARY_PATH = RESULTS_DIR / "longbench_dual_summary.json"
 
+# ---- 可辩护证据映射口径参数（v2）---------------------------------------------
+# 片段兜底匹配的最小片段长度（字符）：过短片段（如英文冠词）命中面过广，误报率高
+GOLD_FRAG_MIN_LEN = 4
+# 每个答案最多取前 N 个最长片段参与兜底匹配
+GOLD_FRAG_MAX_COUNT = 3
+# gold 段落数上限：超过视为答案过泛（如常见词命中文档池大量段落），
+# 子串匹配无法区分证据段落，判为 answer_too_ambiguous 不参与指标
+MAX_GOLD_PARAS = 10
+# 口径版本：进建库指纹；口径参数变更后旧 doc map 指纹不匹配，强制重建
+GOLD_ORACLE_VERSION = "v2"
+# 答案标点切分模式（中英文常用标点 + 空白）
+_PUNCT_RE = re.compile(r"[。！？；，、,.!?;:\"'《》〈〉（）()\[\]【】\s]+")
+
 
 def _data_path(subset: str) -> Path:
     return DATA_DIR / "longbench_data" / "data" / f"{subset}.jsonl"
+
+
+def _kb_name(subset: str) -> str:
+    """子集独立评测知识库名。"""
+    return f"{KB_NAME_PREFIX}-{subset}"
 
 
 def _require_data(subsets: list[str]) -> None:
@@ -99,24 +123,49 @@ def split_paragraphs(context: str) -> list[str]:
     return [p.strip() for p in context.split("\n") if p.strip()]
 
 
-def defensible_paragraphs(context: str, answers: list[str]) -> tuple[list[int], str | None]:
-    """可辩护证据映射：answer 规范化后子串命中段落 → 段落下标列表。
+def answer_fragments(answer: str) -> list[str]:
+    """答案按标点切分后的非空片段（规范化去重、按长度降序取前 N 个）。
 
-    返回 (gold_para_idx, why)；无可辩护段落时 why="answer_not_in_context"。
+    改写式答案（中文长句 / 英文列表）无法整串定位时用于兜底匹配。
+    """
+    frags = {normalize(f) for f in _PUNCT_RE.split(answer)}
+    return sorted(
+        (f for f in frags if len(f) >= GOLD_FRAG_MIN_LEN),
+        key=lambda f: (-len(f), f),  # 同长度按字典序，保证跨进程确定性
+    )[:GOLD_FRAG_MAX_COUNT]
+
+
+def defensible_paragraphs(context: str, answers: list[str]) -> tuple[list[int], str | None]:
+    """可辩护证据映射（v2）：answer 定位到 context 段落 → 段落下标列表。
+
+    匹配顺序（大小写不敏感）：
+    1. 完整答案子串命中段落（强证据）；
+    2. 完整答案不可定位时，取答案最长 N 个标点切分片段兜底（改写式答案）。
+    命中段落数超过 MAX_GOLD_PARAS 视为答案过泛（answer_too_ambiguous，
+    子串匹配无法区分证据段落），不参与指标。
+    返回 (gold_para_idx, why)；why 为 None 表示可辩护。
     """
     paras = split_paragraphs(context)
-    norm_paras = [normalize(p) for p in paras]
-    gold: list[int] = []
+    norm_paras = [normalize(p).casefold() for p in paras]
+    gold: set[int] = set()
     for a in answers:
-        norm_a = normalize(a)
-        if not norm_a:
+        na = normalize(a).casefold()
+        if not na:
             continue
-        for idx, np in enumerate(norm_paras):
-            if norm_a in np:
-                gold.append(idx)
-    if gold:
-        return sorted(set(gold)), None
-    return [], "answer_not_in_context"
+        hits = {i for i, np in enumerate(norm_paras) if na in np}
+        if hits:
+            gold |= hits
+            continue
+        for frag in answer_fragments(a):
+            ff = frag.casefold()
+            for i, np in enumerate(norm_paras):
+                if ff in np:
+                    gold.add(i)
+    if not gold:
+        return [], "answer_not_in_context"
+    if len(gold) > MAX_GOLD_PARAS:
+        return [], "answer_too_ambiguous"
+    return sorted(gold), None
 
 
 def load_rows(subsets: list[str]) -> list[dict]:
@@ -145,69 +194,99 @@ def load_rows(subsets: list[str]) -> list[dict]:
 
 
 async def build(session_factory, rows: list[dict], force: bool, batch_size: int = 100) -> object:
-    """建库（幂等：KB 与 doc map 指纹一致时复用；--force 重建）。
+    """按子集分库建库（幂等：各库与 doc map 指纹一致时复用；--force 重建）。
 
+    每个子集一个独立评测知识库（dataset01-longbench-{subset}），检索在子集
+    自身语料内进行，避免跨子集语料污染；子集内按段落文本跨 query 去重。
     摄入走 ingest_document_retry（独立 session + DB 异常重试），
     规避评测目标机 PG 间歇断连。
     """
+    subsets = sorted({r["subset"] for r in rows})
     fp = hashlib.sha256(
-        ("\n".join(r["subset"] + r["qid"] + r["context"][:200] for r in rows)).encode("utf-8")
+        (
+            "\n".join(r["subset"] + r["qid"] + r["context"][:200] for r in rows)
+            + f"|per-subset-kb|dedup|gold:{GOLD_ORACLE_VERSION}"
+            f"|frag:{GOLD_FRAG_MIN_LEN}:{GOLD_FRAG_MAX_COUNT}"
+            f"|max:{MAX_GOLD_PARAS}"
+        ).encode("utf-8")
     ).hexdigest()[:16]
 
+    kb_by_subset: dict[str, object] = {}
     async with session_factory() as session:
-        existing = await find_kb(session, KB_NAME)
-        if existing is not None and not force:
-            if DOC_MAP_PATH.exists():
-                cached = load_json(DOC_MAP_PATH)
-                if cached.get("fingerprint") == fp:
-                    print(
-                        f"[lb] 评测知识库已存在且指纹一致: {KB_NAME} id={existing.id.hex}"
-                        f"（复用 {len(cached['mapping'])} 个段落映射，重建请加 --force）"
-                    )
-                    return existing, cached["mapping"]
-            print(
-                f"[lb] 评测知识库已存在但指纹不一致（重建请加 --force），"
-                f"继续使用既有库: {existing.id.hex}"
-            )
-            return existing, {}
+        for subset in subsets:
+            kb_name = _kb_name(subset)
+            existing = await find_kb(session, kb_name)
+            if existing is not None and force:
+                print(f"[lb] --force：清理既有评测知识库 {kb_name}...")
+                await cleanup_kb(session, kb_name)
+            if existing is None or force:
+                kb = await create_kb(session, kb_name, KB_DESCRIPTION.format(subset=subset))
+                await session.commit()
+                print(
+                    f"[lb] 已创建评测知识库: {kb_name} id={kb.id.hex}"
+                    f" collection={kb.qdrant_collection}"
+                )
+            else:
+                kb = existing
+            kb_by_subset[subset] = kb
 
-        if existing is not None and force:
-            print(f"[lb] --force：清理既有评测知识库 {KB_NAME}...")
-            await cleanup_kb(session, KB_NAME)
-
-        kb = await create_kb(session, KB_NAME, KB_DESCRIPTION)
-        await session.commit()
-    print(f"[lb] 已创建评测知识库: {KB_NAME} id={kb.id.hex} collection={kb.qdrant_collection}")
+    if not force:
+        if DOC_MAP_PATH.exists():
+            cached = load_json(DOC_MAP_PATH)
+            if cached.get("fingerprint") == fp and set(cached.get("kb_ids", {})) == set(subsets):
+                print(
+                    f"[lb] 评测知识库已存在且指纹一致（{len(subsets)} 个子集库），"
+                    f"复用 {len(cached['mapping'])} 个段落映射（重建请加 --force）"
+                )
+                return kb_by_subset, cached["mapping"]
+        print(
+            "[lb] 评测知识库已存在但指纹不一致（重建请加 --force），继续使用既有库"
+        )
+        return kb_by_subset, {}
 
     mapping: dict[str, str] = {}
     total_leaves = 0
-    pending_specs: list[dict] = []
     processed = 0
-    for row in rows:
-        for para_idx, para in enumerate(split_paragraphs(row["context"])):
-            uri = f"lb:{row['qid']}:{para_idx}"
-            ingested, leaf_specs = await ingest_document_retry(
-                session_factory,
-                kb,
-                title=uri,
-                text=para,
-                source_uri=uri,
-                source_system="LongBench",
-                metadata={"subset": row["subset"], "lb_qid": row["qid"], "para_idx": para_idx},
-            )
-            if ingested is None:
+    dup_skipped = 0
+    for subset in subsets:
+        kb = kb_by_subset[subset]
+        pending_specs: list[dict] = []
+        # 段落文本 hash → 首个 uri：子集内相同文本跨 query 复用既有文档，
+        # 避免重复副本在检索排名中占位稀释命中（多跳子集段落池重叠率高）
+        seen_texts: dict[str, str] = {}
+        for row in rows:
+            if row["subset"] != subset:
                 continue
-            mapping[uri] = ingested.id.hex
-            total_leaves += len(leaf_specs)
-            pending_specs.extend(leaf_specs)
-            processed += 1
-            if processed % batch_size == 0:
-                await vectorize_batch(kb, pending_specs)
-                print(f"[lb] 向量化 {processed} 段落（累计叶块 {total_leaves}）")
-                pending_specs = []
-    if pending_specs:
-        await vectorize_batch(kb, pending_specs)
-        print(f"[lb] 向量化收尾（累计叶块 {total_leaves}）")
+            for para_idx, para in enumerate(split_paragraphs(row["context"])):
+                uri = f"lb:{row['qid']}:{para_idx}"
+                text_hash = sha256_of_text(para)
+                if text_hash in seen_texts:
+                    mapping[uri] = mapping[seen_texts[text_hash]]
+                    dup_skipped += 1
+                    continue
+                seen_texts[text_hash] = uri
+                ingested, leaf_specs = await ingest_document_retry(
+                    session_factory,
+                    kb,
+                    title=uri,
+                    text=para,
+                    source_uri=uri,
+                    source_system="LongBench",
+                    metadata={"subset": row["subset"], "lb_qid": row["qid"], "para_idx": para_idx},
+                )
+                if ingested is None:
+                    continue
+                mapping[uri] = ingested.id.hex
+                total_leaves += len(leaf_specs)
+                pending_specs.extend(leaf_specs)
+                processed += 1
+                if processed % batch_size == 0:
+                    await vectorize_batch(kb, pending_specs)
+                    print(f"[lb] 向量化 {processed} 段落（累计叶块 {total_leaves}）")
+                    pending_specs = []
+        if pending_specs:
+            await vectorize_batch(kb, pending_specs)
+            print(f"[lb] 向量化收尾（累计叶块 {total_leaves}）")
 
     save_json(
         DOC_MAP_PATH,
@@ -215,21 +294,28 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
             "dataset": f"zai-org/LongBench {'+'.join({r['subset'] for r in rows})}",
             "fingerprint": fp,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "kb_id": kb.id.hex,
+            "kb_ids": {s: kb_by_subset[s].id.hex for s in subsets},
             "mapping": mapping,
         },
     )
-    print(f"[lb] 建库完成：{len(mapping)} 段落文档 / {total_leaves} 叶块")
-    return kb, mapping
+    print(
+        f"[lb] 建库完成：{len(mapping)} 段落映射 / {processed} 唯一文档"
+        f"（复用重复段落 {dup_skipped}）/ {total_leaves} 叶块（{len(subsets)} 个子集库）"
+    )
+    return kb_by_subset, mapping
 
 
-def build_queries(rows: list[dict], mapping: dict[str, str]) -> list[dict]:
-    """构建评测 query 列表（gold = 可辩护段落 → PG 文档 id）。"""
+def build_queries(rows: list[dict], mapping: dict[str, str], kb_by_subset: dict) -> list[dict]:
+    """构建评测 query 列表（gold = 可辩护段落 → PG 文档 id，按文档去重）。"""
     queries = []
     for row in rows:
-        gold_docs = [
-            mapping[f"lb:{row['qid']}:{i}"] for i in row["gold_para_idx"]
-        ]
+        gold_docs = sorted(
+            {
+                mapping[f"lb:{row['qid']}:{i}"]
+                for i in row["gold_para_idx"]
+                if f"lb:{row['qid']}:{i}" in mapping
+            }
+        )
         queries.append(
             {
                 "qid": row["qid"],
@@ -237,6 +323,7 @@ def build_queries(rows: list[dict], mapping: dict[str, str]) -> list[dict]:
                 "question": row["question"],
                 "gold_docs": gold_docs,
                 "why": row["why"],
+                "kb": kb_by_subset[row["subset"]],
             }
         )
     return queries
@@ -283,7 +370,7 @@ async def main() -> None:
         "--subsets",
         type=str,
         default=",".join(SUBSETS),
-        help=f"评测子集列表（逗号分隔，默认全 6 个）",
+        help=f"评测子集列表（逗号分隔，默认全 5 个）",
     )
     parser.add_argument(
         "--max-queries",
@@ -305,8 +392,14 @@ async def main() -> None:
 
     if args.cleanup:
         async with get_eval_session() as session:
-            removed = await cleanup_kb(session, KB_NAME)
-        print(f"[lb] 已删除评测知识库 {KB_NAME}" if removed else f"[lb] 评测知识库 {KB_NAME} 不存在")
+            for subset in subsets:
+                kb_name = _kb_name(subset)
+                removed = await cleanup_kb(session, kb_name)
+                print(
+                    f"[lb] 已删除评测知识库 {kb_name}"
+                    if removed
+                    else f"[lb] 评测知识库 {kb_name} 不存在"
+                )
         return
 
     rows = load_rows(subsets)
@@ -321,26 +414,30 @@ async def main() -> None:
         row["gold_para_idx"] = gold_idx
         row["why"] = why
     defensible = sum(1 for r in rows if r["gold_para_idx"])
+    why_counter = Counter(r["why"] for r in rows if r["why"])
     print(
         f"[lb] 可辩护 query：{defensible}/{len(rows)}"
-        f"（answer 子串命中 context 段落；其余计入 why=answer_not_in_context，不参与指标）"
+        f"（answer 可定位到 context 段落）；不可辩护：{dict(why_counter)}"
+        "，不参与指标"
     )
 
     async with get_eval_session() as session:
-        kb, mapping = await build(get_eval_session, rows, args.force)
+        kb_by_subset, mapping = await build(get_eval_session, rows, args.force)
         if not mapping:
             from sqlalchemy import select
 
             from entity.rag.document import Document
 
-            stmt = select(Document.id, Document.source_uri).where(
-                Document.knowledge_base_id == kb.id
-            )
-            found = (await session.execute(stmt)).all()
-            mapping = {r.source_uri: r.id.hex for r in found}
+            mapping = {}
+            for subset, kb in kb_by_subset.items():
+                stmt = select(Document.id, Document.source_uri).where(
+                    Document.knowledge_base_id == kb.id
+                )
+                found = (await session.execute(stmt)).all()
+                mapping.update({r.source_uri: r.id.hex for r in found})
             print(f"[lb] 从 PG 重建段落映射：{len(mapping)} 个")
 
-    queries = build_queries(rows, mapping)
+    queries = build_queries(rows, mapping, kb_by_subset)
     if args.max_queries:
         queries = queries[: args.max_queries]
     executed = Counter(q["subset"] for q in queries)
@@ -359,7 +456,7 @@ async def main() -> None:
             return
         retry = [q for q in queries if q["qid"] in failed_qids]
         print(f"[lb] 补跑失败 query：{len(retry)} 条")
-        fresh = await run_eval(retry, kb, pool_size, use_rerank=not args.no_rerank)
+        fresh = await run_eval(retry, kb_by_subset, pool_size, use_rerank=not args.no_rerank)
         by_qid = {r["qid"]: r for r in fresh}
         merged = [by_qid.get(r["qid"], r) for r in prev["results"]]
         results = merged
@@ -377,11 +474,13 @@ async def main() -> None:
             f"（失败 {sum(1 for r in results if r['status'] != 'ok')}）"
         )
     else:
-        results = await run_eval(queries, kb, pool_size, use_rerank=not args.no_rerank)
+        results = await run_eval(queries, kb_by_subset, pool_size, use_rerank=not args.no_rerank)
         payload = {
             "meta": {
                 "dataset": f"zai-org/LongBench 多语言（{'/'.join(subsets)}）",
-                "kb_id": kb.id.hex,
+                "kb_id": "各子集独立库（"
+                + ", ".join(f"{s}={kb_by_subset[s].id.hex[:8]}" for s in subsets)
+                + "）",
                 "pool_size": pool_size,
                 "rerank": not args.no_rerank,
                 "subsets": subsets,
@@ -417,9 +516,16 @@ async def main() -> None:
             f"- 可辩护 query：{summary['counts']['valid']}/{len(queries)}"
             f"（answer 可定位到 context 段落）；不可辩护统计：{summary.get('why')}",
             "",
-            "> 诊断性披露：LongBench 无标准 retrieval qrels，gold 为 answer 子串命中的 "
-            "context 段落（文档级）；不可辩护 query 不参与指标，不伪造 MRR。"
-            "结果仅供参考，不参与严格对比。",
+            f"> 诊断性披露：LongBench 无标准 retrieval qrels，gold 为可辩护证据映射（{GOLD_ORACLE_VERSION}）："
+            "完整 answer 大小写不敏感子串命中 context 段落（不可定位时取答案最长"
+            f"{GOLD_FRAG_MAX_COUNT} 个标点切分片段兜底，片段长度≥{GOLD_FRAG_MIN_LEN}）；"
+            f"命中段落数超过 {MAX_GOLD_PARAS} 的 query 视为答案过泛（answer_too_ambiguous）不参与指标；"
+            "每子集独立知识库，库内按段落文本跨 query 去重（重复段落复用同一文档）；"
+            "不可辩护 query 不伪造 MRR。结果仅供参考，不参与严格对比。",
+            "",
+            "> 口径限定：本评测为检索层下界（原始 query 单轮混合召回 + rerank），不含生产 Agentic 管线的"
+            "LLM 改写、工具内反思重检与自主决策检索；gold 仅覆盖答案所在段落，多跳的桥接证据段落未测量；"
+            "短答案 query 剔除与片段兜底 gold 膨胀的偏差详见 RAG.md 4.2 节。",
         ],
     )
     lines.extend(["", "## 按子集拆分（中英文 / 任务类型标注）", ""])

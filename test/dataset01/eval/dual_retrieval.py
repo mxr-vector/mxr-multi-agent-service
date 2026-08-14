@@ -438,7 +438,8 @@ async def run_eval(
 ) -> list[dict]:
     """批量执行双路召回评测（hybrid_retrieve_multi + 可选 rerank）。
 
-    queries: [{qid, question, gold_docs: [doc_id_hex, ...]}]；
+    queries: [{qid, question, gold_docs: [doc_id_hex, ...], kb?: 可选单条知识库}]
+    单条 query 携带 kb 时优先使用（分库评测），否则回落到统一 kb 参数；
     返回 [{qid, question, gold_docs, status, candidates, latency_ms, error}]，
     candidates 含 point_id/document_id/score/text（rerank 后 score 为精排得分）。
     """
@@ -459,8 +460,9 @@ async def run_eval(
             }
             started = time.monotonic()
             try:
+                kb_obj = item.get("kb") or kb
                 candidates = await asyncio.to_thread(
-                    hybrid_retrieve_multi, question, [kb.id], pool_size
+                    hybrid_retrieve_multi, question, [kb_obj.id], pool_size
                 )
                 if use_rerank:
                     candidates = await rerank_candidates(question, candidates)
