@@ -86,16 +86,22 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 |--|--|--|--|--|--|--|--|--|--|--|--|--|
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|严格（chunk 级）|0.357|0.789|0.650|0.566|0.753|0.428|0.753|0.214|0.751|0.826|
 |[chal1ce/Agricultrue_Wiki_QA_110K](https://www.modelscope.cn/datasets/chal1ce/Agricultrue_Wiki_QA_110K/dataPeview)|2,919 文档 / 23,953 叶块|宽松（文档级）|0.847|0.847|0.904|0.301|0.904|0.181|0.904|0.090|0.882|0.874|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：dureader（中文，多文档 QA）|200 条 query（子集独立库 7,362 文档 / 7,774 叶块）|native|0.057|0.109|0.225|0.142|0.486|0.185|0.934|0.184|0.481|0.324|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：2wikimqa（英文，多跳 QA）|200 条 query（子集独立库 19,900 文档 / 20,580 叶块）|native|0.056|0.162|0.160|0.145|0.214|0.112|0.250|0.067|0.199|0.271|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：musique（英文，多跳 QA）|200 条 query（子集独立库 37,881 文档 / 39,959 叶块）|native|0.033|0.100|0.067|0.067|0.087|0.049|0.122|0.036|0.096|0.142|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：hotpotqa（英文，多跳 QA）|200 条 query（子集独立库 37,277 文档 / 39,392 叶块）|native|0.075|0.193|0.151|0.131|0.182|0.107|0.251|0.077|0.205|0.304|
-|[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)：multifieldqa_zh（中文，单文档 QA）|200 条 query（子集独立库 3,320 文档 / 4,300 叶块）|native|0.320|0.380|0.515|0.228|0.568|0.154|0.666|0.096|0.519|0.502|
+|LongBench：dureader（中文，多文档 QA）|200 条 query（独立库 7,362 文档）|native（174/200）|0.057|0.109|0.225|0.142|0.486|0.185|0.934|0.184|0.481|0.324|
+|LongBench：dureader（中文，多文档 QA）|200 条 query（独立库 7,362 文档）|tool（142/200）|0.056|0.113|0.238|0.148|0.496|0.187|0.937|0.188|0.487|0.330|
+|LongBench：2wikimqa（英文，多跳 QA）|200 条 query（独立库 19,900 文档）|native（179/200）|0.056|0.162|0.160|0.145|0.214|0.112|0.250|0.067|0.199|0.271|
+|LongBench：2wikimqa（英文，多跳 QA）|200 条 query（独立库 19,900 文档）|tool（163/200）|0.052|0.160|0.174|0.162|0.228|0.123|0.267|0.074|0.211|0.285|
+|LongBench：musique（英文，多跳 QA）|200 条 query（独立库 37,881 文档）|native（160/200）|0.033|0.100|0.067|0.067|0.087|0.049|0.122|0.036|0.096|0.142|
+|LongBench：musique（英文，多跳 QA）|200 条 query（独立库 37,881 文档）|tool（112/200）|0.038|0.107|0.067|0.065|0.080|0.046|0.126|0.036|0.099|0.145|
+|LongBench：hotpotqa（英文，多跳 QA）|200 条 query（独立库 37,277 文档）|native（135/200）|0.075|0.193|0.151|0.131|0.182|0.107|0.251|0.077|0.205|0.304|
+|LongBench：hotpotqa（英文，多跳 QA）|200 条 query（独立库 37,277 文档）|tool（131/200）|0.077|0.198|0.154|0.132|0.191|0.107|0.254|0.076|0.207|0.296|
+|LongBench：multifieldqa_zh（中文，单文档 QA）|200 条 query（独立库 3,320 文档）|native（92/200）|0.320|0.380|0.515|0.228|0.568|0.154|0.666|0.096|0.519|0.502|
+|LongBench：multifieldqa_zh（中文，单文档 QA）|200 条 query（独立库 3,320 文档）|tool（88/200）|0.306|0.364|0.493|0.220|0.548|0.150|0.637|0.092|0.498|0.473|
 
-> 各数据集共用同一混合检索底座：dense 语义 + jieba 中英双语 BM25 词法 RRF 融合 → rerank 精排（candidate_pool=50）；
-> 上表 LongBench 5 子集为 **native** 口径：数据集原生 context 段落直测（无聚合加工），每子集独立评测知识库（库内按段落文本跨 query 去重，5 库合计 105,740 文档 / 112,005 叶块），逐子集独立计指标；gold 为可辩护证据映射 v2（文档级，诊断性，不参与严格对比），可辩护数：dureader 174 / 2wikimqa 179 / musique 160 / hotpotqa 135 / multifieldqa_zh 92（各 200 条）；口径细节与多跳局限见 4.2；
-> 上表农业数值为 **B 完整子图（反思 + rerank）** 口径；LongBench 各子集为**检索层下界**口径（单轮原始 query 混合召回 + rerank，不含生产 Agentic 管线的 LLM 改写与自主决策检索）；
-> 各数据集详细评测配置与口径说明见下方 4.1/4.2 小节（LongBench 逐子集 ±std 明细见 `test/dataset01/results/longbench_dual_report.md`）。
+> 各数据集共用同一混合检索底座：dense 语义 + jieba 中英双语 BM25 词法 RRF 融合 → rerank 精排（candidate_pool=50）；农业数值为 B 完整子图（反思 + rerank）口径，细节见 4.1。
+> LongBench（[zai-org/LongBench](https://huggingface.co/datasets/zai-org/LongBench)）5 子集各 200 条 query、每子集独立评测库（native 原生 context 段落直测，库内按段落文本跨 query 去重，5 库合计 105,740 文档 / 112,005 叶块）；gold 为可辩护证据映射 v2（文档级，诊断性，不参与严格对比），口径列括号内为可辩护数：
+> - **native**：检索层下界 = 原始 query 单轮混合召回 + rerank，不含 LLM 改写/反思/自主决策检索；
+> - **tool**：生产工具级 = `knowledge_base_search` 工具完整实现（含反思充分性判定与改写查询重检 cap=3、rerank top_k=10，平均 28.7s/条），引入 LLM 依赖失败 130/1000（13%），两口径对比须扣除样本差。
+> 口径细节、多跳子集局限与工具级失败构成见 4.2；逐子集 ±std 明细见 `test/dataset01/results/longbench_dual_report.md`（native）/ `longbench_tool_report.md`（tool）。
 
 |功能|测试模型|
 |--|--- |
@@ -169,9 +175,8 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 自身语料内进行，避免跨子集语料污染；每条 query 的 context 按换行切分为段落，每段落
 一个文档（单块直存，超长段落走 ingest_file 两级切块），库内按段落文本跨 query 去重
 （重复段落复用同一文档，避免重复副本稀释检索排名）；5 库合计 105,740 文档 /
-112,005 叶块；candidate_pool=50，rerank=on。**评测定位**：原始 query 单轮混合
-召回 + rerank 的**检索层下界**——不含生产 Agentic 管线的 LLM 改写、工具内反思
-重检与自主决策检索（生产形态见 3.3），指标仅反映单次检索工具的召回极限。
+112,005 叶块；candidate_pool=50，rerank=on。native 检索层下界与 tool 生产工具级
+两口径定义见基准测试总表注释。
 
 **可辩护证据映射口径（v2，诊断性披露）**：LongBench 无标准 retrieval qrels，本评测
 采用"answer 定位到 context 段落"作为可辩护证据（段落级 → 文档级），匹配规则：
@@ -192,7 +197,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 > gold（gold 膨胀），多跳子集 17.9%~32.6% 的有效 query gold≥5 段（真实证据
 > 仅 2-4 段），这些 query 的 Recall@10 满分在数学上不可达。
 
-逐子集完整指标表（含 ±std）见 `test/dataset01/results/longbench_dual_report.md`（按子集分节存档）。
+逐子集完整指标表（含 ±std）见 `test/dataset01/results/longbench_dual_report.md`（native）/ `longbench_tool_report.md`（tool，按子集分节存档）。
 
 **要点**：
 - 多语言（中英）混合：中文 400 / 英文 600，5 个 QA 类子集（字段统一
@@ -207,18 +212,26 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
   段落池规模一致——musique 问题高度推理式且库最大，具体指标见总表）。该结论
   仅限检索层下界：生产 Agentic 管线下 LLM 会逐跳拆解改写查询（多跳恰是自主
   改写收益最大的题型），端到端表现需另测，不可由本指标外推
-- 0 失败（1000/1000，rerank=on）；历史口径基线（2026-08-13，共享单库 + 严格
-  子串匹配，552/1000 可辩护）与本次口径 v2（分库 + v2 映射）不可直接对比
+- 两口径对比（见总表）：反思改写重检整体增益微弱（MRR +0.9pt、Recall@10
+  +0.5pt）；多跳子集略升（2wikimqa MRR 0.271→0.285、musique 0.142→0.145），
+  单文档 QA 微降（multifieldqa_zh MRR 0.502→0.473）——改写对困难 query
+  有帮助，对原本检索已好的 query 引入扰动；检索层下界 0 失败，工具级引入
+  LLM 依赖失败 130/1000（13%：rewrite 云模型结构化输出兼容性差 88 条、
+  安全拦截 451 共 27 条、挂起超时 13 条），有效样本 740→636
+- 历史口径基线（2026-08-13，共享单库 + 严格子串匹配，552/1000 可辩护）与
+  本次口径 v2（分库 + v2 映射）不可直接对比
 - sparse 通道已升级为**中英双语分词**（`model/sparse/bm25.py`：中文 jieba +
   英文小写化切词 + 英文停用词，混合文本自动分流），英文 query 不再依赖
   jieba 兜底（旧实现英文大小写敏感，词法通道会漏配）
-- 评测工具链：`test/dataset01/eval/longbench_eval.py`（--subsets/--max-queries
-  /--retry-failed 等）
-- **评测定位与生产缺口**：本评测固定每条 query 走单轮检索，覆盖生产
-  `knowledge_base_search` 工具的检索底座（混合召回 + rerank）；Agentic 三层
-  决策未覆盖——LLM 是否检索（跳过检索直接答的幻觉风险）、逐跳拆解与查询改写
-  质量（多跳检索的输入侧变量）、工具内反思重检。多跳 QA 的端到端诊断需补
-  生成答案口径（LongBench 自带 answers，EM/F1 评估）
+- 评测工具链：`test/dataset01/eval/longbench_eval.py`（检索层下界，
+  --subsets/--max-queries/--retry-failed 等）、
+  `test/dataset01/eval/longbench_tool_eval.py`（生产工具级，单条超时兜底 +
+  断点续跑）
+- **评测定位与生产缺口**：总表 native 检索层下界与 tool 生产工具级两口径均
+  以原始 query 单轮入口，二者合计覆盖生产 `knowledge_base_search` 工具完整
+  实现（含工具内反思改写重检）；Agentic 外层决策仍未覆盖——LLM 是否检索
+  （跳过检索直接答的幻觉风险）与逐跳拆解改写（多跳检索的输入侧变量）。
+  多跳 QA 的端到端诊断需补生成答案口径（LongBench 自带 answers，EM/F1 评估）
 
 ## 5. 快速开始
 
