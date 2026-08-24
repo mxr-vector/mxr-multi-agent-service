@@ -95,6 +95,8 @@ GOLD_FRAG_MAX_COUNT = 3
 MAX_GOLD_PARAS = 10
 # 口径版本：进建库指纹；口径参数变更后旧 doc map 指纹不匹配，强制重建
 GOLD_ORACLE_VERSION = "v2"
+# 建库规则版本：标题/实体保留规则变更时进指纹，阻止旧映射与新规则静默混用
+BUILD_RULE_VERSION = "t1"
 # 答案标点切分模式（中英文常用标点 + 空白）
 _PUNCT_RE = re.compile(r"[。！？；，、,.!?;:\"'《》〈〉（）()\[\]【】\s]+")
 
@@ -121,6 +123,67 @@ def _require_data(subsets: list[str]) -> None:
 def split_paragraphs(context: str) -> list[str]:
     """context 按换行切分为非空段落（去首尾空白）。"""
     return [p.strip() for p in context.split("\n") if p.strip()]
+
+
+_PASSAGE_MARKER_RE = re.compile(r"^Passage\s+\d+:?$", re.IGNORECASE)
+_ARTICLE_MARKER_RE = re.compile(r"^文章\s*\d+\s*$")
+_CN_TITLE_RE = re.compile(r"^标题：(.+)$")
+
+
+def parse_passage_titles(context: str) -> list[dict]:
+    """解析 LongBench context 的原始页面标题（确定性规则，逐行对齐）。
+
+    英文多跳子集格式：``Passage N:`` 标记行 + 紧跟的 Wikipedia 页面标题行；
+    dureader 格式：``文章N`` 标记行 + ``标题：xxx`` 行。返回与
+    ``split_paragraphs`` 逐行对齐的记录：{line_idx, passage_title,
+    title_source, is_marker, is_title_line}。解析失败的行 title_source=uri。
+    """
+    lines = split_paragraphs(context)
+    records: list[dict] = []
+    current_title: str | None = None
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if _PASSAGE_MARKER_RE.match(line):
+            records.append(
+                {"line_idx": index, "passage_title": None, "title_source": "uri",
+                 "is_marker": True, "is_title_line": False}
+            )
+            if index + 1 < len(lines):
+                title = lines[index + 1]
+                current_title = title
+                records.append(
+                    {"line_idx": index + 1, "passage_title": title, "title_source": "parsed",
+                     "is_marker": False, "is_title_line": True}
+                )
+                index += 2
+                continue
+            index += 1
+            continue
+        if _ARTICLE_MARKER_RE.match(line):
+            records.append(
+                {"line_idx": index, "passage_title": None, "title_source": "uri",
+                 "is_marker": True, "is_title_line": False}
+            )
+            if index + 1 < len(lines):
+                match = _CN_TITLE_RE.match(lines[index + 1])
+                if match:
+                    current_title = match.group(1).strip()
+                    records.append(
+                        {"line_idx": index + 1, "passage_title": current_title,
+                         "title_source": "parsed", "is_marker": False, "is_title_line": True}
+                    )
+                    index += 2
+                    continue
+            index += 1
+            continue
+        records.append(
+            {"line_idx": index, "passage_title": current_title,
+             "title_source": "parsed" if current_title else "uri",
+             "is_marker": False, "is_title_line": False}
+        )
+        index += 1
+    return records
 
 
 def answer_fragments(answer: str) -> list[str]:
@@ -188,6 +251,19 @@ def load_rows(subsets: list[str]) -> list[dict]:
                         "question": str(raw.get("input") or ""),
                         "context": str(raw.get("context") or ""),
                         "answers": [str(a) for a in (raw.get("answers") or [])],
+                        # Keep optional support annotations for v3. The v2
+                        # adapter ignores these fields, so existing runs are
+                        # unchanged.
+                        "evidence_paragraphs": raw.get("evidence_paragraphs"),
+                        "supporting_paragraphs": raw.get("supporting_paragraphs"),
+                        "gold_paragraphs": raw.get("gold_paragraphs"),
+                        "bridge_paragraphs": raw.get("bridge_paragraphs"),
+                        "bridge_evidence": raw.get("bridge_evidence"),
+                        "supporting_bridge_paragraphs": raw.get("supporting_bridge_paragraphs"),
+                        "supporting_facts": raw.get("supporting_facts"),
+                        "evidence_hops": raw.get("evidence_hops"),
+                        "hop_count": raw.get("hop_count"),
+                        "question_type": raw.get("question_type"),
                     }
                 )
     return rows
@@ -208,6 +284,7 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
             + f"|per-subset-kb|dedup|gold:{GOLD_ORACLE_VERSION}"
             f"|frag:{GOLD_FRAG_MIN_LEN}:{GOLD_FRAG_MAX_COUNT}"
             f"|max:{MAX_GOLD_PARAS}"
+            f"|build:{BUILD_RULE_VERSION}"
         ).encode("utf-8")
     ).hexdigest()[:16]
 
@@ -248,6 +325,7 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     total_leaves = 0
     processed = 0
     dup_skipped = 0
+    title_source_counter: dict[str, int] = {}
     for subset in subsets:
         kb = kb_by_subset[subset]
         pending_specs: list[dict] = []
@@ -257,9 +335,22 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
         for row in rows:
             if row["subset"] != subset:
                 continue
+            # 逐行对齐的原始标题解析（t1 规则）：保留 passage 页标题作为
+            # 文档 title 与内容前缀，使 embedding/主题页具备实体区分度
+            title_records = {r["line_idx"]: r for r in parse_passage_titles(row["context"])}
             for para_idx, para in enumerate(split_paragraphs(row["context"])):
                 uri = f"lb:{row['qid']}:{para_idx}"
-                text_hash = sha256_of_text(para)
+                record = title_records.get(para_idx) or {}
+                passage_title = record.get("passage_title")
+                title_source = record.get("title_source", "uri")
+                title_source_counter[title_source] = title_source_counter.get(title_source, 0) + 1
+                # 内容前缀标题（标记行/标题行本身不重复前缀）：不改变行级
+                # 文档边界，gold 映射（lb:{qid}:{idx} → doc）保持逐行一致
+                if passage_title and not record.get("is_marker") and not record.get("is_title_line"):
+                    content = f"{passage_title}\n{para}"
+                else:
+                    content = para
+                text_hash = sha256_of_text(content)
                 if text_hash in seen_texts:
                     mapping[uri] = mapping[seen_texts[text_hash]]
                     dup_skipped += 1
@@ -268,11 +359,17 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
                 ingested, leaf_specs = await ingest_document_retry(
                     session_factory,
                     kb,
-                    title=uri,
-                    text=para,
+                    title=passage_title or uri,
+                    text=content,
                     source_uri=uri,
                     source_system="LongBench",
-                    metadata={"subset": row["subset"], "lb_qid": row["qid"], "para_idx": para_idx},
+                    metadata={
+                        "subset": row["subset"],
+                        "lb_qid": row["qid"],
+                        "para_idx": para_idx,
+                        "passage_title": passage_title,
+                        "title_source": title_source,
+                    },
                 )
                 if ingested is None:
                     continue
@@ -293,6 +390,8 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
         {
             "dataset": f"zai-org/LongBench {'+'.join({r['subset'] for r in rows})}",
             "fingerprint": fp,
+            "build_rule_version": BUILD_RULE_VERSION,
+            "title_source_stats": title_source_counter,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "kb_ids": {s: kb_by_subset[s].id.hex for s in subsets},
             "mapping": mapping,
@@ -301,6 +400,12 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     print(
         f"[lb] 建库完成：{len(mapping)} 段落映射 / {processed} 唯一文档"
         f"（复用重复段落 {dup_skipped}）/ {total_leaves} 叶块（{len(subsets)} 个子集库）"
+    )
+    parsed = title_source_counter.get("parsed", 0)
+    total_lines = sum(title_source_counter.values()) or 1
+    print(
+        f"[lb] 标题保留门控：parsed {parsed}/{total_lines} 行"
+        f"（{parsed / total_lines:.1%}），其余回落 uri 标题（不阻塞建库）"
     )
     return kb_by_subset, mapping
 

@@ -46,12 +46,14 @@ from agent.prompts.chat import AGENT_PROMPT
 from agent.tools.rag_tools import (
     TOOL_IMPLS,
     ToolOutcome,
+    kb_wiki_lookup,
     knowledge_base_search,
     web_search,
 )
 from model.chat.factory import build_chat_model
 from core.config_snapshot import CFG
 from utils.logger import logger
+from utils.env import ENV
 from utils.token_count import count_messages_tokens, count_tokens
 
 # 输入预算安全边际：context_window 的固定比例（覆盖 tiktoken 估算偏差）
@@ -335,7 +337,11 @@ class ChatGraph:
             HumanMessage(content=question),
         ]
         # use_web_search=False 时不绑定 web_search 工具（模型不可见，开关语义保留）
+        # The wiki is a navigation-only tool and remains parallel to evidence
+        # search; no separate classifier is introduced.
         tools = [knowledge_base_search]
+        if ENV.wiki_enabled:
+            tools.insert(0, kb_wiki_lookup)
         if state.get("use_web_search"):
             tools.append(web_search)
         reasoning_effort = state.get("reasoning_effort")
@@ -345,6 +351,8 @@ class ChatGraph:
         tool_rounds = 0
         reflect_rounds = 0
         retrieved_count = 0
+        wiki_hits = 0
+        navigation_context: List[dict] = []
         usage_total: dict = {}
         response: AIMessage | None = None
         while True:
@@ -373,7 +381,7 @@ class ChatGraph:
             outcomes: List[Tuple[str, ToolOutcome]] = []
             for tool_call in response.tool_calls:
                 name = tool_call.get("name", "")
-                args = tool_call.get("args") or {}
+                args = dict(tool_call.get("args") or {})
                 impl = TOOL_IMPLS.get(name)
                 if impl is None:
                     logger.warning(f"[CHAT] respond 收到未知工具调用: {name}")
@@ -388,17 +396,26 @@ class ChatGraph:
                         )
                     )
                     continue
+                if name == "knowledge_base_search" and navigation_context:
+                    # Keep navigation as structured context.  Serializing
+                    # topic summaries/keywords into the evidence query can
+                    # displace the user's lexical and semantic signal.
+                    args["navigation"] = list(navigation_context)
                 if writer is not None:
                     writer({"type": "think", "text": f"正在检索知识库（第 {tool_rounds} 轮）..."})
                 outcome = await impl(**args)
                 reflect_rounds += outcome.metrics.get("reflect_rounds", 0)
                 retrieved_count += outcome.metrics.get("retrieved_count", 0)
+                wiki_hits += outcome.metrics.get("wiki_hits", 0)
+                if outcome.navigation:
+                    navigation_context.extend(outcome.navigation)
                 outcomes.append((tool_call["id"], outcome))
             for tool_call_id, outcome in outcomes:
                 # 全局编号重建工具结果文本（fresh 为去重后新增候选，编号从 len(all_docs)+1 起）；
                 # 无新增候选（空检索/未实现降级提示）时回落工具的原始 text，避免空消息
-                fresh = self._merge_doc_dedup([], outcome.docs)
-                all_docs = self._merge_doc_dedup(all_docs, fresh)
+                fresh = [] if outcome.navigation_only else self._merge_doc_dedup([], outcome.docs)
+                if not outcome.navigation_only:
+                    all_docs = self._merge_doc_dedup(all_docs, fresh)
                 if fresh:
                     start = len(all_docs) - len(fresh)
                     content = "\n\n".join(
@@ -430,6 +447,7 @@ class ChatGraph:
             "tool_rounds": tool_rounds,
             "reflect_rounds": reflect_rounds,
             "retrieved_count": retrieved_count,
+            "wiki_hits": wiki_hits,
             "reranked_count": len(all_docs),
             **usage_total,
             "model": CFG.chat.model_name,

@@ -240,3 +240,6 @@ env/*.prod
 # 本地模型缓存（fastembed BM25 等，首次运行自动下载）
 model/hf/
 data
+# tooling caches
+.zcode/
+**/jieba.cache

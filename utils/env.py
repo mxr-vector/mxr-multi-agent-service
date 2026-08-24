@@ -123,6 +123,21 @@ class ENV_CONFIG:
     def is_prod(self) -> bool:
         return self.env == "prod" or self.env == "production"
 
+    @property
+    def wiki_enabled(self) -> bool:
+        """Whether the optional topic-navigation tool is exposed to the agent."""
+        return self.get_bool("WIKI_ENABLED", True)
+
+    @property
+    def multihop_enabled(self) -> bool:
+        """Controlled per-hop evidence drill-down for explicit multihop requests."""
+        return self.get_bool("MULTIHOP_ENABLED", True)
+
+    @property
+    def entity_index_enabled(self) -> bool:
+        """Entity bridge index expansion channel (offline index, zero online LLM)."""
+        return self.get_bool("ENTITY_INDEX_ENABLED", True)
+
     def __repr__(self):
         return f"<ENV env={self.env}>"
 

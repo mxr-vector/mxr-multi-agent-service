@@ -7,7 +7,9 @@ pipeline. Retrieval is scoped to a knowledge base whose Qdrant collection is
 derived internally from the knowledge base id; candidates carry provenance
 fields so answers can attribute "which document / which chapter" without extra
 lookups.
+
 ## Requirements
+
 ### Requirement: Knowledge-base-scoped hybrid retrieval
 The RAG retrieval tool SHALL accept an optional knowledge base id. When a knowledge base id is provided, the tool SHALL derive the target Qdrant collection exclusively via the global collection naming function (`build_kb_collection_name`, producing `kb_{id.hex}_v1`) and run the hybrid search (dense + sparse with server-side RRF fusion) against that collection. When no knowledge base id is provided, the tool SHALL fall back to the demo collection `rag_documents` and log the fallback. The tool SHALL NOT query PostgreSQL and SHALL NOT accept an externally supplied collection name.
 
@@ -86,3 +88,30 @@ RAG 图终态 SHALL 额外输出 `metrics` 字段，包含 `reflect_rounds`
 - **THEN** 终态 `metrics` 含 reflect_rounds/retrieved_count/reranked_count
   且与实际执行轮数、候选数一致
 
+### Requirement: 证据检索支持结构化多跳导航上下文
+
+`knowledge_base_search` SHALL 接受由主题导航或前序证据生成的结构化导航上下文，并可在多跳场景下返回逐跳合并的证据候选。导航上下文 SHALL NOT 被序列化拼接到 dense、sparse 或 rerank 的原始证据 query 中；工具返回的证据候选 SHALL 继续携带原有溯源字段。
+
+#### Scenario: 导航上下文不污染证据 query
+
+- **WHEN** `knowledge_base_search` 收到主题页和前序跳锚点
+- **THEN** dense、sparse 与 rerank 输入仍使用独立的原始/下一跳问句，候选不因通用主题摘要被稀释
+
+#### Scenario: 多跳候选保持可引用
+
+- **WHEN** 多跳检索完成并合并各跳候选
+- **THEN** 每个证据候选仍包含 `document_id`、`chunk_id`、`source`、`score` 等原有溯源字段，主题页本身不进入答案来源
+
+### Requirement: 多跳路径在线调用预算受控
+
+默认多跳路径 SHALL 使用确定性锚点抽取和已有 embedding/检索/rerank 能力，不增加反思改写 LLM 调用。达到配置的跳数或查询预算后 SHALL 停止下钻；单跳和普通问题 SHALL 不增加检索阶段。
+
+#### Scenario: 多跳预算耗尽
+
+- **WHEN** 已执行跳数达到配置上限或累计候选达到预算
+- **THEN** 系统停止生成新的跳查询，合并当前候选并返回预算指标
+
+#### Scenario: 单跳问题不走多跳
+
+- **WHEN** 问题只有一个可判定目标且没有导航锚点需求
+- **THEN** 系统使用现有单轮证据检索路径，不产生额外的逐跳调用

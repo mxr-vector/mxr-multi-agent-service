@@ -23,8 +23,8 @@ tool calling 自主决定何时检索、检索几次（见 agent.graph.chat_grap
 
 import asyncio
 import uuid
-from dataclasses import dataclass
-from typing import List, Literal, Optional
+from dataclasses import dataclass, field
+from typing import Any, List, Literal, Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -35,10 +35,12 @@ from agent.tools.document import hybrid_retrieve_multi
 from core.config_snapshot import CFG
 from model.compression.factory import build_compression_model
 from model.rerank.factory import get_rerank_client
+from utils.env import ENV
 from utils.logger import logger
 
 # 工具名常量：respond 节点经 TOOL_IMPLS 按此分派，bind_tools 亦按此构造
 TOOL_KNOWLEDGE_BASE_SEARCH = "knowledge_base_search"
+TOOL_WIKI_LOOKUP = "kb_wiki_lookup"
 TOOL_WEB_SEARCH = "web_search"
 
 
@@ -62,6 +64,9 @@ class ToolOutcome:
     text: str
     docs: List[dict]
     metrics: dict
+    # Navigation pages are visible to the model but never become answer sources.
+    navigation: List[dict] = field(default_factory=list)
+    navigation_only: bool = False
 
 
 # ---------- 候选处理（自 rag_graph 迁移） ----------
@@ -122,11 +127,354 @@ async def _rerank(query: str, docs: List[dict], top_n: int) -> List[dict]:
     return [{**docs[result.index], "score": result.score} for result in results]
 
 
+# ---------- 受控多跳下钻（确定性锚点，不新增在线反思 LLM 调用） ----------
+async def _retrieve_hop(
+    hop_query: str,
+    kb_ids: List[uuid.UUID],
+    hop_pool_size: int,
+    final_top_k: int,
+) -> tuple[List[str], List[dict]]:
+    """One hop: independent hybrid recall + independent rerank (own query).
+
+    Returns (pool document ids, reranked docs) so evaluation can attribute
+    misses to recall vs merge/trim (design D6).
+    """
+    docs = await asyncio.to_thread(hybrid_retrieve_multi, hop_query, kb_ids)
+    pool = docs[: max(1, hop_pool_size)]
+    pool_ids = [str(doc.get("document_id") or "") for doc in pool]
+    if not pool:
+        return pool_ids, []
+    reranked = await _rerank(hop_query, pool, final_top_k)
+    return pool_ids, reranked
+
+
+# ---------- 实体扩展通道（离线索引 + 在线零 LLM，entity-bridge-index 变更） ----------
+async def _load_entity_bundles(kb_ids: List[uuid.UUID]) -> list:
+    """按库加载实体索引 bundle；表不存在/未构建时返回空列表（静默降级）。"""
+    if not ENV.entity_index_enabled:
+        return []
+    try:
+        from entity_index.store import load_entity_bundle
+
+        bundles = []
+        for kb_id in kb_ids:
+            bundle = await load_entity_bundle(kb_id)
+            if bundle is not None:
+                bundles.append(bundle)
+        return bundles
+    except Exception as exc:
+        logger.warning(f"[RAG-TOOL] 实体索引加载失败，静默降级: {exc}")
+        return []
+
+
+async def _entity_expansion(
+    evidence_query: str,
+    bundles: list,
+    effective_pages: List[dict] | None = None,
+) -> tuple[Any | None, dict]:
+    """Entity linking + one-hop co-occurrence expansion over the offline index.
+
+    Wiki member documents of gated-effective pages join the candidate pool
+    with their own sub-cap (anchor = first page/question entity overlap), so
+    precomputed hub membership can reach recall that co-occurrence misses.
+    Returns (expansion_hop_result | None, meta).  Any missing piece (no
+    question entity, index not built, no hits) yields None and the caller
+    silently keeps the existing path (graceful degradation).
+    """
+    from entity_index.extractors import get_extractor
+    from entity_index.merge import DEFAULT_EXPANSION_CAP_C, expansion_hop_result
+    from entity_index.store import fetch_expansion_chunks, fetch_expansion_chunks_by_ids
+    from entity_index.traverse import link_and_expand
+
+    # wiki 成员入池子配额：hub 成员是人工标注的答案簇，但数量可很大，
+    # 限其在扩展通道内最多占 5 席、不挤占共现扩展候选
+    wiki_member_cap = 5
+
+    q_entities = sorted(get_extractor().extract(evidence_query))
+    q_keys = {e.casefold() for e in q_entities}
+    if not q_entities:
+        return None, {"linked_entities": [], "degraded": True}
+
+    linked_all: list[str] = []
+    candidate_targets: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+
+    def _push(doc_id: str, entity: str | None) -> None:
+        if doc_id and doc_id not in seen:
+            seen.add(doc_id)
+            candidate_targets.append((doc_id, entity))
+
+    for bundle in bundles:
+        result = link_and_expand(
+            q_entities, bundle.postings, bundle.doc_entities, set(bundle.generic)
+        )
+        linked_all.extend(result.linked_entities)
+        for doc_id, entity in result.doc_entity_provenance:
+            _push(doc_id, entity)
+        if len(candidate_targets) >= DEFAULT_EXPANSION_CAP_C:
+            break
+    wiki_members_added = 0
+    wiki_doc_ids: set[str] = set()
+    # 块级指针优先：离线已锚定的代表性叶块按 id 直查原文，消除在线
+    # "文档→块"猜测；无指针的页回退文档级成员 + 问题实体锚定
+    wiki_chunk_ids: list[str] = []
+    wiki_pages_without_chunks: list[dict] = []
+    if effective_pages:
+        for page in effective_pages:
+            page_chunks = [str(c) for c in page.get("chunks") or [] if c]
+            if page_chunks:
+                for chunk_id in page_chunks:
+                    if len(wiki_chunk_ids) >= wiki_member_cap:
+                        break
+                    wiki_chunk_ids.append(chunk_id)
+            else:
+                wiki_pages_without_chunks.append(page)
+            if len(wiki_chunk_ids) >= wiki_member_cap:
+                break
+    if wiki_pages_without_chunks:
+        for page in wiki_pages_without_chunks:
+            members = page.get("documents") or []
+            if not members:
+                continue
+            page_entities = [str(e) for e in page.get("entities") or []]
+            anchor = next(
+                (e for e in page_entities if e.casefold() in q_keys), None
+            )
+            for member in members:
+                if wiki_members_added >= wiki_member_cap - len(wiki_chunk_ids):
+                    break
+                if str(member) in seen:
+                    continue
+                _push(str(member), anchor)
+                wiki_doc_ids.add(str(member))
+                wiki_members_added += 1
+            if wiki_members_added >= wiki_member_cap - len(wiki_chunk_ids):
+                break
+    if not linked_all:
+        return None, {"linked_entities": [], "degraded": True}
+    candidate_targets = candidate_targets[:DEFAULT_EXPANSION_CAP_C]
+    wiki_doc_ids &= {doc_id for doc_id, _entity in candidate_targets}
+    if not candidate_targets:
+        return None, {"linked_entities": linked_all, "degraded": False}
+    chunks = await fetch_expansion_chunks(candidate_targets, DEFAULT_EXPANSION_CAP_C)
+    if wiki_chunk_ids:
+        wiki_chunks = await fetch_expansion_chunks_by_ids(
+            wiki_chunk_ids, DEFAULT_EXPANSION_CAP_C
+        )
+        # 同文档去重：共现候选优先，wiki 块只补缺；来源标记供评测归因
+        present = {c.get("document_id") for c in chunks}
+        for chunk in wiki_chunks:
+            if chunk.get("document_id") in present:
+                continue
+            chunk["expansion_source"] = "wiki"
+            chunks.append(chunk)
+        wiki_members_added += len(wiki_chunk_ids)
+    # 文档级回退路径的 wiki 成员同样打来源标记（供评测归因区分通道贡献）
+    for chunk in chunks:
+        if chunk.get("document_id") in wiki_doc_ids:
+            chunk["expansion_source"] = "wiki"
+    # 统一 Focus 重排的实体序：按候选入选序去重（traverse 共现强度序在前，
+    # wiki anchor 实体随后），拼接进扩展通道自身的重排查询
+    focus_entities: list[str] = []
+    for _doc_id, entity in candidate_targets:
+        if entity and entity not in focus_entities:
+            focus_entities.append(entity)
+    # wiki 块指针在 cap C 之外加塞：候选总量 = 共现上限 + wiki 子配额
+    return (
+        expansion_hop_result(chunks, cap_c=DEFAULT_EXPANSION_CAP_C + wiki_member_cap),
+        {
+            "linked_entities": linked_all,
+            "expanded_docs": len(candidate_targets),
+            "wiki_member_docs": wiki_members_added,
+            "wiki_chunk_docs": len(wiki_chunk_ids),
+            "chunks": len(chunks),
+            "focus_entities": focus_entities,
+            "degraded": False,
+        },
+    )
+
+
+async def _run_multihop(
+    evidence_query: str,
+    kb_ids: List[uuid.UUID],
+    top_n: int,
+    navigation: List[dict] | None,
+) -> ToolOutcome:
+    """Controlled per-hop evidence retrieval (design D1-D4).
+
+    Hop 0 keeps the original question as the safety base; follow-up hops are
+    built from deterministic anchors.  Navigation pages are gated: only pages
+    with question-entity/member overlap can contribute hop hints; generic
+    pages never touch recall/rerank inputs.  Any hop failure degrades instead
+    of blocking, and metrics expose hop_queries/hop_coverage/degraded.
+    """
+    from agent.tools.multihop import (
+        HopResult,
+        build_hop_queries,
+        collect_hop_pool,
+        gate_navigation,
+    )
+    from entity_index.merge import (
+        EXPANSION_FINAL_QUOTA,
+        merge_final_with_expansion,
+    )
+
+    hop_pool_size = CFG.rag_hop_pool_size
+    max_hops = max(1, CFG.rag_max_hops)
+    merge_pool_size = max(top_n, CFG.rag_multihop_merge_pool)
+
+    # Hop 0：原问题安全底座（失败即整体降级为空，由调用方兼容处理）
+    hop0_pool_ids, hop0_docs = await _retrieve_hop(
+        evidence_query, kb_ids, CFG.rag_candidate_pool_size, merge_pool_size
+    )
+    hop_results: List[HopResult] = [HopResult(hop=0, query=evidence_query, docs=hop0_docs)]
+    hop_pools: dict[int, List[str]] = {0: hop0_pool_ids}
+
+    # 实体索引：门控统计判据与扩展通道共用（加载失败/未构建时静默降级）
+    entity_bundles = await _load_entity_bundles(kb_ids)
+    generic_terms: set[str] | None = None
+    if entity_bundles:
+        generic_terms = set()
+        for bundle in entity_bundles:
+            generic_terms |= set(bundle.generic)
+
+    # Wiki 门控：通用页不参与检索决策，仅保持模型可见（统计判据来自实体索引）
+    effective_pages, generic_pages = gate_navigation(
+        evidence_query, navigation, hop0_docs, generic_terms
+    )
+
+    degraded = False
+    hop_queries = [{"hop": 0, "query": evidence_query, "anchors": [], "source_documents": []}]
+    if max_hops > 1:
+        queries = build_hop_queries(evidence_query, hop0_docs, effective_pages)
+        for index, hop_query in enumerate(queries, start=1):
+            if index > max_hops - 1:
+                break
+            hop_queries.append(
+                {
+                    "hop": index,
+                    "query": hop_query.query,
+                    "anchors": list(hop_query.anchors),
+                    "source_documents": list(hop_query.source_documents),
+                    "member_hint": hop_query.member_hint,
+                }
+            )
+            try:
+                pool_ids, docs = await _retrieve_hop(hop_query.query, kb_ids, hop_pool_size, merge_pool_size)
+                hop_pools[index] = pool_ids
+                hop_results.append(HopResult(hop=index, query=hop_query.query, docs=docs))
+            except Exception as exc:
+                # 后续跳异常不阻断：保留已完成跳的候选并记录降级
+                degraded = True
+                hop_results.append(
+                    HopResult(
+                        hop=index,
+                        query=hop_query.query,
+                        docs=[],
+                        ok=False,
+                        error=f"{type(exc).__name__}: {exc}"[:200],
+                    )
+                )
+                logger.warning(f"[RAG-TOOL] 多跳第 {index} 跳失败降级: {exc}")
+
+    # 实体扩展通道：仅开关开启且索引可用时生效；任何失败静默跳过不阻断。
+    # 扩展候选不进统一终排池，而是用自身查询独立重排后按保留席位注入尾部
+    expansion_result = None
+    expansion_meta: dict = {"enabled": False}
+    if ENV.entity_index_enabled:
+        try:
+            expansion_result, expansion_meta = await _entity_expansion(
+                evidence_query, entity_bundles, effective_pages
+            )
+            expansion_meta["enabled"] = True
+        except Exception as exc:
+            expansion_meta = {"enabled": True, "error": f"{type(exc).__name__}: {exc}"[:200]}
+            logger.warning(f"[RAG-TOOL] 实体扩展通道异常，静默跳过: {exc}")
+
+    pool, merge_meta = collect_hop_pool(hop_results, merge_pool_size)
+    # 终排：合并池对原问题统一重排（各跳 rerank 分数跨跳不可比，
+    # 不在合并层做跨跳比分裁剪；各跳职责是把单路召不回的文档送进决赛圈）
+    quota = EXPANSION_FINAL_QUOTA if expansion_result is not None else 0
+    merged = await _rerank(evidence_query, pool, top_n)
+    expansion_seats = 0
+    if expansion_result is not None and quota > 0 and expansion_result.docs:
+        try:
+            # 扩展通道统一重排：所有桥接实体拼一个 Focus 查询，候选自由竞争，
+            # 不做跨实体比分比较；重排多取余量应对与主路重复，主路保留全量，
+            # 未填满的席位由主路尾部回填
+            focus_entities = expansion_meta.get("focus_entities") or []
+            expansion_query = (
+                f"{evidence_query} Focus: {', '.join(focus_entities[:4])}".strip()
+                if focus_entities
+                else evidence_query
+            )
+            expansion_ranked = await _rerank(
+                expansion_query,
+                expansion_result.docs,
+                min(len(expansion_result.docs), quota * 3),
+            )
+            head, tail = merged[: max(0, top_n - quota)], merged[max(0, top_n - quota) :]
+            final, expansion_seats = merge_final_with_expansion(
+                head, expansion_ranked, quota
+            )
+            final += tail[: max(0, top_n - len(final))]
+            merged = final
+            expansion_meta["final_seats"] = expansion_seats
+        except Exception as exc:
+            expansion_meta["seats_error"] = f"{type(exc).__name__}: {exc}"[:200]
+            logger.warning(f"[RAG-TOOL] 实体扩展席位注入失败，跳过: {exc}")
+    for doc in merged:
+        for hop_index in doc.get("source_hops") or []:
+            label = f"hop{hop_index}"
+            if label in merge_meta["hop_coverage"]:
+                merge_meta["hop_coverage"][label]["in_final"] = True
+    metrics = {
+        "reflect_rounds": 1,
+        "retrieved_count": sum(len(r.docs) for r in hop_results),
+        "reranked_count": len(merged),
+        "merge_pool_count": len(pool),
+        "navigation_guided": True,
+        "multihop": True,
+        "hops_executed": len(hop_results),
+        "hop_queries": hop_queries,
+        "hop_coverage": merge_meta["hop_coverage"],
+        "hop_pools": hop_pools,
+        "entity_expansion": expansion_meta,
+        "navigation_effective_pages": len(effective_pages),
+        "navigation_generic_pages": len(generic_pages),
+        "degraded": degraded,
+    }
+    logger.info(
+        f"[RAG-TOOL] 多跳检索完成：hops={len(hop_results)} → top_k={len(merged)}"
+        f"（nav有效页={len(effective_pages)}/{len(navigation or [])}，degraded={degraded}）"
+    )
+    return ToolOutcome(text=_join_context(merged), docs=merged, metrics=metrics)
+
+
 # ---------- 工具实现（返回结构化结果，供父图/评测脚本直接调用） ----------
+_LEGACY_NAVIGATION_MARKER = "\nNavigation constraints:"
+
+
+def _split_legacy_navigation_query(query: str) -> tuple[str, bool]:
+    """Strip query text produced by older callers without losing its mode flag.
+
+    Navigation metadata used to be serialized into the evidence query.  Keep a
+    small compatibility guard for callers that still send that format, but
+    never let the metadata reach embedding, BM25, or rerank inputs.
+    """
+    raw_query = str(query or "").strip()
+    evidence_query, marker, _ = raw_query.partition(_LEGACY_NAVIGATION_MARKER)
+    if marker:
+        return evidence_query.strip(), True
+    return raw_query, False
+
+
 async def knowledge_base_search_impl(
     query: str,
     knowledge_base_ids: List[str],
     top_k: Optional[int] = None,
+    navigation: List[dict] | None = None,
+    multihop: bool = False,
 ) -> ToolOutcome:
     """知识库混合检索：混合召回 + 反思自纠错（改写重检）+ 重排序。
 
@@ -134,6 +482,10 @@ async def knowledge_base_search_impl(
       提示文本与空候选，供模型降级回答）；
     - 反思轮数上限 CFG.rag_reflect_round_cap，重排 top-n 取 CFG.rag_final_top_k
       （top_k 入参可覆盖）；
+    - Wiki 导航上下文通过独立参数传递，不进入 dense/sparse/rerank 文本；
+      导航路径跳过在线反思/改写循环；
+    - multihop=True 且 MULTIHOP_ENABLED 时走受控逐跳下钻（确定性锚点，
+      无新增 LLM 调用），异常/关闭时回退单轮检索；
     - metrics 与原子图口径一致：{reflect_rounds, retrieved_count, reranked_count}。
     """
     kb_ids: List[uuid.UUID] = []
@@ -153,7 +505,20 @@ async def knowledge_base_search_impl(
             metrics={"reflect_rounds": 0, "retrieved_count": 0, "reranked_count": 0},
         )
 
-    current_query = query
+    evidence_query, legacy_navigation = _split_legacy_navigation_query(query)
+    top_n = top_k if top_k is not None else CFG.rag_final_top_k
+    # 显式多跳请求：受控逐跳下钻（异常/关闭时安全回退单轮）
+    if multihop and ENV.multihop_enabled:
+        try:
+            return await _run_multihop(evidence_query, kb_ids, top_n, navigation)
+        except Exception as exc:
+            degraded_reason = f"{type(exc).__name__}: {exc}"[:200]
+            logger.warning(f"[RAG-TOOL] 多跳路径异常，回退单轮检索: {exc}")
+    else:
+        degraded_reason = None
+
+    current_query = evidence_query
+    navigation_guided = bool(navigation) or legacy_navigation
     retrieved: List[dict] = []
     reflect_rounds = 0
     while True:
@@ -163,21 +528,25 @@ async def knowledge_base_search_impl(
         if not retrieved:
             break
         # 上下文充分或已达到最大检索轮数上限：跳出反思循环进入重排序
-        if reflect_rounds >= CFG.rag_reflect_round_cap:
+        if navigation_guided or reflect_rounds >= CFG.rag_reflect_round_cap:
             break
-        if await _context_sufficient(query, _join_context(retrieved)):
+        if await _context_sufficient(evidence_query, _join_context(retrieved)):
             break
         # 上下文不足且仍在轮数内：扩展/改写查询后回到检索
-        current_query = await _rewrite_query(query)
+        current_query = await _rewrite_query(evidence_query)
         logger.info(f"[RAG-TOOL] 上下文不充分，改写查询重检（第 {reflect_rounds} 轮）")
 
-    top_n = top_k if top_k is not None else CFG.rag_final_top_k
-    reranked = await _rerank(query, retrieved, top_n)
+    reranked = await _rerank(evidence_query, retrieved, top_n)
     metrics = {
         "reflect_rounds": reflect_rounds,
         "retrieved_count": len(retrieved),
         "reranked_count": len(reranked),
+        "navigation_guided": navigation_guided,
+        "multihop": False,
     }
+    if degraded_reason:
+        metrics["degraded"] = True
+        metrics["degraded_reason"] = degraded_reason
     logger.info(
         f"[RAG-TOOL] 检索完成：candidates={len(retrieved)} → top_k={len(reranked)}"
         f"（reflect_rounds={reflect_rounds}）"
@@ -198,21 +567,125 @@ async def web_search_impl(query: str, top_k: Optional[int] = None) -> ToolOutcom
     )
 
 
+def build_navigation_query(query: str, navigation: List[dict] | None) -> str:
+    """Return the evidence query unchanged.
+
+    Kept as a compatibility helper for offline callers.  Wiki pages are
+    planning context, not query text: concatenating generic topic summaries
+    can displace the question's lexical and semantic signal in the candidate
+    pool.  Runtime callers pass the page list through ``navigation`` instead.
+    """
+    return str(query or "").strip()
+
+
+async def kb_wiki_lookup_impl(
+    query: str,
+    knowledge_base_ids: List[str],
+    top_k: Optional[int] = None,
+) -> ToolOutcome:
+    """Search independent topic-page collections for navigation context."""
+    if not ENV.wiki_enabled:
+        return ToolOutcome(
+            text=(
+                "Wiki navigation is disabled. Continue with knowledge_base_search "
+                "using the evidence-only retrieval path."
+            ),
+            docs=[],
+            metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
+            navigation_only=True,
+        )
+    scopes = [str(value).strip() for value in knowledge_base_ids or [] if str(value).strip()]
+    if not scopes:
+        return ToolOutcome(
+            text=(
+                "No wiki topic index is configured for this request. "
+                "Fall back to knowledge_base_search."
+            ),
+            docs=[],
+            metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
+            navigation_only=True,
+        )
+    limit = max(1, min(int(top_k or 5), 20))
+    try:
+        from wiki.storage import search_topic_pages
+
+        hits = await asyncio.to_thread(search_topic_pages, query, scopes, limit)
+    except Exception as exc:
+        logger.warning(f"[WIKI-TOOL] topic lookup failed, falling back: {exc}")
+        hits = []
+    if not hits:
+        return ToolOutcome(
+            text=(
+                "The wiki topic index is empty or unavailable. "
+                "No navigation result was found; continue with knowledge_base_search."
+            ),
+            docs=[],
+            metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
+            navigation_only=True,
+        )
+    navigation = [hit.to_dict() for hit in hits]
+    lines = [
+        "Topic navigation results (navigation only; verify facts with evidence search):"
+    ]
+    for index, page in enumerate(navigation, start=1):
+        lines.append(
+            f"[{index}] {page.get('title', '')}\n"
+            f"summary: {page.get('summary', '')}\n"
+            f"keywords: {', '.join(page.get('keywords') or [])}\n"
+            f"entities: {', '.join(page.get('entities') or [])}\n"
+            f"representative questions: {' | '.join(page.get('representative_questions') or [])}\n"
+            f"member document ids: {', '.join(page.get('documents') or [])}\n"
+            f"related topics: {', '.join(page.get('related_topics') or [])}"
+        )
+        if page.get("staleness_notice"):
+            lines.append(f"notice: {page['staleness_notice']}")
+    return ToolOutcome(
+        text="\n\n".join(lines),
+        docs=[],
+        metrics={
+            "wiki_hits": len(navigation),
+            "retrieved_count": 0,
+            "reflect_rounds": 0,
+        },
+        navigation=navigation,
+        navigation_only=True,
+    )
 # ---------- 工具 schema（bind_tools 用；返回文本给模型） ----------
 @tool
 async def knowledge_base_search(
-    query: str, knowledge_base_ids: List[str], top_k: Optional[int] = None
+    query: str,
+    knowledge_base_ids: List[str],
+    top_k: Optional[int] = None,
+    multihop: bool = False,
 ) -> str:
     """在用户可见的知识库中检索与问题相关的文档片段（语义 + 关键词混合检索，含重排序）。
 
-    当知识库结果不足以回答问题时可改写 query 后再次调用本工具。
+    对多跳、主题模糊或跨文档问题，先调用 kb_wiki_lookup，再基于返回的导航
+    上下文规划证据检索；不要把主题摘要、关键词或代表性问题拼接进 query。
+    本工具结果才是可引用的事实证据。
 
     Args:
         query: 检索查询，应为与用户问题直接相关的独立问句。
         knowledge_base_ids: 目标知识库 id 列表（hex 无连字符），取自请求的 kb_ids。
         top_k: 返回片段数上限（缺省按系统配置）。
+        multihop: 问题明确需要跨实体/跨文档逐步推理时置 True，将逐跳召回并
+            合并各跳证据；单跳/普通问题保持 False。
     """
-    outcome = await knowledge_base_search_impl(query, knowledge_base_ids, top_k)
+    outcome = await knowledge_base_search_impl(query, knowledge_base_ids, top_k, multihop=multihop)
+    return outcome.text
+
+
+@tool
+async def kb_wiki_lookup(
+    query: str, knowledge_base_ids: List[str], top_k: Optional[int] = None
+) -> str:
+    """查询独立的 LLM Wiki 主题地图，用于多跳/主题模糊/跨文档问题导航。
+
+    该工具只返回主题级导航字段（主题概述、关键词、实体、代表性问题、成员文档
+    指针和相关主题），不应直接作为答案证据；随后调用 knowledge_base_search 取证。
+    主题索引为空时会返回明确的降级提示，问答应继续走证据检索。
+    """
+    outcome = await kb_wiki_lookup_impl(query, knowledge_base_ids, top_k)
     return outcome.text
 
 
@@ -231,6 +704,7 @@ async def web_search(query: str, top_k: Optional[int] = None) -> str:
 # 工具名 -> 实现函数（返回 ToolOutcome）；respond 节点据此统一分派执行
 TOOL_IMPLS = {
     TOOL_KNOWLEDGE_BASE_SEARCH: knowledge_base_search_impl,
+    TOOL_WIKI_LOOKUP: kb_wiki_lookup_impl,
     TOOL_WEB_SEARCH: web_search_impl,
 }
 

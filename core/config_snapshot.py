@@ -34,6 +34,10 @@ INT_SCALAR_KEYS = (
     "RAG_CANDIDATE_POOL_SIZE",
     "RAG_FINAL_TOP_K",
     "RAG_REFLECT_ROUND_CAP",
+    "RAG_MAX_HOPS",
+    "RAG_HOP_POOL_SIZE",
+    "RAG_MULTIHOP_MERGE_POOL",
+    "ENTITY_GENERIC_DF_PERCENT",
     "CHAT_CHECKPOINT_TTL_DAYS",
     "CHAT_HISTORY_MAX_MESSAGES",
     "CHAT_MAX_OUTPUT_TOKENS",
@@ -91,6 +95,10 @@ class ConfigSnapshot:
     rag_candidate_pool_size: int
     rag_final_top_k: int
     rag_reflect_round_cap: int
+    rag_max_hops: int
+    rag_hop_pool_size: int
+    rag_multihop_merge_pool: int
+    entity_generic_df_percent: int
     chat_checkpoint_ttl_days: int
     chat_history_max_messages: int
     chat_max_output_tokens: int
@@ -210,6 +218,10 @@ async def _build_snapshot() -> ConfigSnapshot:
         rag_candidate_pool_size=scalars["RAG_CANDIDATE_POOL_SIZE"],
         rag_final_top_k=scalars["RAG_FINAL_TOP_K"],
         rag_reflect_round_cap=scalars["RAG_REFLECT_ROUND_CAP"],
+        rag_max_hops=scalars["RAG_MAX_HOPS"],
+        rag_hop_pool_size=scalars["RAG_HOP_POOL_SIZE"],
+        rag_multihop_merge_pool=scalars["RAG_MULTIHOP_MERGE_POOL"],
+        entity_generic_df_percent=scalars["ENTITY_GENERIC_DF_PERCENT"],
         chat_checkpoint_ttl_days=scalars["CHAT_CHECKPOINT_TTL_DAYS"],
         chat_history_max_messages=scalars["CHAT_HISTORY_MAX_MESSAGES"],
         chat_max_output_tokens=scalars["CHAT_MAX_OUTPUT_TOKENS"],
@@ -311,6 +323,22 @@ class _ConfigManager:
     @property
     def rag_reflect_round_cap(self) -> int:
         return self._current.rag_reflect_round_cap
+
+    @property
+    def rag_max_hops(self) -> int:
+        return self._current.rag_max_hops
+
+    @property
+    def rag_hop_pool_size(self) -> int:
+        return self._current.rag_hop_pool_size
+
+    @property
+    def rag_multihop_merge_pool(self) -> int:
+        return self._current.rag_multihop_merge_pool
+
+    @property
+    def entity_generic_df_percent(self) -> int:
+        return self._current.entity_generic_df_percent
 
     @property
     def chat_checkpoint_ttl_days(self) -> int:

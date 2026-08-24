@@ -322,3 +322,31 @@ CREATE TABLE rag.chat_messages (
 
 CREATE INDEX idx_chat_messages_session ON rag.chat_messages (session_id, sequence);
 CREATE INDEX idx_chat_messages_status  ON rag.chat_messages (status) WHERE status = 'generating';
+-- ------------------------------------------------------------
+-- 8. 实体桥接索引 (entity-bridge-index 变更)
+--    倒排: 实体 -> 文档列表; 通用实体由库内文档频率统计判定(非词表);
+--    查询期两跳遍历(实体链接 -> 直达 -> 共现桥扩展)的存储底座;
+--    按 kb 全量重建(幂等覆盖), 删除两表即完整回滚
+-- ------------------------------------------------------------
+CREATE TABLE rag.entity_index_entities (
+    kb_id      UUID NOT NULL,             -- 逻辑关联 rag_knowledge_bases.id
+    entity     VARCHAR(256) NOT NULL,     -- 归一化实体串(小写化)
+    doc_freq   INT NOT NULL DEFAULT 0,    -- 覆盖文档数
+    is_generic BOOLEAN NOT NULL DEFAULT false, -- doc_freq/库文档数 > 阈值
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (kb_id, entity)
+);
+
+CREATE TABLE rag.entity_index_postings (
+    kb_id       UUID NOT NULL,            -- 逻辑关联 rag_knowledge_bases.id
+    entity      VARCHAR(256) NOT NULL,    -- 对应 entity_index_entities.entity
+    document_id UUID NOT NULL,            -- 逻辑关联 rag_documents.id
+
+    PRIMARY KEY (kb_id, entity, document_id)
+);
+
+-- 倒排查表: 按实体取文档列表(主键已覆盖); 按文档取实体(共现统计/构建校验)
+CREATE INDEX idx_entity_postings_doc ON rag.entity_index_postings (kb_id, document_id);
+-- 非通用实体过滤视图加速(可选)
+CREATE INDEX idx_entity_entities_nongeneric ON rag.entity_index_entities (kb_id, entity) WHERE is_generic = false;

@@ -6,12 +6,13 @@
 2. Qdrant@latest 向量库（仅需启动服务；知识库集合由后端首次向量化写入时自动创建，无需手工建集）
 
 ```bash
+mkdir -p $HOME/mydata/qdrant/storage
 # qdrant  http://127.0.0.1:6333/dashboard
 podman run -d  \
 --name qdrant \
 -p 6333:6333  \
 -p 6334:6334  \
--v qdrant_storage:$HOME/mydata/qdrant/storage \
+-v "$HOME/mydata/qdrant/storage:/qdrant/storage:z" \
 -e QDRANT__SERVICE__API_KEY=95279527 \
 docker.io/qdrant/qdrant
 ```
@@ -232,6 +233,79 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
   实现（含工具内反思改写重检）；Agentic 外层决策仍未覆盖——LLM 是否检索
   （跳过检索直接答的幻觉风险）与逐跳拆解改写（多跳检索的输入侧变量）。
   多跳 QA 的端到端诊断需补生成答案口径（LongBench 自带 answers，EM/F1 评估）
+
+**v3 评测与 Wiki 试点（单点维护）**：v3 将答案段落与桥接段落分开记录，桥接
+段落在无支持证据标注时按问题实体共现/上下位关系推导，并标注为 `derived`；
+`Bridge Recall`、`Hop Success Rate` 与 Recall@K/MRR 同时按题型（单跳/多跳/
+跨文档/主题模糊）和 hop 数分层。推导型 gold 只做披露，不进入严格 annotated
+comparison。可复现脚本与产物如下：
+
+```bash
+# 现状管线、无 wiki 的 v3 基线
+uv run python test/dataset01/eval/longbench_v3_eval.py
+
+# 5 库文档向量化、两阶段聚类与主题页生成（支持 --max-documents 冒烟）
+uv run python test/dataset01/eval/longbench_wiki_pilot.py build \
+  --kb-ids <dureader-kb>,<2wikimqa-kb>,<musique-kb>,<hotpotqa-kb>,<multifieldqa-kb>
+
+# 20 页语义纯度人工抽查清单
+uv run python test/dataset01/eval/longbench_wiki_pilot.py audit --sample-size 20
+
+# wiki 导航 vs 无 wiki 基线的 v3 对比与调用/成本统计
+uv run python test/dataset01/eval/longbench_wiki_eval.py
+```
+
+基线、对比、摘要与人工清单分别落盘到
+`test/dataset01/results/longbench_v3_baseline_*`、
+`longbench_v3_wiki_*`、`longbench_wiki_pilot.json` 与
+`longbench_wiki_purity_audit.json`。`longbench_v3_wiki_summary.json` 的 `cost`
+字段记录 wiki 调用率、命中率、平均在线 LLM 调用数与延迟；Wiki 导航路径中
+`knowledge_base_search` 跳过在线反思/改写，代表性问题由离线主题页提供。
+主题集合是独立 Qdrant collection，设置 `WIKI_ENABLED=false` 或删除该集合
+即可回退纯证据检索，现有知识库集合不受影响。
+
+**native 基线（无 wiki，v3 口径，1000 queries）**：
+
+| 范围 | bridge_recall@10 | hop_success@10 | recall@10 | 延迟 |
+|---|---|---|---|---|
+| 多跳子集（571） | 0.119 | 0.448 | 0.165 | ~4.6s |
+| 全类型（valid 加权） | 0.370 | 0.594 | 0.392 | — |
+
+**wiki 全局视野当前效果（逐跳多跳管线，v2 合并，1000 queries，单次运行）**：
+5 库（12.6 万文档，t1 标题保留建库）生成 2,190 主题页（fallback 已全部修复）；
+确定性实体锚点逐跳召回（各跳入池 30）+ 合并池对原问题统一终排 + wiki 门控
+（通用页不进 dense/sparse/rerank 输入，导航有效率 90%）。
+关系词表机制已删除（写死词表在通用领域不可取）；实体共现桥接索引
+（零硬编码词表，离线学词、在线零 LLM）已实现并完成验收实验（见下方）。
+
+| 范围 | bridge_recall@10 | hop_success@10 | recall@10 | 延迟 | 在线 LLM |
+|---|---|---|---|---|---|
+| 多跳子集 | 0.119（=基线） | 0.451（+0.003） | 0.164 | 20.5s | 0.0 次/查询 |
+| 全类型（valid 加权） | 0.371 | 0.598 | 0.392 | — | — |
+
+**结论**：wiki 全局视野在本同质语料上**质量中性 + 成本正收益**（在线 LLM
+调用归零，代价是延迟 4.5 倍）；归因显示损失全部在召回层（确定性锚点词汇匹配
+天花板，召回未中 44.3%），合并/排序层已无剩余可修空间。多跳效果的突破需
+实体级导航索引（实体倒排/共现桥接标记）或受控 LLM hop 规划；标注型两跳
+0.80 验收目标因本语料 gold 全为推导型无法判定（如实披露）。
+
+**实体桥接索引验收实验（2026-08-22，见 `test/dataset01/results/entity_bridge_index_final_report.md`）**：
+离线倒排 + 一跳共现桥（`rag.entity_index_*` 双表，通用实体统计判据，零硬编码词表），
+问题实体链接率 92.8%。三臂对照（1000 queries）：生产语义臂（仅多跳题启用逐跳）
+多跳 bridge@10=0.119、hop@10=0.454，全类型与基线持平（±0.001）；在线 LLM 0.0 次/查询。
+归因为诚实的负面结果：扩展候选 100% 进终排但命中贡献 0/781——共现桥找到了正确文档，
+但取证粒度（文档 top-1 块）丢失桥接段落。迭代方向：扩展取证改为“文档内含桥接实体
+的段落”、扩展候选按实体重合度加权；同质语料为下限测试，结构化语料才能发挥实体索引价值。
+注：后续两轮迭代（实体锚定取证 + 席位注入 + 块指针）已将多跳终态推至
+bridge@10=0.137 / hop@10=0.474 / recall@10=0.188，via_expansion=36.4%（见 `quota_scan_final_report.md` 与席位迭代报告）。
+
+**受控查询分解实验（2026-08-24，见 `test/dataset01/results/decompose_final_report.md`）**：
+多跳题 1 次廉价 chat 调用分解为 ≤3 条子查询并行召回。两臂对照（各 1000 条，0 失败）：
+分解成功率 96.7%，但多跳主指标 +0.001（噪声带内，未达标），分解候选命中仅 3/805，
+延迟 +7s/query。结论：机制全部达标但质量贡献为零；连同历史的反思/改写环（dataset01
+上劣于纯检索）与确定性 Focus 跳查询（边际），查询侧改写已三次证伪——代码与开关已删除，
+仅留报告为证。认知更新：召回未中桶的瓶颈不在查询理解（子查询召回与既有通道高度重叠），
+而在语料/块级对齐层，下一步应从查询侧转向索引侧（离线边增强/桥接事实句预验证入库）。
 
 ## 5. 快速开始
 
