@@ -115,3 +115,31 @@ RAG 图终态 SHALL 额外输出 `metrics` 字段，包含 `reflect_rounds`
 
 - **WHEN** 问题只有一个可判定目标且没有导航锚点需求
 - **THEN** 系统使用现有单轮证据检索路径，不产生额外的逐跳调用
+
+### Requirement: 分层确定性检索工具
+
+系统 SHALL 在 chat 图工具集中注册两个零 LLM 分层检索工具，与既有 `knowledge_base_search` / `kb_wiki_lookup` 并列，由对话模型自主选择调用：
+
+- `entity_relation_lookup`：按实体查询类型化关系与桥接事实句（来自关系索引），返回含来源块指针的限量记录；
+- `chunk_read`：按块或文档 id 读取原文全文（限量），供模型核验/深读证据。
+
+两工具 SHALL 完全确定性（零在线 LLM 调用）；关系索引缺失时 `entity_relation_lookup` 返回空结果，`chunk_read` 对不存在的 id 返回空，均不阻断对话。工具注册 SHALL 受配置开关控制，关闭时工具集回到当前状态。
+
+#### Scenario: agent 自主选择关系查询
+
+- **WHEN** 多跳问题第一跳证据中出现桥接实体
+- **THEN** 对话模型可自主调用 `entity_relation_lookup` 获取该实体的关系与事实句，并据此发起下一跳检索
+
+#### Scenario: 工具关闭回退
+
+- **WHEN** 分层工具开关关闭
+- **THEN** chat 图工具集与当前完全一致，行为不变
+
+### Requirement: 多跳策略提示词指引
+
+对话系统提示词 SHALL 包含多跳策略指引：对跨实体/跨文档问题，按"检索 → 读证据（必要时 `chunk_read`）→ 识别桥接实体 → `entity_relation_lookup` 或再次检索 → 汇总回答"的顺序推进；SHALL 明确禁止在证据不足时凭空作答。指引 SHALL NOT 强制固定调用序列（保持自主性），循环轮次上限复用现有配置。
+
+#### Scenario: 多跳策略生效
+
+- **WHEN** 用户提问"X 的祖父是谁"类两跳问题
+- **THEN** 模型可先检索 X 的父亲，再基于桥接实体查询/检索祖父信息，最后汇总回答

@@ -350,3 +350,33 @@ CREATE TABLE rag.entity_index_postings (
 CREATE INDEX idx_entity_postings_doc ON rag.entity_index_postings (kb_id, document_id);
 -- 非通用实体过滤视图加速(可选)
 CREATE INDEX idx_entity_entities_nongeneric ON rag.entity_index_entities (kb_id, entity) WHERE is_generic = false;
+
+-- ------------------------------------------------------------
+-- 9. 实体关系索引 (agentic-relation-retrieval 变更)
+--    离线 LLM 从"含 >=2 个已索引实体的叶块"抽取类型化关系与桥接事实句,
+--    供 entity_relation_lookup 工具按实体查询; 在线零 LLM;
+--    进度表支撑断点续建与幂等; 回滚 = 删两表
+-- ------------------------------------------------------------
+CREATE TABLE rag.entity_index_relations (
+    id            UUID PRIMARY KEY DEFAULT uuidv7(),  -- 与 ORM 定义对齐（唯一行标识）
+    kb_id         UUID NOT NULL,            -- 逻辑关联 rag_knowledge_bases.id
+    head_entity   VARCHAR(256) NOT NULL,    -- 归一化实体串(小写化)
+    tail_entity   VARCHAR(256) NOT NULL,
+    relation      VARCHAR(256) NOT NULL,    -- 自由文本关系短语(无词表约束)
+    fact_text     TEXT NOT NULL DEFAULT '', -- 承载关系的原文句子
+    chunk_id      UUID NOT NULL,            -- 来源叶块(逻辑关联 rag_chunks.id)
+    document_id   UUID NOT NULL,            -- 来源文档(逻辑关联 rag_documents.id)
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_entity_relations_head ON rag.entity_index_relations (kb_id, head_entity);
+CREATE INDEX idx_entity_relations_tail ON rag.entity_index_relations (kb_id, tail_entity);
+
+CREATE TABLE rag.entity_index_extract_progress (
+    kb_id    UUID NOT NULL,
+    chunk_id UUID NOT NULL,
+    status   VARCHAR(16) NOT NULL DEFAULT 'done',  -- 'done' / 'failed'
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (kb_id, chunk_id)
+);

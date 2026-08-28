@@ -297,7 +297,13 @@ uv run python test/dataset01/eval/longbench_wiki_eval.py
 但取证粒度（文档 top-1 块）丢失桥接段落。迭代方向：扩展取证改为“文档内含桥接实体
 的段落”、扩展候选按实体重合度加权；同质语料为下限测试，结构化语料才能发挥实体索引价值。
 注：后续两轮迭代（实体锚定取证 + 席位注入 + 块指针）已将多跳终态推至
-bridge@10=0.137 / hop@10=0.474 / recall@10=0.188，via_expansion=36.4%（见 `quota_scan_final_report.md` 与席位迭代报告）。
+bridge@10=0.137 / hop@10=0.474 / recall@10=0.188，via_expansion=36.4%（中间报告已随淘汰方案清理，结论见 `entity_bridge_index_final_report.md`）。
+注 2：工具级增强（候选塞终排）的天花板已由 agentic 路线突破——关系索引升级（实体锚定事实句 + 块指针，26,259 块/32,953 条关系）
++ 分层工具（`entity_relation_lookup`/`chunk_read`）接入 chat 图，多跳 QA 准确率 34.5%→66.9%（598/600，
+见 `test/dataset01/results/agentic_relation_final_report.md`；口径：两臂对话模型不同已如实披露，延迟 124s/条）。
+该方案已默认启用（`AGENTIC_TOOLS_ENABLED` 默认 true）；新知识库启用步骤：
+`python -m entity_index.build_cli --kb-id <kb-id>`（实体索引 + 关系索引，断点续建，
+模型严格用 DB chat 角色；中文语料已在核聚变新闻库验证，42 条关系含事实句与块指针）。
 
 **受控查询分解实验（2026-08-24，见 `test/dataset01/results/decompose_final_report.md`）**：
 多跳题 1 次廉价 chat 调用分解为 ≤3 条子查询并行召回。两臂对照（各 1000 条，0 失败）：

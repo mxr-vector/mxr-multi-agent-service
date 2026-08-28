@@ -5,6 +5,8 @@ Chat 问答父图（agent.graph.chat_graph）使用的提示词。
 `str.format` 填充变量后使用：
 - AGENT_PROMPT：respond 节点的系统提示——指导对话模型自主改写查询、
   先查主题地图再取证据，并按 [n] 角标引用工具结果（占位符：history、knowledge_base_ids）；
+- AGENT_TOOLS_GUIDANCE：分层工具（entity_relation_lookup/chunk_read）策略指引片段，
+  仅在 AGENTIC_TOOLS_ENABLED 开启时拼入系统提示（与工具集开关联动，关闭即完全回退）；
 - TITLE_PROMPT：基于首问生成一句简短的会话标题（占位符：question）。
 """
 
@@ -41,6 +43,21 @@ AGENT_PROMPT = (
     "If you do not know the answer, say that you do not know. "
     "Answer in the same language as the question and keep the answer concise.\n"
     "<history>\n{history}\n</history>"
+)
+
+# 分层工具策略指引：仅当 AGENTIC_TOOLS_ENABLED 开启且工具已绑定时拼入系统提示，
+# 关闭开关时提示词与工具集同步回退（避免对未绑定工具发起调用空转轮次）。
+# 索引未构建时工具会返回“没有关系记录”，此时应改走 knowledge_base_search 直接作答。
+AGENT_TOOLS_GUIDANCE = (
+    "When you discover a bridging entity in retrieved evidence (e.g. an intermediate "
+    "person/film/place needed for the next step of a multi-hop question), call "
+    "entity_relation_lookup on that entity to get its typed relations, the supporting fact "
+    "sentence and the source chunk id; use chunk_read to read the full source chunk when the "
+    "snippet is truncated or needs verification, then continue retrieval with the newly found "
+    "entity. If entity_relation_lookup reports no relation records for the entity, fall back "
+    "to knowledge_base_search directly instead of retrying. Never invent relations or facts "
+    "that do not appear in tool results; prefer retrieving bridging evidence before answering "
+    "a multi-hop question. "
 )
 
 TITLE_PROMPT = (

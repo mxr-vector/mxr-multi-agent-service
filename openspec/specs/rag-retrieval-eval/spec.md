@@ -112,16 +112,16 @@ LongBench 评测建库 SHALL 保留原始 passage 标题、来源 query 标识�
 - **WHEN** 文档标题保留规则或 gold/建库版本发生变化
 - **THEN** 旧 doc map 不被静默复用，评测要求重建或显式指定兼容版本
 
-### Requirement: 评测披露实体扩展贡献
+### Requirement: agent 级端到端多跳评测
 
-多跳评测 SHALL 在逐跳归因中披露实体扩展通道的贡献：最终 top-k 命中中来自实体扩展候选的 gold 占比、实体链接成功率（问题可链接实体的 query 占比）、扩展候选进入终排的比例。诊断口径 SHALL 能区分三类失败：问题实体不可链接、链接成功但扩展候选未进 top-k、扩展候选进池但被终排裁掉。
+评测体系 SHALL 新增 agent 级端到端口径：以 LongBench 多跳子集驱动完整 chat 图（含分层工具），以答案 contain-match 判定正确率，与工具级检索指标（bridge_recall@10 等）并列披露。每条样本 SHALL 记录：答案正确性、工具调用序列与轮次、总延迟；报告 SHALL 披露平均工具轮次、平均延迟、失败/超时分布（0 timeout/0 failed 为门槛）。
 
-#### Scenario: 扩展贡献可诊断
+#### Scenario: agent 级评测产出
 
-- **WHEN** 多跳评测运行完成
-- **THEN** 报告包含实体扩展贡献三项指标与三类失败归因计数
+- **WHEN** agent 级评测在多跳子集运行完成
+- **THEN** 报告包含 QA 正确率、平均工具轮次、平均延迟与失败分布，且可与工具级终态对照
 
-#### Scenario: 无实体索引时的披露
+#### Scenario: 工具使用归因
 
-- **WHEN** 评测运行时实体索引不存在或关闭
-- **THEN** 报告如实披露扩展通道未启用，指标按既有口径计算
+- **WHEN** 某样本答案正确且调用过 `entity_relation_lookup` 或 `chunk_read`
+- **THEN** 报告能标识该样本经由分层工具路径命中（与仅走混合检索的样本区分）

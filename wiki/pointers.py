@@ -26,7 +26,8 @@ def pick_representative_chunk(
     """First leaf chunk containing a page entity, else the first chunk.
 
     ``doc_chunks`` must be ordered by chunk_index.  Mirrors the online
-    anchoring rule (``entity_index.store.select_entity_chunk``) so offline
+    anchoring rule (prefer the chunk containing the page entity, else the
+    first chunk) so offline
     pointers and online fallback behave identically.
     """
     if not doc_chunks:

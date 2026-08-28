@@ -135,8 +135,13 @@ class ENV_CONFIG:
 
     @property
     def entity_index_enabled(self) -> bool:
-        """Entity bridge index expansion channel (offline index, zero online LLM)."""
+        """实体索引（离线构建）：为 wiki 导航门控提供通用实体统计判据。"""
         return self.get_bool("ENTITY_INDEX_ENABLED", True)
+
+    @property
+    def agent_tools_enabled(self) -> bool:
+        """Hierarchical deterministic tools (entity_relation_lookup / chunk_read)."""
+        return self.get_bool("AGENTIC_TOOLS_ENABLED", True)
 
     def __repr__(self):
         return f"<ENV env={self.env}>"

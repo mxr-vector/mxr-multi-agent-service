@@ -42,6 +42,8 @@ from utils.logger import logger
 TOOL_KNOWLEDGE_BASE_SEARCH = "knowledge_base_search"
 TOOL_WIKI_LOOKUP = "kb_wiki_lookup"
 TOOL_WEB_SEARCH = "web_search"
+TOOL_ENTITY_RELATION_LOOKUP = "entity_relation_lookup"
+TOOL_CHUNK_READ = "chunk_read"
 
 
 class SufficiencyGrade(BaseModel):
@@ -167,133 +169,6 @@ async def _load_entity_bundles(kb_ids: List[uuid.UUID]) -> list:
         return []
 
 
-async def _entity_expansion(
-    evidence_query: str,
-    bundles: list,
-    effective_pages: List[dict] | None = None,
-) -> tuple[Any | None, dict]:
-    """Entity linking + one-hop co-occurrence expansion over the offline index.
-
-    Wiki member documents of gated-effective pages join the candidate pool
-    with their own sub-cap (anchor = first page/question entity overlap), so
-    precomputed hub membership can reach recall that co-occurrence misses.
-    Returns (expansion_hop_result | None, meta).  Any missing piece (no
-    question entity, index not built, no hits) yields None and the caller
-    silently keeps the existing path (graceful degradation).
-    """
-    from entity_index.extractors import get_extractor
-    from entity_index.merge import DEFAULT_EXPANSION_CAP_C, expansion_hop_result
-    from entity_index.store import fetch_expansion_chunks, fetch_expansion_chunks_by_ids
-    from entity_index.traverse import link_and_expand
-
-    # wiki 成员入池子配额：hub 成员是人工标注的答案簇，但数量可很大，
-    # 限其在扩展通道内最多占 5 席、不挤占共现扩展候选
-    wiki_member_cap = 5
-
-    q_entities = sorted(get_extractor().extract(evidence_query))
-    q_keys = {e.casefold() for e in q_entities}
-    if not q_entities:
-        return None, {"linked_entities": [], "degraded": True}
-
-    linked_all: list[str] = []
-    candidate_targets: list[tuple[str, str | None]] = []
-    seen: set[str] = set()
-
-    def _push(doc_id: str, entity: str | None) -> None:
-        if doc_id and doc_id not in seen:
-            seen.add(doc_id)
-            candidate_targets.append((doc_id, entity))
-
-    for bundle in bundles:
-        result = link_and_expand(
-            q_entities, bundle.postings, bundle.doc_entities, set(bundle.generic)
-        )
-        linked_all.extend(result.linked_entities)
-        for doc_id, entity in result.doc_entity_provenance:
-            _push(doc_id, entity)
-        if len(candidate_targets) >= DEFAULT_EXPANSION_CAP_C:
-            break
-    wiki_members_added = 0
-    wiki_doc_ids: set[str] = set()
-    # 块级指针优先：离线已锚定的代表性叶块按 id 直查原文，消除在线
-    # "文档→块"猜测；无指针的页回退文档级成员 + 问题实体锚定
-    wiki_chunk_ids: list[str] = []
-    wiki_pages_without_chunks: list[dict] = []
-    if effective_pages:
-        for page in effective_pages:
-            page_chunks = [str(c) for c in page.get("chunks") or [] if c]
-            if page_chunks:
-                for chunk_id in page_chunks:
-                    if len(wiki_chunk_ids) >= wiki_member_cap:
-                        break
-                    wiki_chunk_ids.append(chunk_id)
-            else:
-                wiki_pages_without_chunks.append(page)
-            if len(wiki_chunk_ids) >= wiki_member_cap:
-                break
-    if wiki_pages_without_chunks:
-        for page in wiki_pages_without_chunks:
-            members = page.get("documents") or []
-            if not members:
-                continue
-            page_entities = [str(e) for e in page.get("entities") or []]
-            anchor = next(
-                (e for e in page_entities if e.casefold() in q_keys), None
-            )
-            for member in members:
-                if wiki_members_added >= wiki_member_cap - len(wiki_chunk_ids):
-                    break
-                if str(member) in seen:
-                    continue
-                _push(str(member), anchor)
-                wiki_doc_ids.add(str(member))
-                wiki_members_added += 1
-            if wiki_members_added >= wiki_member_cap - len(wiki_chunk_ids):
-                break
-    if not linked_all:
-        return None, {"linked_entities": [], "degraded": True}
-    candidate_targets = candidate_targets[:DEFAULT_EXPANSION_CAP_C]
-    wiki_doc_ids &= {doc_id for doc_id, _entity in candidate_targets}
-    if not candidate_targets:
-        return None, {"linked_entities": linked_all, "degraded": False}
-    chunks = await fetch_expansion_chunks(candidate_targets, DEFAULT_EXPANSION_CAP_C)
-    if wiki_chunk_ids:
-        wiki_chunks = await fetch_expansion_chunks_by_ids(
-            wiki_chunk_ids, DEFAULT_EXPANSION_CAP_C
-        )
-        # 同文档去重：共现候选优先，wiki 块只补缺；来源标记供评测归因
-        present = {c.get("document_id") for c in chunks}
-        for chunk in wiki_chunks:
-            if chunk.get("document_id") in present:
-                continue
-            chunk["expansion_source"] = "wiki"
-            chunks.append(chunk)
-        wiki_members_added += len(wiki_chunk_ids)
-    # 文档级回退路径的 wiki 成员同样打来源标记（供评测归因区分通道贡献）
-    for chunk in chunks:
-        if chunk.get("document_id") in wiki_doc_ids:
-            chunk["expansion_source"] = "wiki"
-    # 统一 Focus 重排的实体序：按候选入选序去重（traverse 共现强度序在前，
-    # wiki anchor 实体随后），拼接进扩展通道自身的重排查询
-    focus_entities: list[str] = []
-    for _doc_id, entity in candidate_targets:
-        if entity and entity not in focus_entities:
-            focus_entities.append(entity)
-    # wiki 块指针在 cap C 之外加塞：候选总量 = 共现上限 + wiki 子配额
-    return (
-        expansion_hop_result(chunks, cap_c=DEFAULT_EXPANSION_CAP_C + wiki_member_cap),
-        {
-            "linked_entities": linked_all,
-            "expanded_docs": len(candidate_targets),
-            "wiki_member_docs": wiki_members_added,
-            "wiki_chunk_docs": len(wiki_chunk_ids),
-            "chunks": len(chunks),
-            "focus_entities": focus_entities,
-            "degraded": False,
-        },
-    )
-
-
 async def _run_multihop(
     evidence_query: str,
     kb_ids: List[uuid.UUID],
@@ -314,10 +189,6 @@ async def _run_multihop(
         collect_hop_pool,
         gate_navigation,
     )
-    from entity_index.merge import (
-        EXPANSION_FINAL_QUOTA,
-        merge_final_with_expansion,
-    )
 
     hop_pool_size = CFG.rag_hop_pool_size
     max_hops = max(1, CFG.rag_max_hops)
@@ -330,7 +201,7 @@ async def _run_multihop(
     hop_results: List[HopResult] = [HopResult(hop=0, query=evidence_query, docs=hop0_docs)]
     hop_pools: dict[int, List[str]] = {0: hop0_pool_ids}
 
-    # 实体索引：门控统计判据与扩展通道共用（加载失败/未构建时静默降级）
+    # 实体索引：为 wiki 门控提供通用实体统计判据（加载失败/未构建时静默降级）
     entity_bundles = await _load_entity_bundles(kb_ids)
     generic_terms: set[str] | None = None
     if entity_bundles:
@@ -377,52 +248,10 @@ async def _run_multihop(
                 )
                 logger.warning(f"[RAG-TOOL] 多跳第 {index} 跳失败降级: {exc}")
 
-    # 实体扩展通道：仅开关开启且索引可用时生效；任何失败静默跳过不阻断。
-    # 扩展候选不进统一终排池，而是用自身查询独立重排后按保留席位注入尾部
-    expansion_result = None
-    expansion_meta: dict = {"enabled": False}
-    if ENV.entity_index_enabled:
-        try:
-            expansion_result, expansion_meta = await _entity_expansion(
-                evidence_query, entity_bundles, effective_pages
-            )
-            expansion_meta["enabled"] = True
-        except Exception as exc:
-            expansion_meta = {"enabled": True, "error": f"{type(exc).__name__}: {exc}"[:200]}
-            logger.warning(f"[RAG-TOOL] 实体扩展通道异常，静默跳过: {exc}")
-
     pool, merge_meta = collect_hop_pool(hop_results, merge_pool_size)
     # 终排：合并池对原问题统一重排（各跳 rerank 分数跨跳不可比，
     # 不在合并层做跨跳比分裁剪；各跳职责是把单路召不回的文档送进决赛圈）
-    quota = EXPANSION_FINAL_QUOTA if expansion_result is not None else 0
     merged = await _rerank(evidence_query, pool, top_n)
-    expansion_seats = 0
-    if expansion_result is not None and quota > 0 and expansion_result.docs:
-        try:
-            # 扩展通道统一重排：所有桥接实体拼一个 Focus 查询，候选自由竞争，
-            # 不做跨实体比分比较；重排多取余量应对与主路重复，主路保留全量，
-            # 未填满的席位由主路尾部回填
-            focus_entities = expansion_meta.get("focus_entities") or []
-            expansion_query = (
-                f"{evidence_query} Focus: {', '.join(focus_entities[:4])}".strip()
-                if focus_entities
-                else evidence_query
-            )
-            expansion_ranked = await _rerank(
-                expansion_query,
-                expansion_result.docs,
-                min(len(expansion_result.docs), quota * 3),
-            )
-            head, tail = merged[: max(0, top_n - quota)], merged[max(0, top_n - quota) :]
-            final, expansion_seats = merge_final_with_expansion(
-                head, expansion_ranked, quota
-            )
-            final += tail[: max(0, top_n - len(final))]
-            merged = final
-            expansion_meta["final_seats"] = expansion_seats
-        except Exception as exc:
-            expansion_meta["seats_error"] = f"{type(exc).__name__}: {exc}"[:200]
-            logger.warning(f"[RAG-TOOL] 实体扩展席位注入失败，跳过: {exc}")
     for doc in merged:
         for hop_index in doc.get("source_hops") or []:
             label = f"hop{hop_index}"
@@ -439,7 +268,6 @@ async def _run_multihop(
         "hop_queries": hop_queries,
         "hop_coverage": merge_meta["hop_coverage"],
         "hop_pools": hop_pools,
-        "entity_expansion": expansion_meta,
         "navigation_effective_pages": len(effective_pages),
         "navigation_generic_pages": len(generic_pages),
         "degraded": degraded,
@@ -701,11 +529,244 @@ async def web_search(query: str, top_k: Optional[int] = None) -> str:
     return outcome.text
 
 
+# ---------- 分层确定性工具（agentic-relation-retrieval：零在线 LLM） ----------
+async def entity_relation_lookup_impl(
+    entity: str,
+    knowledge_base_ids: List[str],
+    top_k: Optional[int] = None,
+) -> ToolOutcome:
+    """按实体查询类型化关系与桥接事实句（关系索引，零 LLM）。
+
+    关系表缺失/实体无记录时返回空结果提示，不报错不阻断。
+    """
+    from sqlalchemy import text as sql
+    from core.source.postgres import PostgresConfig
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    top_n = max(1, min(top_k or 8, 20))
+    entity_norm = (entity or "").strip().casefold()
+    if not entity_norm:
+        return ToolOutcome(text="实体关系查询：实体为空。", docs=[], metrics={"relations": 0})
+    kb_uuids = []
+    for kb in knowledge_base_ids or []:
+        try:
+            kb_uuids.append(uuid.UUID(str(kb)))
+        except ValueError:
+            continue
+    rows: list = []
+    if kb_uuids:
+        engine = create_async_engine(PostgresConfig.from_env().async_connection)
+        try:
+            async with engine.connect() as conn:
+                rows = (
+                    await conn.execute(
+                        sql(
+                            "SELECT head_entity, tail_entity, relation, fact_text, "
+                            "chunk_id, document_id FROM rag.entity_index_relations "
+                            "WHERE kb_id = ANY(:kbs) AND (head_entity=:e OR tail_entity=:e) "
+                            "LIMIT 2000"
+                        ),
+                        {"kbs": kb_uuids, "e": entity_norm},
+                    )
+                ).all()
+        except Exception as exc:  # 表缺失/连接异常：静默降级为空结果（调用方继续对话）
+            logger.warning(f"[RAG-TOOL] 关系索引查询降级: {exc}")
+            rows = []
+        finally:
+            await engine.dispose()
+    # 按（对端实体, 关系）聚合：频次 + 首条事实句 + 来源指针（id 统一无连字符 hex，
+    # 与 chunk_read 入参约定一致）
+    agg: dict[tuple, dict] = {}
+    for row in rows:
+        other = row.tail_entity if row.head_entity == entity_norm else row.head_entity
+        key = (other, row.relation)
+        item = agg.get(key)
+        if item is None:
+            agg[key] = {
+                "other": other,
+                "relation": row.relation,
+                "fact": row.fact_text,
+                "chunk_id": row.chunk_id.hex,
+                "document_id": row.document_id.hex,
+                "count": 1,
+            }
+        else:
+            item["count"] += 1
+    ranked = sorted(agg.values(), key=lambda item: -item["count"])[:top_n]
+    if not ranked:
+        return ToolOutcome(
+            text=f"实体关系查询：实体「{entity}」没有关系记录。",
+            docs=[],
+            metrics={"relations": 0, "entity": entity_norm},
+        )
+    lines = []
+    for item in ranked:
+        fact = (item["fact"] or "").strip()
+        lines.append(
+            f"- {item['other']} | {item['relation']}（出现 {item['count']} 次）"
+            + (f" | 事实: {fact[:200]}" if fact else "")
+            + f" | chunk_id={item['chunk_id']}"
+        )
+    text_out = f"实体「{entity}」的关系（可用 chunk_read 读取来源块全文）：\n" + "\n".join(lines)
+    return ToolOutcome(
+        text=text_out,
+        docs=[],
+        metrics={"relations": len(ranked), "entity": entity_norm, "raw_rows": len(rows)},
+    )
+
+
+async def chunk_read_impl(
+    ids: List[str],
+    max_chars: Optional[int] = None,
+    knowledge_base_ids: List[str] | None = None,
+) -> ToolOutcome:
+    """按块/文档 id 读取原文（限量截断，零 LLM）。
+
+    id 优先按叶块解析；未命中时按文档取其首个叶块。不存在则跳过。
+    提供 knowledge_base_ids 时按库作用域过滤（防跨库读取）。
+    """
+    from sqlalchemy import text as sql
+    from core.source.postgres import PostgresConfig
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    per_chars = max(200, min(max_chars or 4000, 8000))
+    clean = [str(i).strip() for i in (ids or []) if str(i).strip()][:5]
+    if not clean:
+        return ToolOutcome(text="块读取：未提供有效 id。", docs=[], metrics={"chunks": 0})
+    # 输入 → 规范化带连字符 UUID 串（found 键的规范形）；带/不带连字符均可命中
+    norm: dict[str, str] = {}
+    uuids = []
+    for item in clean:
+        try:
+            parsed = uuid.UUID(item)
+        except ValueError:
+            continue
+        uuids.append(parsed)
+        norm[item] = str(parsed)
+    if not uuids:
+        return ToolOutcome(text="块读取：无有效 id。", docs=[], metrics={"chunks": 0})
+    # KB 作用域：块表无 kb 列，经文档表关联过滤；未传作用域时不限制（兼容旧调用）
+    kb_uuids = []
+    for kb in knowledge_base_ids or []:
+        try:
+            kb_uuids.append(uuid.UUID(str(kb)))
+        except ValueError:
+            continue
+    scope = " AND c.document_id IN (SELECT id FROM rag.rag_documents WHERE knowledge_base_id = ANY(:kbs))" if kb_uuids else ""
+    engine = create_async_engine(PostgresConfig.from_env().async_connection)
+    found: dict[str, dict] = {}
+    try:
+        async with engine.connect() as conn:
+            params: dict = {"ids": uuids}
+            if kb_uuids:
+                params["kbs"] = kb_uuids
+            by_chunk = (
+                await conn.execute(
+                    sql(
+                        "SELECT c.id, c.document_id, c.content FROM rag.rag_chunks c "
+                        f"WHERE c.id = ANY(:ids){scope}"
+                    ),
+                    params,
+                )
+            ).all()
+            for row in by_chunk:
+                found[str(row.id)] = {
+                    "chunk_id": row.id.hex,
+                    "document_id": row.document_id.hex,
+                    "content": row.content or "",
+                }
+            missing = [u for u in uuids if str(u) not in found]
+            if missing:
+                doc_params: dict = {"ids": missing}
+                if kb_uuids:
+                    doc_params["kbs"] = kb_uuids
+                by_doc = (
+                    await conn.execute(
+                        sql(
+                            "SELECT DISTINCT ON (c.document_id) c.id, c.document_id, c.content "
+                            f"FROM rag.rag_chunks c WHERE c.document_id = ANY(:ids) AND c.level=0{scope} "
+                            "ORDER BY c.document_id, c.chunk_index"
+                        ),
+                        doc_params,
+                    )
+                ).all()
+                for row in by_doc:
+                    found[str(row.document_id)] = {
+                        "chunk_id": row.id.hex,
+                        "document_id": row.document_id.hex,
+                        "content": row.content or "",
+                    }
+    except Exception as exc:
+        logger.warning(f"[RAG-TOOL] 块读取降级: {exc}")
+    finally:
+        await engine.dispose()
+    lines = []
+    docs_out: List[dict] = []
+    for item in clean:
+        hit = found.get(norm.get(item, ""))
+        if hit is None:
+            continue
+        lines.append(
+            f"[chunk_id={hit['chunk_id']} document_id={hit['document_id']}]\n"
+            f"{hit['content'][:per_chars]}"
+        )
+        docs_out.append(
+            {"document_id": hit["document_id"], "chunk_id": hit["chunk_id"], "text": hit["content"][:per_chars]}
+        )
+    if not lines:
+        return ToolOutcome(text="块读取：未找到对应块。", docs=[], metrics={"chunks": 0})
+    return ToolOutcome(
+        text="\n\n".join(lines), docs=docs_out, metrics={"chunks": len(lines)}
+    )
+
+
+@tool
+async def entity_relation_lookup(
+    entity: str, knowledge_base_ids: List[str], top_k: Optional[int] = None
+) -> str:
+    """按实体查询其类型化关系与桥接事实句（离线构建的关系索引，确定性结果）。
+
+    多跳推理中发现桥接实体时使用：返回该实体参与的关系、对端实体、承载事实的
+    原句与来源块指针；可再用 chunk_read 读取来源块全文，或用对端实体继续检索。
+    关系索引未构建或实体无记录时会返回明确提示，应改走 knowledge_base_search。
+
+    Args:
+        entity: 要查询的实体名称（与文本中出现的写法一致）。
+        knowledge_base_ids: 目标知识库 id 列表（hex 无连字符），取自请求的 kb_ids。
+        top_k: 返回关系条数上限（缺省 8）。
+    """
+    outcome = await entity_relation_lookup_impl(entity, knowledge_base_ids, top_k)
+    return outcome.text
+
+
+@tool
+async def chunk_read(
+    ids: List[str],
+    max_chars: Optional[int] = None,
+    knowledge_base_ids: Optional[List[str]] = None,
+) -> str:
+    """按块或文档 id 读取原文全文（每段限量截断）。
+
+    当检索片段被截断、需要核验上下文，或关系查询返回的来源块需要通读时使用。
+    id 优先按叶块解析，未命中时按文档取其首个叶块；不存在的 id 会被跳过。
+    仅能读取 knowledge_base_ids 范围内的块（缺省时按当前请求的知识库）。
+
+    Args:
+        ids: 块 id 或文档 id 列表（hex 无连字符，最多 5 个）。
+        max_chars: 每块返回字符上限（缺省 4000）。
+        knowledge_base_ids: 允许读取的知识库 id 列表（hex 无连字符），取自请求的 kb_ids。
+    """
+    outcome = await chunk_read_impl(ids, max_chars, knowledge_base_ids)
+    return outcome.text
+
+
 # 工具名 -> 实现函数（返回 ToolOutcome）；respond 节点据此统一分派执行
 TOOL_IMPLS = {
     TOOL_KNOWLEDGE_BASE_SEARCH: knowledge_base_search_impl,
     TOOL_WIKI_LOOKUP: kb_wiki_lookup_impl,
     TOOL_WEB_SEARCH: web_search_impl,
+    TOOL_ENTITY_RELATION_LOOKUP: entity_relation_lookup_impl,
+    TOOL_CHUNK_READ: chunk_read_impl,
 }
 
 

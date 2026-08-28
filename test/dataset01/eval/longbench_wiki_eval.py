@@ -49,7 +49,6 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
                 "hop_gold_attribution": [],
                 "navigation_effective_pages": 0,
                 "navigation_generic_pages": 0,
-                "entity_expansion": {},
                 "degraded": False,
             }
             try:
@@ -74,7 +73,6 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
                         "score": doc.get("score"),
                         "text": doc.get("text", ""),
                         "source_hops": doc.get("source_hops"),
-                        "expansion_source": doc.get("expansion_source"),
                     }
                     for doc in evidence.docs
                 ]
@@ -88,16 +86,10 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
                 output["hop_queries"] = metrics.get("hop_queries", [])
                 output["navigation_effective_pages"] = metrics.get("navigation_effective_pages", 0)
                 output["navigation_generic_pages"] = metrics.get("navigation_generic_pages", 0)
-                output["entity_expansion"] = metrics.get("entity_expansion", {})
                 output["degraded"] = bool(metrics.get("degraded")) or bool(metrics.get("degraded_reason"))
                 # 逐跳 gold 归因（D6）：每个跳组 gold 在最终 top-k / 逐跳候选池 /
-                # 全部未命中三态定位失败阶段（裁剪 vs 召回）；另标记命中是否经由实体扩展通道
+                # 全部未命中三态定位失败阶段（裁剪 vs 召回）
                 final_ids = {c["document_id"] for c in output["candidates"]}
-                expansion_final_ids = {
-                    c["document_id"]
-                    for c in output["candidates"]
-                    if 2 in (c.get("source_hops") or [])
-                }
                 pools = {
                     int(hop): set(ids)
                     for hop, ids in (metrics.get("hop_pools") or {}).items()
@@ -118,7 +110,6 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
                             "hop_group": hop_idx,
                             "stage": stage,
                             "gold_count": len(gold),
-                            "via_expansion": bool(gold & expansion_final_ids),
                         }
                     )
             except TimeoutError:
@@ -191,29 +182,13 @@ def render_multihop_diagnostics(results: list[dict]) -> str:
         ratio = count / total_groups if total_groups else 0.0
         lines.append(f"| {label} | {count} | {ratio:.1%} |")
 
-    # 实体扩展通道诊断（贡献与失败归因）
-    exp_meta = [item.get("entity_expansion") or {} for item in ok]
-    exp_enabled = [m for m in exp_meta if m.get("enabled")]
-    exp_linked = [m for m in exp_enabled if m.get("linked_entities")]
-    exp_with_chunks = [m for m in exp_enabled if m.get("chunks", 0) > 0]
-    via_expansion = sum(
-        1 for item in ok for entry in item.get("hop_gold_attribution") or []
-        if entry.get("via_expansion")
-    )
-    final_hits = attribution.get("final_top10", 0)
+    # 实体扩展通道已于 agentic 路线切换时整体移除（见归档报告），
+    # 桥接证据改由 agent 经 entity_relation_lookup 自主消费。
     lines += [
         "",
-        "### 实体扩展通道诊断",
+        "### 实体扩展通道",
         "",
-        f"- 通道启用: {len(exp_enabled)}/{len(ok)}（索引可用且开关开启）",
-        f"- 链接成功率: {len(exp_linked)}/{len(exp_enabled)}"
-        + (f" = {len(exp_linked) / len(exp_enabled):.1%}" if exp_enabled else "（通道未启用）"),
-        f"- 扩展候选进终排: {len(exp_with_chunks)}/{len(exp_linked)}"
-        + (f" = {len(exp_with_chunks) / len(exp_linked):.1%}" if exp_linked else ""),
-        f"- 扩展贡献: top-10 命中跳组中经由实体扩展的 {via_expansion}/{final_hits}"
-        + (f" = {via_expansion / final_hits:.1%}" if final_hits else ""),
-        f"- 失败归因: 不可链接 {len(exp_enabled) - len(exp_linked)} / 链接但无扩展候选 "
-        f"{len(exp_linked) - len(exp_with_chunks)} / 进终排未被选中 {final_hits - via_expansion if final_hits else 0}",
+        "- 已移除（评测证伪后删除；桥接证据改由 agent 经 entity_relation_lookup 消费）",
     ]
     lines += [
         "",
