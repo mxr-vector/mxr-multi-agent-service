@@ -483,6 +483,15 @@ def summarize_v3(
                 for k in ks:
                     value = metrics[k][key]
                     buckets[f"{key}@{k}"].append(value)
+            # hit@k：top-k 中至少命中一个 gold 文档的题占比（体验口径：答对只需
+            # 一个含答案的文档，不需要 gold 全中；与 QA contain-match 直接对应）
+            gold_set = set(item.get("answer_gold_docs") or item.get("gold_docs") or [])
+            for k in ks:
+                topk_ids = {
+                    str(c.get("document_id"))
+                    for c in (item.get("candidates") or [])[:k]
+                }
+                buckets[f"hit@{k}"].append(1.0 if gold_set & topk_ids else 0.0)
             for k in ks:
                 for metric_name in ("bridge_recall", "hop_success_rate"):
                     value = metrics[metric_name][k]
