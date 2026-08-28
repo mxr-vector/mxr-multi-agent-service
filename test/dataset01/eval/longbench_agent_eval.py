@@ -24,11 +24,18 @@ from collections import Counter
 from pathlib import Path
 
 # --no-agent-tools 必须在项目模块导入前生效（ENV 为惰性单例）
-if "--no-agent-tools" in sys.argv:
+_CONTROL_ARM = "--no-agent-tools" in sys.argv
+if _CONTROL_ARM:
     os.environ["AGENTIC_TOOLS_ENABLED"] = "false"
     sys.argv.remove("--no-agent-tools")
 
 import common  # noqa: F401  # 注入项目根到 sys.path
+
+# load_dotenv(override=True) 在 env 文件加载时会覆盖上面预设的值（.env.development
+# 已显式含 AGENTIC_TOOLS_ENABLED，曾导致对照臂被污染）；get_bool 实时读 os.environ，
+# 此处再设一次即对后续所有读取生效
+if _CONTROL_ARM:
+    os.environ["AGENTIC_TOOLS_ENABLED"] = "false"
 
 from common import RESULTS_DIR, ensure_cfg_async, load_json, save_json
 from longbench_eval import DOC_MAP_PATH, load_rows, normalize
@@ -124,7 +131,8 @@ async def run_queries(rows: list[dict], partial_path: Path) -> list[dict]:
                 async with write_lock:
                     with partial_path.open("a", encoding="utf-8") as fh:
                         fh.write(json.dumps(out, ensure_ascii=False) + "\n")
-            print(f"[agent-eval] {len(results_done)} {row['qid'][:40]} {out['status']} correct={out['correct']} {out['latency_ms']:.0f}ms", flush=True)
+            err = f" err={out['error']}" if out.get("error") else ""
+            print(f"[agent-eval] {len(results_done)} {row['qid'][:40]} {out['status']} correct={out['correct']} {out['latency_ms']:.0f}ms{err}", flush=True)
             return out
 
     results_done: list[int] = []
@@ -171,6 +179,11 @@ async def main() -> None:
     args = parser.parse_args()
 
     await ensure_cfg_async()
+    # 对照臂：必须在 ENV 初始化完成后强制覆盖——ENV 惰性单例首次访问属性时才
+    # load_dotenv(override=True)，会覆盖 import 阶段的预设；get_bool 实时读
+    # os.environ，此处设置后对所有后续读取生效
+    if _CONTROL_ARM:
+        os.environ["AGENTIC_TOOLS_ENABLED"] = "false"
     # 评测独立进程：自行装配 checkpointer（幂等；生产由应用 lifespan 装配）
     from agent.checkpoints.postgres import close_checkpointer, open_checkpointer
 

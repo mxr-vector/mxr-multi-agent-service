@@ -140,8 +140,12 @@ class ENV_CONFIG:
 
     @property
     def agent_tools_enabled(self) -> bool:
-        """Hierarchical deterministic tools (entity_relation_lookup / chunk_read)."""
-        return self.get_bool("AGENTIC_TOOLS_ENABLED", True)
+        """分层确定性工具（entity_relation_lookup / chunk_read）。
+
+        默认 False：四臂归因（four_arm_attribution_report.md）显示强模型下
+        净贡献 ≈ 0 且延迟 +18~60%；弱模型/小上下文场景可显式开启。
+        """
+        return self.get_bool("AGENTIC_TOOLS_ENABLED", False)
 
     def __repr__(self):
         return f"<ENV env={self.env}>"
