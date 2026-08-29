@@ -65,16 +65,18 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 ### 3.3 检索与问答管线（Agentic RAG）
 
 ```
-提问 → condense 问题改写（rewrite 模型，无历史直通）
-     → [检索子图] 混合召回（dense 语义 + jieba BM25 词法，服务端 RRF 融合、去重）
-                 → 反思（LLM 判定上下文是否充分；不足则改写查询重检索，轮数上限 RAG_REFLECT_ROUND_CAP）
-                 → rerank 精排裁剪到 RAG_FINAL_TOP_K
-     → respond 生成答案 + 结构化 sources（章节/页码/相似度）
+提问 → LangGraph respond 节点：对话模型多轮工具循环
+     → knowledge_base_search 检索工具：
+         混合召回（dense 语义 + jieba BM25 词法，服务端 RRF 融合、去重）
+         → 多跳门控（多跳题：实体锚点逐跳检索 + wiki 门控导航 → 合并池）
+         → 反思自纠错（结果不足时改写重检索，轮数上限 RAG_REFLECT_ROUND_CAP）
+         → rerank 精排裁剪到 RAG_FINAL_TOP_K
+     → 模型不再发起工具调用 → 生成答案 + 结构化 sources（章节/页码/相似度）
 ```
 
-- **检索子图**（`agent/graph/sub/rag_graph.py`）：纯检索管线，不生成答案；混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）
+- **检索收敛在工具实现**（`agent/tools/rag_tools.py`，原独立检索子图 `agent/graph/sub/rag_graph.py` 已并入）：混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
 - **问答父图**（`agent/graph/chat_graph.py`）：LangGraph 编排，checkpointer（Postgres 池）持久化多轮状态，TTL 后台任务定期清理；业务查询一律走 `rag.chat_sessions/chat_messages` 事实表
-- **配置驱动**：候选池 `RAG_CANDIDATE_POOL_SIZE`、最终 top-k `RAG_FINAL_TOP_K`、反思轮数上限 `RAG_REFLECT_ROUND_CAP` 均为 `sys_config` 白名单参数，前端「参数管理」页热更新
+- **配置驱动**：候选池 `RAG_CANDIDATE_POOL_SIZE`、最终 top-k `RAG_FINAL_TOP_K`、反思轮数上限 `RAG_REFLECT_ROUND_CAP`、多跳合并池 `RAG_MULTIHOP_MERGE_POOL` 均为 `sys_config` 白名单参数，前端「参数管理」页热更新
 
 ### 3.4 权限与配置
 
@@ -121,7 +123,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 
 ### 4.1 Agent 级端到端多跳 QA 基准（四臂归因，2026-08-29）
 
-以 LongBench 多跳三子集（2wikimqa / hotpotqa / musique 各 200 条）驱动**完整对话图**（检索子图 + respond 工具循环）端到端问答，答案与金标做 contain-match 判定：
+以 LongBench 多跳三子集（2wikimqa / hotpotqa / musique 各 200 条）驱动**完整对话图**（检索工具 + respond 工具循环）端到端问答，答案与金标做 contain-match 判定：
 
 | 测试臂 | 对话模型 | 分层确定性工具 | 样本 ok | QA 准确率 | 平均工具轮次 | 平均延迟 |
 |--|--|--|--|--|--|--|
@@ -191,7 +193,7 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 配置四个角色模型（api_url / api_key / 超时 / 重试 / 上下文窗口）：
 
 - `chat`：对话与最终答案生成
-- `rewrite`：问题改写、反思充分性判定（condense/reflect/rewrite 节点）
+- `rewrite`：检索工具内反思自纠错的查询改写（结果不足时改写重检索）
 - `rerank`：检索结果精排
 - `visual`：多模态（RAG 用不到，Draw 系统使用）
 
@@ -203,7 +205,7 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 | `RAG_FINAL_TOP_K` | 5 | rerank 精排后保留的最终候选数 |
 | `RAG_REFLECT_ROUND_CAP` | 3 | 反思循环最大检索轮数上限 |
 | `CHAT_CHECKPOINT_TTL_DAYS` | 7 | checkpoint 保留天数（超期后台任务清理） |
-| `CHAT_HISTORY_MAX_MESSAGES` | 20 | condense 回落业务表读取的历史消息条数上限 |
+| `CHAT_HISTORY_MAX_MESSAGES` | 20 | 无 checkpoint 历史时回落业务表读取的历史消息条数上限 |
 
 ![model_config.png](./assets/images/model_config.png)
 
