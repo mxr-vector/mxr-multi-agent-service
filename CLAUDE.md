@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-This file provides guidance to Qoder (qoder.com) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Overview
 
@@ -67,4 +67,4 @@ Question flow: `agent/graph/chat_graph.py` (LangGraph parent graph, module-level
 
 ## OpenSpec workflow
 
-Spec-driven development via OpenSpec: source-of-truth specs in `openspec/specs/`, in-flight change proposals in `openspec/changes/` (skills under `.qoder/skills/openspec-*`). When changing behavior of a spec'd capability, keep the spec and any in-flight change artifacts (`proposal.md`, `design.md`, `tasks.md`) consistent with the code.
+Spec-driven development via OpenSpec: source-of-truth specs in `openspec/specs/`, in-flight change proposals in `openspec/changes/` (skills under `.claude/skills/openspec-*`). When changing behavior of a spec'd capability, keep the spec and any in-flight change artifacts (`proposal.md`, `design.md`, `tasks.md`) consistent with the code.
