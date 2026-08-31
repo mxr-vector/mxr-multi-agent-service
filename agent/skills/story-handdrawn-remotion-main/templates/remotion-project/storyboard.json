@@ -1,0 +1,75 @@
+{
+  "project": {
+    "title": "纸上的夏天",
+    "lang": "zh",
+    "mode": "speed",
+    "images_per_scene": 1,
+    "derive_bw": "local",
+    "enable_detail": false,
+    "gen_size": 1024,
+    "export_size": [
+      1080,
+      1440
+    ],
+    "ratio": "3:4",
+    "width": 1080,
+    "height": 1440,
+    "fps": 30,
+    "transition": "cut",
+    "transition_sec": 0.7,
+    "style_lock": "minimalist Chinese diary comic reconstructed from the supplied reference video, pure white background, uneven black felt-tip pen outlines, naive wobbly proportions, rough dense black crayon scribbles for dark areas, sparse props, abundant negative space, selective muted wax-crayon color only, no realistic shading, no paper texture, no watermark",
+    "character_lock": "",
+    "image_generator": "agnes-agnes-image-2.1-flash",
+    "audio": {
+      "voiceover": "pending",
+      "default_backend": "edge",
+      "default_voice": "zh-CN-XiaoyiNeural",
+      "bgm": "optional_bed_only",
+      "bgm_follows_text": false
+    }
+  },
+  "scenes": [
+    {
+      "id": "01",
+      "duration_sec": 5.3,
+      "text": "那年夏天，我总爱坐在窗边画\n画。",
+      "narration": "那年夏天，我总爱坐在窗边画画。",
+      "visual": "根据文案绘制一个单一、清楚、可画的白底日记漫画场景：那年夏天，我总爱坐在窗边画画。",
+      "shot": "story_beat",
+      "layers": [
+        "text",
+        "bw_full",
+        "color"
+      ],
+      "color_hint": "仅使用元视频的鼠尾草绿、灰蓝、浅棕、砖红、暖黄等低饱和蜡笔色，保留大量纯白",
+      "detail_hint": null,
+      "assets": {
+        "text_image": null,
+        "bw": "assets/generated/纸上的夏天-23c299d1/01_bw.png",
+        "detail": null,
+        "color": "assets/generated/纸上的夏天-23c299d1/01_color.png"
+      }
+    },
+    {
+      "id": "02",
+      "duration_sec": 4.8,
+      "text": "画里的风筝，比窗外飞得更高。",
+      "narration": "画里的风筝，比窗外飞得更高。",
+      "visual": "根据文案绘制一个单一、清楚、可画的白底日记漫画场景：画里的风筝，比窗外飞得更高。",
+      "shot": "story_beat",
+      "layers": [
+        "text",
+        "bw_full",
+        "color"
+      ],
+      "color_hint": "仅使用元视频的鼠尾草绿、灰蓝、浅棕、砖红、暖黄等低饱和蜡笔色，保留大量纯白",
+      "detail_hint": null,
+      "assets": {
+        "text_image": null,
+        "bw": "assets/generated/纸上的夏天-23c299d1/02_bw.png",
+        "detail": null,
+        "color": "assets/generated/纸上的夏天-23c299d1/02_color.png"
+      }
+    }
+  ]
+}
