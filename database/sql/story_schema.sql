@@ -1,26 +1,34 @@
 -- ============================================================
 -- Story 剧本生成平台表结构 (最终版, 合并 story_schema.sql v1 + story_schema_v3.sql)
 --
--- 业务模型 (项目为聚合根):
+-- 业务模型 (项目为聚合根 + 用户级角色库):
+--   产品闭环: 本地备料(角色/剧本/关键帧) -> 外部视频网站生成 -> 视频成品回收到项目
+--   角色库 (用户级, 跨项目复用)
+--     角色 Character                    —— 结构化人设(profile) + 视觉风格(style)
+--       └── 角色立绘 Character Art      —— 外部视频平台的角色参考资产
 --   项目 Project
 --     ├── 剧情/剧本 Script          —— 生成/编辑的剧本文本, 视频大模型核心文本输入
---     ├── 角色 Character           —— 结构化人设(profile) + 视觉风格(style)
---     │    └── 角色立绘 Character Art
+--     ├── 出演角色                  —— 编排登记引用角色库角色(选择 + 顺序)
 --     ├── 关键帧 Keyframe          —— 故事关键场景(画面提示词/参考图/镜头描述), 视频大模型视觉输入
+--     ├── 视频成品 Video           —— 外部视频网站生成的单镜头片段, 回收登记与溯源
 --     ├── 生成会话 Session         —— AI 生成过程与消息流(可追溯, 确认后才沉淀资产)
 --     ├── 生成任务 Generation Task —— 统一追踪 script/character/art/keyframe 等 AI 任务
---     ├── 资产编排 Project Asset   —— 表达"项目当前要使用"哪些资产(选择 + 导出顺序)
+--     ├── 资产编排 Project Asset   —— 表达"项目当前要使用"哪些资产(出演登记 + 选择 + 导出顺序)
 --     └── 导出包 Export Package    —— 按项目内容整理成可直接复制给外部视频模型网站的不可变快照
 --
 -- 设计目标:
---   1. 项目是聚合根, 角色/剧情/关键帧等资产查询一律按 project_id 收敛
+--   1. 项目是聚合根, 剧本/关键帧等资产查询一律按 project_id 收敛;
+--      角色库归属用户(仅本人可见), 跨项目复用, 项目通过编排表登记出演
 --   2. AI 生成过程(会话/消息/任务)与正式资产分离; 删除会话(连同消息)即丢弃
 --      该会话下未保存的生成结果
 --   3. 角色支持结构化人设 + 视觉风格(style 是"角色长期视觉一致性"核心配置) + 多版立绘
 --   4. 剧情支持多版本, is_current 标记项目当前使用版本, 单点维护
 --   5. 关键帧支持场景描述/画面提示词/参考图/关联角色, 作为视频生成的视觉锚点
 --   6. 生成任务统一追踪 image/script/keyframe 等 AI 任务的状态与进度
---   7. 导出包为不可变快照, 整理项目内容后可直接复制到外部视频大模型网站
+--   7. 导出包为不可变快照, 统一为"角色+剧本+关键帧"单一格式(不做平台模板),
+--      整理项目内容后可直接复制到外部视频大模型网站
+--   8. 视频成品按单镜头片段粒度回收登记, 溯源关键帧/剧本/导出包;
+--      系统不做视频生成, 整集装配发生在外部剪辑环节
 --
 -- 相对 v3 的主要调整:
 --   - 删除 story_projects.current_script_id/current_export_id:
@@ -31,6 +39,15 @@
 --   - 删除被 UNIQUE/PK 约束完全覆盖的冗余索引
 --   - 图片路径字段统一 VARCHAR(500)(关键帧/导出包路径层级较深)
 --   - 视图 story_project_export_source 改为按 is_current 关联
+--
+-- 本轮 (story-ia-refactor) 主要调整:
+--   - story_characters 归属从项目改为用户级: 移除 project_id, 新增 user_id,
+--     角色跨项目复用; "项目出演哪些角色"由 story_project_assets
+--     (asset_type='character') 登记, 引用而非拷贝
+--   - story_projects 增加 video_count 冗余计数; character_count 语义改为出演角色数
+--   - 新增 story.story_videos: 视频成品单镜头片段登记
+--     (keyframe/script/export_package 溯源, 封面默认抽视频首帧)
+--   - 视图 story_project_asset_stats 角色/立绘计数改为编排表口径, 并补视频计数
 --
 -- 约束说明: 与项目其它 schema(rag/sys/draw)一致 —— 保留 NOT NULL/UNIQUE 基础约束;
 --          无外键/无触发器/无 CHECK, 关联关系与取值范围由业务层保证;
@@ -62,9 +79,10 @@ CREATE TABLE story.story_projects (
 
     -- 冗余统计(业务层维护)
     script_count        INT NOT NULL DEFAULT 0,         -- 剧本版本数
-    character_count     INT NOT NULL DEFAULT 0,         -- 角色数
-    art_count           INT NOT NULL DEFAULT 0,         -- 立绘数
+    character_count     INT NOT NULL DEFAULT 0,         -- 出演角色数(编排表 asset_type='character')
+    art_count           INT NOT NULL DEFAULT 0,         -- 选中立绘数(编排表 asset_type='character_art')
     keyframe_count      INT NOT NULL DEFAULT 0,         -- 关键帧数
+    video_count         INT NOT NULL DEFAULT 0,         -- 视频成品数
     session_count       INT NOT NULL DEFAULT 0,         -- 生成会话数
     generation_count    INT NOT NULL DEFAULT 0,         -- AI 生成任务数
     last_generated_at   TIMESTAMPTZ,                    -- 最近生成时间, 列表排序用
@@ -212,16 +230,19 @@ CREATE INDEX idx_story_scripts_project_current ON story.story_scripts (project_i
 -- ============================================================
 -- ------------------------------------------------------------
 -- 6. 角色表 story_characters
---    角色人设: AI 从剧本/设定抽取或用户手工创建;
+--    用户级角色库: 角色归属当前登录用户, 仅本人可见, 可被多个项目复用
+--    (项目通过 story_project_assets 登记 asset_type='character' 出演, 引用而非拷贝);
+--    角色来源: AI 从剧本/设定抽取或用户手工创建;
 --    profile 为结构化人设(JSONB: 性格/身份/背景/年龄/身高 等), AI 归档结果;
 --    style 为角色视觉风格(JSONB: 发型/服饰/画风/材质/色彩/镜头偏好 等),
 --    是"角色长期视觉一致性"的核心配置, 供立绘/关键帧生图时复用;
 --    appearance_prompt 为图像模型生成角色形象时的外观描述, 可拼接进生图提示词;
---    avatar_file 为角色列表头像(通常为主立绘的缩略图)
+--    avatar_file 为角色列表头像(通常为主立绘的缩略图);
+--    role_type 为默认角色分类(戏内角色属性, 跨项目可能不同, v1 留角色表)
 -- ------------------------------------------------------------
 CREATE TABLE story.story_characters (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
-    project_id          UUID NOT NULL,               -- 逻辑关联 story.story_projects.id
+    user_id             VARCHAR(64) NOT NULL,        -- 属主(用户 32 位无连字符 hex)
     name                VARCHAR(100) NOT NULL,       -- 角色名
     role_type           VARCHAR(50),                 -- 'protagonist'/'supporting'/'antagonist'/'npc'/'other'
     profile             JSONB NOT NULL DEFAULT '{}', -- 结构化人设(性格/身份/背景/年龄/身高等), AI 归档或用户编辑
@@ -235,8 +256,7 @@ CREATE TABLE story.story_characters (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_story_characters_project      ON story.story_characters (project_id);
-CREATE INDEX idx_story_characters_project_role ON story.story_characters (project_id, role_type);
+CREATE INDEX idx_story_characters_user ON story.story_characters (user_id);
 
 -- ============================================================
 -- 7. 角色立绘资产
@@ -244,6 +264,7 @@ CREATE INDEX idx_story_characters_project_role ON story.story_characters (projec
 -- ------------------------------------------------------------
 -- 7. 角色立绘表 story_character_arts
 --    一个角色的多版立绘(换装/换表情/多角度/全身半身等);
+--    立绘随角色归属用户(角色库全局化后不再按项目冗余), 项目维度经出演登记展开;
 --    is_primary 标记角色的主立绘(标准形象, 一个角色建议至少保留 1 张);
 --    source: 'upload'(用户上传创建) / 'ai'(图像模型生成);
 --    image_file 必填, prompt/negative_prompt 为生成提示词(AI 生成时记录, 可复用于再生成);
@@ -252,7 +273,6 @@ CREATE INDEX idx_story_characters_project_role ON story.story_characters (projec
 CREATE TABLE story.story_character_arts (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
     character_id        UUID NOT NULL,               -- 逻辑关联 story.story_characters.id
-    project_id          UUID NOT NULL,               -- 冗余存储, 便于按项目维度查询立绘
     name                VARCHAR(100),                -- 立绘名(如"常服正面"), 可空
     image_file          VARCHAR(500) NOT NULL,       -- 立绘图片存储相对路径(data/ 下)
     image_width         INT,                         -- 图片宽(px), 生成成功时回填
@@ -272,7 +292,6 @@ CREATE TABLE story.story_character_arts (
 );
 
 CREATE INDEX idx_story_arts_character         ON story.story_character_arts (character_id);
-CREATE INDEX idx_story_arts_project           ON story.story_character_arts (project_id);
 CREATE INDEX idx_story_arts_character_primary ON story.story_character_arts (character_id, is_primary);
 
 -- ============================================================
@@ -354,6 +373,8 @@ CREATE INDEX idx_story_keyframe_characters_character ON story.story_keyframe_cha
 -- 10. 项目资产编排表 story_project_assets
 --    "属于项目"与"项目当前要使用"是两个概念:
 --    各资产表只表达归属, 本表表达编排(当前选用了哪些资产 + 导出顺序);
+--    asset_type='character' 为出演登记: 引用用户级角色库中的角色(引用而非拷贝),
+--    表达"本项目选用了哪些角色", sort_order 为出演顺序;
 --    例如项目有 8 个剧本版本 / 5 张角色立绘 / 30 个关键帧, 导出给视频模型时
 --    只选择: 当前剧本(story_scripts.is_current 单点维护, 无需重复登记) +
 --            角色 A 第 2 张立绘 + 关键帧 1,2,4,8(在本表按 sort_order 排序);
@@ -407,10 +428,48 @@ CREATE TABLE story.story_export_packages (
 );
 
 -- ============================================================
--- 12. 项目当前导出资产视图
+-- 12. 视频成品
 -- ============================================================
 -- ------------------------------------------------------------
--- 12. 视图 story_project_export_source
+-- 12. 视频成品表 story_videos
+--     承接"成品回收"环节: 用户在外部视频生成网站产出的视频, 以单镜头片段
+--     粒度登记回项目; 系统不做视频生成, 也不建模"整集"装配(剪辑在外部完成);
+--     keyframe_id 为主溯源轴(一帧可多条重抽), script_id / export_package_id
+--     并列保留溯源; episode_no 语义放宽为可选分组/排序号;
+--     cover_file 默认由服务端抽取视频首帧, 抽帧失败留空由用户手动上传;
+--     target_platform 为自由文本备注(导出格式统一, 不做平台字典)
+-- ------------------------------------------------------------
+CREATE TABLE story.story_videos (
+    id                  UUID PRIMARY KEY DEFAULT uuidv7(),
+    project_id          UUID NOT NULL,               -- 逻辑关联 story.story_projects.id
+    keyframe_id         UUID,                        -- 主溯源: 来源关键帧(逻辑关联 story.story_keyframes.id), 可空
+    script_id           UUID,                        -- 溯源: 基于剧本版本(逻辑关联 story.story_scripts.id), 可空
+    export_package_id   UUID,                        -- 溯源: 使用的导出包(逻辑关联 story.story_export_packages.id), 可空
+    title               TEXT,                        -- 片段标题(如"决战-镜头03"), 可空
+    episode_no          INT,                         -- 语义放宽: 集号/分组/排序号, 可空
+    video_file          VARCHAR(500) NOT NULL,       -- 视频存储相对路径(data/ 下)
+    cover_file          VARCHAR(500),                -- 封面(默认抽视频首帧), 可空
+    duration_ms         INT,                         -- 时长(毫秒), 可空
+    file_size           BIGINT,                      -- 文件字节数, 可空
+    width               INT,                         -- 视频宽(px), 可空
+    height              INT,                         -- 视频高(px), 可空
+    target_platform     VARCHAR(100),                -- 生成平台自由文本备注(可灵/即梦/...), 可空
+    external_task_id    VARCHAR(200),                -- 外部平台任务号(回溯用), 可空
+    status              VARCHAR(20) NOT NULL DEFAULT 'done', -- 'draft'/'done', 业务层校验
+    remark              TEXT,                        -- 备注(如"第二次重抽版本"), 可空
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_story_videos_project  ON story.story_videos (project_id);
+CREATE INDEX idx_story_videos_keyframe ON story.story_videos (keyframe_id);
+
+-- ============================================================
+-- 13. 项目当前导出资产视图
+-- ============================================================
+-- ------------------------------------------------------------
+-- 13. 视图 story_project_export_source
 --    供后端/前端快速获取"当前项目要发送给外部视频模型网站的内容";
 --    仅提供基础聚合, 真正 prompt 的拼装由应用层按模板生成
 -- ------------------------------------------------------------
@@ -429,19 +488,21 @@ LEFT JOIN story.story_scripts s
       AND s.is_current = TRUE;
 
 -- ============================================================
--- 13. 项目资产统计视图
+-- 14. 项目资产统计视图
 -- ============================================================
 -- ------------------------------------------------------------
--- 13. 视图 story_project_asset_stats
---    按 project_id 聚合各资产真实数量, 用于对账项目表冗余计数字段
+-- 14. 视图 story_project_asset_stats
+--    按 project_id 聚合各资产真实数量, 用于对账项目表冗余计数字段;
+--    角色数/立绘数按编排表口径(出演登记/选中立绘), 与项目表计数语义一致
 -- ------------------------------------------------------------
 CREATE VIEW story.story_project_asset_stats AS
 SELECT
     p.id AS project_id,
     COALESCE(s.script_count, 0) AS script_count,
-    COALESCE(c.character_count, 0) AS character_count,
-    COALESCE(a.art_count, 0) AS art_count,
-    COALESCE(k.keyframe_count, 0) AS keyframe_count
+    COALESCE(pa.character_count, 0) AS character_count,
+    COALESCE(pa.art_count, 0) AS art_count,
+    COALESCE(k.keyframe_count, 0) AS keyframe_count,
+    COALESCE(v.video_count, 0) AS video_count
 FROM story.story_projects p
 
 LEFT JOIN (
@@ -451,20 +512,22 @@ LEFT JOIN (
 ) s ON s.project_id = p.id
 
 LEFT JOIN (
-    SELECT project_id, COUNT(*) AS character_count
-    FROM story.story_characters
+    SELECT project_id,
+           COUNT(*) FILTER (WHERE asset_type = 'character') AS character_count,
+           COUNT(*) FILTER (WHERE asset_type = 'character_art') AS art_count
+    FROM story.story_project_assets
     GROUP BY project_id
-) c ON c.project_id = p.id
-
-LEFT JOIN (
-    SELECT project_id, COUNT(*) AS art_count
-    FROM story.story_character_arts
-    GROUP BY project_id
-) a ON a.project_id = p.id
+) pa ON pa.project_id = p.id
 
 LEFT JOIN (
     SELECT project_id, COUNT(*) AS keyframe_count
     FROM story.story_keyframes
     WHERE status <> 'archived'
     GROUP BY project_id
-) k ON k.project_id = p.id;
+) k ON k.project_id = p.id
+
+LEFT JOIN (
+    SELECT project_id, COUNT(*) AS video_count
+    FROM story.story_videos
+    GROUP BY project_id
+) v ON v.project_id = p.id;

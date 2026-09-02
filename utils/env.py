@@ -113,6 +113,11 @@ class ENV_CONFIG:
         return int(self.require("UPLOAD_MAX_SIZE_MB"))
 
     @property
+    def video_upload_max_size_mb(self) -> int:
+        """视频成品上传大小上限（MB），与图片/文档上传上限分离；超限在落盘前拒绝。"""
+        return int(self.require("VIDEO_UPLOAD_MAX_SIZE_MB"))
+
+    @property
     def upload_dir(self) -> Path:
         """全局上传文件存储根目录；相对路径基于项目根解析，默认 data。"""
         raw = self.get("UPLOAD_DIR", "data")

@@ -105,10 +105,8 @@ values  ('01900000-0000-7000-8000-000000000002', '01900000-0000-7000-8000-000000
         ('019fa2b2-144f-7b3d-9764-178f22b49ae5', '019fa292-b518-785e-9422-262b2239df5b', 'menu', 'knowledge-base', '/rag/knowledgebase/index', 'rag-knowledge-base', 'AI知识库管理', 'Management', null, true, 0, 'active', '2026-07-27 08:30:07.436885 +00:00', '2026-08-13 00:54:17.679585 +00:00'),
         ('019fa2b3-6a3f-73f0-bc5a-7adb54c3cf56', '019fa292-b518-785e-9422-262b2239df5b', 'menu', 'document', '/rag/document/index', 'rag-document', '文档管理', 'List', null, true, 1, 'active', '2026-07-27 08:31:34.972524 +00:00', '2026-08-13 00:54:25.239195 +00:00'),
         ('01900000-0000-7000-8000-000000000008', '019fa2c4-50f2-7b8a-b703-94abbe1b4f31', 'menu', 'draw', '/draw-design/draw/index', 'draw', 'AI 绘图', 'workflow', null, true, 30, 'active', '2026-07-30 07:28:53.757799 +00:00', '2026-08-13 00:54:59.658453 +00:00'),
-        ('019ff89b-b864-79e6-8912-cb2a7ea17447', '019fa2bc-83fe-7016-a522-505abbdaf2f4', 'menu', 'keyframe', '/story/keyframe/index', 'story-keyframe', '关键帧资产', null, null, true, 0, 'active', '2026-08-13 00:53:02.689852 +00:00', '2026-08-13 00:55:14.821047 +00:00'),
-        ('019ff89c-62e3-7d54-bf37-6dbfccc66fed', '019fa2bc-83fe-7016-a522-505abbdaf2f4', 'menu', 'projects', '/story/projects/index', 'story-projects', '项目管理', null, null, true, 0, 'active', '2026-08-13 00:53:46.335818 +00:00', '2026-08-13 00:55:18.739582 +00:00'),
-        ('019ff896-93d0-7110-acd1-f68efd609199', '019fa2bc-83fe-7016-a522-505abbdaf2f4', 'menu', 'script', '/story/script/index', 'story-script', '剧本资产', null, null, true, 0, 'active', '2026-08-13 00:47:25.644069 +00:00', '2026-08-13 00:55:23.235891 +00:00'),
-        ('019ff546-1892-736b-9a18-cf978ef14fcd', '019fa2bc-83fe-7016-a522-505abbdaf2f4', 'menu', 'character', '/story/character/index', 'story-character', '角色资产', 'Avatar', null, true, 0, 'active', '2026-08-12 09:20:39.564919 +00:00', '2026-08-13 00:55:27.218455 +00:00');
+        ('019ff546-1892-736b-9a18-cf978ef14fcd', '019fa2bc-83fe-7016-a522-505abbdaf2f4', 'menu', 'character', '/story/character/index', 'story-character', '角色库', 'Avatar', null, true, 0, 'active', '2026-08-12 09:20:39.564919 +00:00', '2026-08-31 08:00:00.000000 +00:00'),
+        ('019ff89c-62e3-7d54-bf37-6dbfccc66fed', '019fa2bc-83fe-7016-a522-505abbdaf2f4', 'menu', 'projects', '/story/projects/index', 'story-projects', '项目管理', 'Film', null, true, 1, 'active', '2026-08-13 00:53:46.335818 +00:00', '2026-08-31 08:00:00.000000 +00:00');
 
 --
 -- TOC entry 5164 (class 0 OID 41516)

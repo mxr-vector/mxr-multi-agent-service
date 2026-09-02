@@ -86,6 +86,21 @@ const routes: RouteRecordRaw[] = [
         } satisfies NavigationItem,
         children: [],
       },
+      // 剧本项目工作区：后端菜单只登记项目列表入口，详情页由项目卡片进入，
+      // 静态注册以支持深链接（?tab= 子视图标识）
+      {
+        path: "story/projects/:id",
+        name: "story-project-detail",
+        component: () => import("@/views/story/projects/detail.vue"),
+        meta: {
+          path: "/story/projects/:id",
+          name: "story-project-detail",
+          label: "项目工作区",
+          icon: "Film",
+          description: "剧本、关键帧、出演角色、视频成品与导出包的聚合工作区。",
+        } satisfies NavigationItem,
+        children: [],
+      },
     ],
   },
 ];
