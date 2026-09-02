@@ -43,9 +43,12 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kb-id", default=None, help="知识库 id（hex 无连字符亦可）")
     parser.add_argument("--all", action="store_true", help="全部 active 知识库")
-    parser.add_argument("--relations-only", action="store_true", help="跳过实体索引，仅建关系")
     parser.add_argument(
-        "--rebuild", action="store_true",
+        "--relations-only", action="store_true", help="跳过实体索引，仅建关系"
+    )
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
         help="先清空该库既有关系记录与进度行再全量重建（文档更新/重分块后用）",
     )
     args = parser.parse_args()

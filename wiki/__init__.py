@@ -3,4 +3,3 @@
 from wiki.models import TopicPage, WikiDocument
 
 __all__ = ["TopicPage", "WikiDocument"]
-

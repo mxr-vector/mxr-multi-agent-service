@@ -10,6 +10,7 @@ apiz 是已安装的本地 CLI（~/.local/bin/apiz），统一鉴权（~/.config
   多路径兜底（output.images[].url / download_url / cdn_url / video_url ...）。
   首次使用时脚本会把完整 JSON dump 到 .last_generate.json 方便人工校准。
 """
+
 from __future__ import annotations
 import json
 import os
@@ -126,9 +127,12 @@ def generate_image(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     args = [
-        "generate", prompt,
-        "--model", model,
-        "--image-size", image_size,
+        "generate",
+        prompt,
+        "--model",
+        model,
+        "--image-size",
+        image_size,
     ]
     if aspect_ratio:
         args += ["--aspect-ratio", aspect_ratio]
@@ -168,11 +172,16 @@ def speak(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     args = [
-        "speak", text,
-        "--voice", voice,
-        "--model", model,
-        "--speed", str(speed),
-        "--output-file", str(out_path),
+        "speak",
+        text,
+        "--voice",
+        voice,
+        "--model",
+        model,
+        "--speed",
+        str(speed),
+        "--output-file",
+        str(out_path),
     ]
     # speak 成功输出非 JSON（`Saved X (1.23s)`），_run_apiz 会包成 {"_raw": ...}
     # 只要 returncode==0 就算成功
@@ -212,6 +221,7 @@ def _download(url: str, out_path: Path) -> None:
 if __name__ == "__main__":
     # 自检：确认 apiz 可用 + 鉴权配置
     import shutil
+
     loc = shutil.which("apiz") or shutil.which(APIZ_BIN)
     print(f"apiz 位置: {loc or '未找到（请确认在 PATH 或设置 APIZ_BIN）'}")
     try:

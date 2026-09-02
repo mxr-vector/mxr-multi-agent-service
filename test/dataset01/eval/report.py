@@ -94,9 +94,15 @@ def _metric_table(acc: dict, mode: str, ks: list[int], pipeline_b_enabled: bool)
     ]
     for k in ks:
         ra = _fmt(mean_std(acc[(mode, "a")]["recall"][k]))
-        rb = _fmt(mean_std(acc[(mode, "b")]["recall"][k])) if pipeline_b_enabled else "—"
+        rb = (
+            _fmt(mean_std(acc[(mode, "b")]["recall"][k])) if pipeline_b_enabled else "—"
+        )
         pa = _fmt(mean_std(acc[(mode, "a")]["precision"][k]))
-        pb = _fmt(mean_std(acc[(mode, "b")]["precision"][k])) if pipeline_b_enabled else "—"
+        pb = (
+            _fmt(mean_std(acc[(mode, "b")]["precision"][k]))
+            if pipeline_b_enabled
+            else "—"
+        )
         na = _fmt(mean_std(acc[(mode, "a")]["ndcg"][k]))
         nb = _fmt(mean_std(acc[(mode, "b")]["ndcg"][k])) if pipeline_b_enabled else "—"
         delta_r = _delta(acc, mode, "recall", k, pipeline_b_enabled)
@@ -112,7 +118,9 @@ def _metric_table(acc: dict, mode: str, ks: list[int], pipeline_b_enabled: bool)
     return "\n".join(lines)
 
 
-def _delta(acc: dict, mode: str, metric: str, k: int | None, pipeline_b_enabled: bool) -> str:
+def _delta(
+    acc: dict, mode: str, metric: str, k: int | None, pipeline_b_enabled: bool
+) -> str:
     """管线 B 相对 A 的指标增量（mean 差）。"""
     if not pipeline_b_enabled:
         return "—"
@@ -225,7 +233,9 @@ async def report(max_queries: int | None) -> None:
         + (f" / {acc[('doc', 'b')]['valid']}（B）" if pipeline_b_enabled else "")
     )
     lines.append("")
-    lines.append("> 注：Δ 列为完整子图（B）相对纯检索（A）的 mean 增量；NDCG 为二值相关性标准式（DCG/IDCG）；K 曲线即上表 Recall@K 随 K 的变化。")
+    lines.append(
+        "> 注：Δ 列为完整子图（B）相对纯检索（A）的 mean 增量；NDCG 为二值相关性标准式（DCG/IDCG）；K 曲线即上表 Recall@K 随 K 的变化。"
+    )
     lines.append("")
 
     lines.append("## 失败案例抽样（MRR=0 且 gold 非空，每口径 3 条）")
@@ -237,7 +247,9 @@ async def report(max_queries: int | None) -> None:
             lines.append("（无）")
             continue
         for case in cases:
-            lines.append(f"- **Q**（row {case['row_index']}，{case['pipeline']}）：{case['question']}")
+            lines.append(
+                f"- **Q**（row {case['row_index']}，{case['pipeline']}）：{case['question']}"
+            )
             for i, snippet in enumerate(case["top_candidates"], start=1):
                 lines.append(f"  - top-{i}: {snippet}")
     lines.append("")
@@ -249,7 +261,9 @@ async def report(max_queries: int | None) -> None:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="S4 指标计算与报告")
-    parser.add_argument("--max-queries", type=int, default=None, help="仅统计前 N 条结果（冒烟）")
+    parser.add_argument(
+        "--max-queries", type=int, default=None, help="仅统计前 N 条结果（冒烟）"
+    )
     args = parser.parse_args()
     await report(args.max_queries)
 

@@ -2,8 +2,10 @@ import uuid
 from starlette.middleware.base import BaseHTTPMiddleware
 from utils.logger import request_id_ctx
 
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
-    '''请求 ID 中间件'''
+    """请求 ID 中间件"""
+
     async def dispatch(self, request, call_next):
         request_id = str(uuid.uuid4())
 

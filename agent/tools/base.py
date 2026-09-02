@@ -11,14 +11,16 @@
 5. 性能监控
 6. 数据压缩和安全
 """
+
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 import datetime
+
+
 class Tools:
     def get_current_date():
         """获取当前日期"""
         return datetime.datetime.today().strftime("%Y-%m-%d")
-    
 
     # 定义工具调用错误处理函数
     @tool(return_direct=True)
@@ -28,9 +30,7 @@ class Tools:
             return "ValueError: Please check the input value."
         elif isinstance(error, ConnectionError):
             return "ConnectionError: Please check your network connection."
-        return  f"tools chain has error: {str(error)}"
-    
+        return f"tools chain has error: {str(error)}"
+
     # TODO 每个agent可能需要的工具不一样，因此应当在各个agent中定义各自的工具集
-    tool_node = ToolNode(
-    [get_current_date],
-    handle_tool_errors=handle_global_errors)
+    tool_node = ToolNode([get_current_date], handle_tool_errors=handle_global_errors)

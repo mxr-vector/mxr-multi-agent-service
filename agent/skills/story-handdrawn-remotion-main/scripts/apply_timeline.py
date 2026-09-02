@@ -9,6 +9,7 @@ gen_tts.py 跑完后会在 public/audio/narration/timeline.json 写入每段音�
   python apply_timeline.py --timeline public/audio/narration/timeline.json \\
                            --storyboard storyboard.json
 """
+
 from __future__ import annotations
 import argparse
 import json
@@ -23,15 +24,18 @@ def main():
         description="把 timeline.json 的 frames 回写 storyboard.json 的 duration_sec",
     )
     parser.add_argument(
-        "--timeline", default="public/audio/narration/timeline.json",
+        "--timeline",
+        default="public/audio/narration/timeline.json",
         help="gen_tts.py 产出的 timeline.json 路径",
     )
     parser.add_argument(
-        "--storyboard", default="storyboard.json",
+        "--storyboard",
+        default="storyboard.json",
         help="目标 storyboard.json 路径（in-place 修改）",
     )
     parser.add_argument(
-        "--use-playback", action="store_true",
+        "--use-playback",
+        action="store_true",
         help="用 frames_playback（1.2x 加速）而非 frames_source（原速）。默认原速。",
     )
     args = parser.parse_args()
@@ -60,7 +64,9 @@ def main():
     for scene in sb.get("scenes", []):
         sid = str(scene["id"])
         if sid not in tl_map:
-            print(f"  ⚠️ 场景 {sid} 在 timeline 里找不到，跳过（保留原 duration_sec={scene.get('duration_sec')}）")
+            print(
+                f"  ⚠️ 场景 {sid} 在 timeline 里找不到，跳过（保留原 duration_sec={scene.get('duration_sec')}）"
+            )
             continue
         frames = tl_map[sid][field]
         old_dur = scene.get("duration_sec")
@@ -72,10 +78,12 @@ def main():
         # "audio/narration/s01.mp3"（相对 public/，无前导斜杠）。
         audio_rel = tl_map[sid].get("file", "").replace("\\", "/")
         if audio_rel.startswith("public/"):
-            audio_rel = audio_rel[len("public/"):]
+            audio_rel = audio_rel[len("public/") :]
         audio_rel = audio_rel.lstrip("/")
         scene["narration_audio"] = audio_rel
-        print(f"  场景 {sid}: {old_dur}s → {new_dur}s (frames={frames}, {field}) audio={audio_rel}")
+        print(
+            f"  场景 {sid}: {old_dur}s → {new_dur}s (frames={frames}, {field}) audio={audio_rel}"
+        )
         updated += 1
 
     # 标记 audio.voiceover 已激活

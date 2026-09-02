@@ -71,7 +71,9 @@ def _require_doc_map() -> dict:
     return load_json(DOC_MAP_PATH)
 
 
-async def run_tool_queries(queries: list[dict], concurrency: int = TOOL_CONCURRENCY) -> list[dict]:
+async def run_tool_queries(
+    queries: list[dict], concurrency: int = TOOL_CONCURRENCY
+) -> list[dict]:
     """逐 query 调用生产 knowledge_base_search_impl（工具完整实现，含反思改写重检）。
 
     queries: [{qid, subset, question, gold_docs, kb_hex}]；
@@ -190,7 +192,9 @@ async def main() -> None:
         raise SystemExit(f"缺少数据文件: {[_data_path(s) for s in missing]}")
 
     rows = load_rows(subsets)
-    print(f"[tool] 数据就绪：{len(rows)} 条 query（{dict(Counter(r['subset'] for r in rows))}）")
+    print(
+        f"[tool] 数据就绪：{len(rows)} 条 query（{dict(Counter(r['subset'] for r in rows))}）"
+    )
 
     # 可辩护证据映射（与 dual 同口径 v2，gold 为段落 → 文档）
     for row in rows:
@@ -245,13 +249,21 @@ async def main() -> None:
         prev = load_json(CHECKPOINT_PATH)
         prev_results = prev.get("results") or []
         results = [r for r in prev_results if r["qid"] in {q["qid"] for q in queries}]
-        print(f"[tool] 断点续跑：已复用 {len(results)} 条既有结果，继续剩余 {len(queries) - len(results)} 条")
+        print(
+            f"[tool] 断点续跑：已复用 {len(results)} 条既有结果，继续剩余 {len(queries) - len(results)} 条"
+        )
     done_qids = {r["qid"] for r in results}
     pending = [q for q in queries if q["qid"] not in done_qids]
     for start in range(0, len(pending), CHECKPOINT_CHUNK):
         batch = pending[start : start + CHECKPOINT_CHUNK]
         results.extend(await run_tool_queries(batch))
-        save_json(CHECKPOINT_PATH, {"meta": {"created_at": datetime.now(timezone.utc).isoformat()}, "results": results})
+        save_json(
+            CHECKPOINT_PATH,
+            {
+                "meta": {"created_at": datetime.now(timezone.utc).isoformat()},
+                "results": results,
+            },
+        )
         print(
             f"[tool] 进度 {len(results)}/{len(queries)}"
             f"（成功 {sum(1 for r in results if r['status'] == 'ok')}）"
@@ -284,14 +296,14 @@ async def main() -> None:
     # 工具级统计：反思轮数与平均时延（dual 无此维度）
     ok = [r for r in results if r["status"] == "ok"]
     summary["tool_stats"] = {
-        "avg_reflect_rounds": round(
-            sum(r.get("reflect_rounds", 0) for r in ok) / len(ok), 2
-        )
-        if ok
-        else None,
-        "avg_latency_ms": sum(r.get("latency_ms", 0) for r in ok) // len(ok)
-        if ok
-        else None,
+        "avg_reflect_rounds": (
+            round(sum(r.get("reflect_rounds", 0) for r in ok) / len(ok), 2)
+            if ok
+            else None
+        ),
+        "avg_latency_ms": (
+            sum(r.get("latency_ms", 0) for r in ok) // len(ok) if ok else None
+        ),
     }
     save_json(RESULTS_DIR / "longbench_tool_summary.json", summary)
 
@@ -330,7 +342,9 @@ async def main() -> None:
         lines.append("")
     report_path = RESULTS_DIR / "longbench_tool_report.md"
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"[tool] 汇总已落盘: longbench_tool_summary.json；分集汇总: {len(per_subset)} 份；报告: {report_path}")
+    print(
+        f"[tool] 汇总已落盘: longbench_tool_summary.json；分集汇总: {len(per_subset)} 份；报告: {report_path}"
+    )
     m = summary["metrics"]
     if m["mrr"]:
         print(

@@ -151,7 +151,9 @@ class ChatGraph:
             return None
 
     @staticmethod
-    async def _astream_accumulate(model, msgs: List[BaseMessage]) -> Tuple[AIMessage, dict]:
+    async def _astream_accumulate(
+        model, msgs: List[BaseMessage]
+    ) -> Tuple[AIMessage, dict]:
         """流式调用模型并累积完整响应。
 
         token 增量会被 langgraph 的 stream_mode="messages" 自动捕获外发
@@ -168,9 +170,12 @@ class ChatGraph:
     def _merge_usage(total: dict, usage: dict) -> dict:
         """把单次模型调用的 usage 累加进汇总（缺失字段按 0 处理）。"""
         return {
-            "input_tokens": total.get("input_tokens", 0) + (usage.get("input_tokens") or 0),
-            "output_tokens": total.get("output_tokens", 0) + (usage.get("output_tokens") or 0),
-            "total_tokens": total.get("total_tokens", 0) + (usage.get("total_tokens") or 0),
+            "input_tokens": total.get("input_tokens", 0)
+            + (usage.get("input_tokens") or 0),
+            "output_tokens": total.get("output_tokens", 0)
+            + (usage.get("output_tokens") or 0),
+            "total_tokens": total.get("total_tokens", 0)
+            + (usage.get("total_tokens") or 0),
         }
 
     @staticmethod
@@ -202,8 +207,10 @@ class ChatGraph:
     def _input_budget() -> int:
         """输入预算 = context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。"""
         context_window = CFG.chat.context_window
-        return context_window - CFG.chat_max_output_tokens - int(
-            context_window * _INPUT_BUDGET_SAFETY_MARGIN
+        return (
+            context_window
+            - CFG.chat_max_output_tokens
+            - int(context_window * _INPUT_BUDGET_SAFETY_MARGIN)
         )
 
     @staticmethod
@@ -372,7 +379,9 @@ class ChatGraph:
             logger.warning(f"[CHAT] respond 收到未知工具调用: {name}")
             return (
                 tool_call["id"],
-                ToolOutcome(text=f"未知工具 {name}，请改用可用工具。", docs=[], metrics={}),
+                ToolOutcome(
+                    text=f"未知工具 {name}，请改用可用工具。", docs=[], metrics={}
+                ),
                 {},
             )
         if name == "knowledge_base_search" and navigation_context:
@@ -386,7 +395,9 @@ class ChatGraph:
         ):
             args["knowledge_base_ids"] = list(kb_ids)
         if writer is not None:
-            writer({"type": "think", "text": f"正在检索知识库（第 {tool_rounds} 轮）..."})
+            writer(
+                {"type": "think", "text": f"正在检索知识库（第 {tool_rounds} 轮）..."}
+            )
         outcome = await impl(**args)
         delta = {
             "reflect_rounds": outcome.metrics.get("reflect_rounds", 0),
@@ -398,7 +409,11 @@ class ChatGraph:
         return tool_call["id"], outcome, delta
 
     def _append_tool_result(
-        self, tool_call_id: str, outcome: ToolOutcome, all_docs: List[dict], msgs: List[BaseMessage]
+        self,
+        tool_call_id: str,
+        outcome: ToolOutcome,
+        all_docs: List[dict],
+        msgs: List[BaseMessage],
     ) -> None:
         """工具结果按全局编号重建为 ToolMessage（与 sources.index 严格对应）。
 
@@ -410,7 +425,7 @@ class ChatGraph:
             fresh: List[dict] = []
         else:
             merged = self._merge_doc_dedup(all_docs, outcome.docs)
-            fresh = merged[len(all_docs):]
+            fresh = merged[len(all_docs) :]
             all_docs.extend(fresh)
         if fresh:
             start = len(all_docs) - len(fresh)
@@ -466,7 +481,9 @@ class ChatGraph:
         """
         writer = self._safe_stream_writer()
         question = state["question"]
-        msgs, remove_ids, budget, model_name = await self._prepare_messages(state, config)
+        msgs, remove_ids, budget, model_name = await self._prepare_messages(
+            state, config
+        )
         reasoning_effort = state.get("reasoning_effort")
         model = build_chat_model(reasoning_effort=reasoning_effort).bind_tools(
             self._build_toolset(state)
@@ -505,14 +522,19 @@ class ChatGraph:
             for tool_call in response.tool_calls:
                 tool_call_names.append(tool_call.get("name", ""))
                 tool_call_id, outcome, delta = await self._execute_tool(
-                    tool_call, tool_rounds, navigation_context, writer,
+                    tool_call,
+                    tool_rounds,
+                    navigation_context,
+                    writer,
                     kb_ids=state.get("kb_ids") or [],
                 )
                 for key, value in delta.items():
                     counters[key] += value
                 self._append_tool_result(tool_call_id, outcome, all_docs, msgs)
             if writer is not None:
-                writer({"type": "think", "text": f"已检索到 {len(all_docs)} 条相关内容..."})
+                writer(
+                    {"type": "think", "text": f"已检索到 {len(all_docs)} 条相关内容..."}
+                )
 
         metrics = {
             "tool_rounds": tool_rounds,

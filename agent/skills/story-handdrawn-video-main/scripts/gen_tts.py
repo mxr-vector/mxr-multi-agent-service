@@ -21,6 +21,7 @@ zh-CN-XiaoyiNeural 女声；英文教学（lang: en）默认 en-US-JennyNeural�
 注意：seconds 字段供 gen_story_videos.py 按 24fps、8n+1 规则算 num_frames；
 帧数计算完全在 gen_story_videos.py 内完成，本脚本不输出 frames_* 字段。
 """
+
 from __future__ import annotations
 import argparse
 import asyncio
@@ -30,11 +31,16 @@ import sys
 from pathlib import Path
 
 EDGE_DEFAULT_VOICE = "zh-CN-XiaoyiNeural"  # 女声清亮；男声可用 zh-CN-YunxiNeural
-EDGE_DEFAULT_VOICE_EN = "en-US-JennyNeural"  # 英文教学默认女声；男声可用 en-US-GuyNeural
+EDGE_DEFAULT_VOICE_EN = (
+    "en-US-JennyNeural"  # 英文教学默认女声；男声可用 en-US-GuyNeural
+)
 
 
 def call_tts_edge(
-    text: str, out_path: Path, voice: str, speed: float,
+    text: str,
+    out_path: Path,
+    voice: str,
+    speed: float,
 ) -> Path:
     """用 edge-tts（Microsoft 在线 TTS，免费、无需 API key）生成 mp3。
 
@@ -44,9 +50,7 @@ def call_tts_edge(
     try:
         import edge_tts  # type: ignore
     except ImportError:
-        raise RuntimeError(
-            "edge-tts 未安装。运行 `pip install edge-tts` 后重试。"
-        )
+        raise RuntimeError("edge-tts 未安装。运行 `pip install edge-tts` 后重试。")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     rate_pct = int((speed - 1.0) * 100)
@@ -66,12 +70,22 @@ def call_tts_edge(
 # 公共：时长测量 + timeline
 # ============================================================================
 
+
 def ffprobe_duration(path: Path) -> float:
     """用 ffprobe 量音频时长（秒）。"""
     proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        capture_output=True, text=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe 失败: {proc.stderr}")
@@ -82,8 +96,10 @@ def ffprobe_duration(path: Path) -> float:
 # 主流程
 # ============================================================================
 
+
 def load_narration(path: Path) -> dict:
     import yaml  # type: ignore
+
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
@@ -93,7 +109,8 @@ def main():
     )
     parser.add_argument("narration_yaml", help="narration.yaml 路径")
     parser.add_argument(
-        "--out-dir", default="public/audio/narration",
+        "--out-dir",
+        default="public/audio/narration",
         help="输出目录（默认 public/audio/narration/）",
     )
     parser.add_argument("--dry-run", action="store_true", help="只打印不生成")
@@ -130,12 +147,18 @@ def main():
             print(f"  生成完成")
 
         seconds = ffprobe_duration(out_path)
-        timeline.append({
-            "id": sid,
-            "file": str(out_path.relative_to(out_dir.parent.parent.parent)) if out_path.parent.parent.parent in out_path.parents else str(out_path),
-            "text": text,
-            "seconds": round(seconds, 2),
-        })
+        timeline.append(
+            {
+                "id": sid,
+                "file": (
+                    str(out_path.relative_to(out_dir.parent.parent.parent))
+                    if out_path.parent.parent.parent in out_path.parents
+                    else str(out_path)
+                ),
+                "text": text,
+                "seconds": round(seconds, 2),
+            }
+        )
         print(f"  时长 {seconds:.2f}s")
 
     timeline_path = out_dir / "timeline.json"

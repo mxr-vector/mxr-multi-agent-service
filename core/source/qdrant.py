@@ -3,6 +3,7 @@ from functools import cached_property, lru_cache
 from qdrant_client import QdrantClient
 from utils.env import ENV
 
+
 @dataclass(frozen=True)
 class QdrantConfig:
     """

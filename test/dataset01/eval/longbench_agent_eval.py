@@ -106,10 +106,14 @@ async def run_queries(rows: list[dict], partial_path: Path) -> list[dict]:
                                 "use_web_search": False,
                                 "reasoning_effort": None,
                             },
-                            config={"configurable": {"thread_id": uuid_mod.uuid4().hex}},
+                            config={
+                                "configurable": {"thread_id": uuid_mod.uuid4().hex}
+                            },
                         )
                     out["answer"] = final.get("answer") or ""
-                    calls = list((final.get("metrics") or {}).get("tool_call_names") or [])
+                    calls = list(
+                        (final.get("metrics") or {}).get("tool_call_names") or []
+                    )
                     out["tool_calls"] = calls
                     out["correct"] = contain_match(out["answer"], out["answers"])
                     break
@@ -132,7 +136,10 @@ async def run_queries(rows: list[dict], partial_path: Path) -> list[dict]:
                     with partial_path.open("a", encoding="utf-8") as fh:
                         fh.write(json.dumps(out, ensure_ascii=False) + "\n")
             err = f" err={out['error']}" if out.get("error") else ""
-            print(f"[agent-eval] {len(results_done)} {row['qid'][:40]} {out['status']} correct={out['correct']} {out['latency_ms']:.0f}ms{err}", flush=True)
+            print(
+                f"[agent-eval] {len(results_done)} {row['qid'][:40]} {out['status']} correct={out['correct']} {out['latency_ms']:.0f}ms{err}",
+                flush=True,
+            )
             return out
 
     results_done: list[int] = []
@@ -168,7 +175,8 @@ def summarize(results: list[dict]) -> dict:
         "avg_latency_ms": round(sum(latency) / len(latency), 0) if latency else 0,
         "via_agent_tools": via_agent_tools,
         "via_agent_tools_correct": via_correct,
-        "agent_tools_enabled": os.environ.get("AGENTIC_TOOLS_ENABLED", "true") != "false",
+        "agent_tools_enabled": os.environ.get("AGENTIC_TOOLS_ENABLED", "true")
+        != "false",
     }
 
 
@@ -203,7 +211,10 @@ async def main() -> None:
             rows.append(row)
     if args.max_queries:
         rows = rows[: args.max_queries]
-    print(f"[agent-eval] rows={len(rows)} agent_tools={os.environ.get('AGENTIC_TOOLS_ENABLED', 'true') != 'false'}", flush=True)
+    print(
+        f"[agent-eval] rows={len(rows)} agent_tools={os.environ.get('AGENTIC_TOOLS_ENABLED', 'true') != 'false'}",
+        flush=True,
+    )
     partial_path = RESULTS_DIR / (args.out + ".partial.jsonl")
     results = await run_queries(rows, partial_path)
     summary = summarize(results)

@@ -42,8 +42,12 @@ async def upload_video(
     project_id: uuid.UUID = Path(...),
     file: UploadFile = File(..., description="视频成品（mp4/mov/webm/mkv）"),
     title: Optional[str] = Form(default=None),
-    episode_no: Optional[int] = Form(default=None, description="分组/排序号（语义宽松）"),
-    keyframe_id: Optional[uuid.UUID] = Form(default=None, description="主溯源：来源关键帧"),
+    episode_no: Optional[int] = Form(
+        default=None, description="分组/排序号（语义宽松）"
+    ),
+    keyframe_id: Optional[uuid.UUID] = Form(
+        default=None, description="主溯源：来源关键帧"
+    ),
     script_id: Optional[uuid.UUID] = Form(default=None),
     export_package_id: Optional[uuid.UUID] = Form(default=None),
     target_platform: Optional[str] = Form(default=None, description="生成平台备注"),
@@ -144,9 +148,7 @@ async def upload_video_cover(
     max_bytes = ENV.upload_max_size_mb * 1024 * 1024
     if len(data) > max_bytes:
         bad_except(f"图片超过大小上限（{ENV.upload_max_size_mb}MB）")
-    return R.success(
-        data=await _video_service.upload_cover(ctx, video_id, data, ext)
-    )
+    return R.success(data=await _video_service.upload_cover(ctx, video_id, data, ext))
 
 
 @router.post("/videos/{video_id}/project-cover")

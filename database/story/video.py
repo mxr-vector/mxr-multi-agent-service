@@ -81,9 +81,7 @@ class VideoRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
-    async def list_by_keyframe(
-        self, keyframe_id: uuid.UUID
-    ) -> "list[StoryVideo]":
+    async def list_by_keyframe(self, keyframe_id: uuid.UUID) -> "list[StoryVideo]":
         """按关键帧反查全部生成片段（创建时间升序）。"""
         stmt = (
             select(StoryVideo)

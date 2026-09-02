@@ -127,11 +127,7 @@ def extract_question_entities(text: str) -> set[str]:
     """Extract stable bilingual entity-like phrases without an NLP dependency."""
     values = {token.casefold() for token in _TOKEN_RE.findall(text or "")}
     values.update(_CJK_RE.findall(text or ""))
-    return {
-        value
-        for value in values
-        if value not in _STOP_WORDS and len(value) >= 2
-    }
+    return {value for value in values if value not in _STOP_WORDS and len(value) >= 2}
 
 
 def _paragraph_entities(text: str) -> set[str]:
@@ -172,8 +168,15 @@ def _annotation_indices(row: dict, paragraphs: Sequence[str]) -> set[int]:
                 if title and title not in normalized:
                     continue
                 if isinstance(sentence_index, int):
-                    sentences = [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+", paragraph)]
-                    if sentence_index < len(sentences) and normalize(sentences[sentence_index]).casefold() in normalized:
+                    sentences = [
+                        part.strip()
+                        for part in re.split(r"(?<=[.!?。！？])\s+", paragraph)
+                    ]
+                    if (
+                        sentence_index < len(sentences)
+                        and normalize(sentences[sentence_index]).casefold()
+                        in normalized
+                    ):
                         indices.add(index)
                 else:
                     indices.add(index)
@@ -216,7 +219,9 @@ def _answer_indices(row: dict, paragraphs: Sequence[str]) -> tuple[set[int], str
         value = normalize(str(answer)).casefold()
         if not value:
             continue
-        found.update(index for index, paragraph in enumerate(normalized) if value in paragraph)
+        found.update(
+            index for index, paragraph in enumerate(normalized) if value in paragraph
+        )
         if not any(value in paragraph for paragraph in normalized):
             fragments = sorted(
                 {
@@ -227,7 +232,11 @@ def _answer_indices(row: dict, paragraphs: Sequence[str]) -> tuple[set[int], str
                 key=lambda item: (-len(item), item),
             )[:3]
             for fragment in fragments:
-                found.update(index for index, paragraph in enumerate(normalized) if fragment in paragraph)
+                found.update(
+                    index
+                    for index, paragraph in enumerate(normalized)
+                    if fragment in paragraph
+                )
     return found, "answer_derived" if found else "unresolved"
 
 
@@ -250,7 +259,13 @@ def derive_bridge_paragraphs(
     if not question_entities:
         return []
     paragraph_entities = [_paragraph_entities(paragraph) for paragraph in paragraphs]
-    answer_entities = set().union(*(paragraph_entities[index] for index in answer_set if 0 <= index < len(paragraphs)))
+    answer_entities = set().union(
+        *(
+            paragraph_entities[index]
+            for index in answer_set
+            if 0 <= index < len(paragraphs)
+        )
+    )
     relation_tokens = extract_question_entities(" ".join(_RELATION_WORDS))
     scored: list[tuple[int, int, str]] = []
     for index, paragraph in enumerate(paragraphs):
@@ -262,15 +277,19 @@ def derive_bridge_paragraphs(
             scored.append((3, index, f"entity_cooccurrence:{','.join(sorted(shared))}"))
             continue
         relation_hit = bool(
-            relation_tokens
-            & extract_question_entities(paragraph)
-            & _RELATION_WORDS
-        ) or any(marker.casefold() in paragraph.casefold() for marker in _RELATION_WORDS)
+            relation_tokens & extract_question_entities(paragraph) & _RELATION_WORDS
+        ) or any(
+            marker.casefold() in paragraph.casefold() for marker in _RELATION_WORDS
+        )
         if shared and relation_hit and (answer_entities & entities):
             scored.append((2, index, f"entity_hypernym:{','.join(sorted(shared))}"))
             continue
-        if shared and any(abs(index - answer_index) == 1 for answer_index in answer_set):
-            scored.append((1, index, f"adjacent_entity_support:{','.join(sorted(shared))}"))
+        if shared and any(
+            abs(index - answer_index) == 1 for answer_index in answer_set
+        ):
+            scored.append(
+                (1, index, f"adjacent_entity_support:{','.join(sorted(shared))}")
+            )
 
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [
@@ -310,7 +329,11 @@ def _hop_count(row: dict, *, bridge_count: int) -> int:
 
 def build_v3_gold(row: dict, *, max_bridge: int = 10) -> V3Gold:
     """Build the paragraph-level v3 record for a LongBench-like row."""
-    paragraphs = [part.strip() for part in str(row.get("context") or "").split("\n") if part.strip()]
+    paragraphs = [
+        part.strip()
+        for part in str(row.get("context") or "").split("\n")
+        if part.strip()
+    ]
     answer_indices, origin = _answer_indices(row, paragraphs)
     bridge = derive_bridge_paragraphs(
         str(row.get("question") or row.get("input") or ""),
@@ -321,12 +344,16 @@ def build_v3_gold(row: dict, *, max_bridge: int = 10) -> V3Gold:
     annotated_bridge = _bridge_annotation_indices(row, paragraphs)
     if annotated_bridge:
         bridge = [
-            EvidenceParagraph(index=index, source="annotated", reason="bridge_annotation")
+            EvidenceParagraph(
+                index=index, source="annotated", reason="bridge_annotation"
+            )
             for index in sorted(annotated_bridge)
             if index not in answer_indices
         ]
     hop_count = _hop_count(row, bridge_count=len(bridge))
-    question_type = _question_type(row, answer_count=len(answer_indices), bridge_count=len(bridge))
+    question_type = _question_type(
+        row, answer_count=len(answer_indices), bridge_count=len(bridge)
+    )
     answer = tuple(
         EvidenceParagraph(index=index, source=origin, reason="answer_match")
         for index in sorted(answer_indices)
@@ -341,7 +368,10 @@ def build_v3_gold(row: dict, *, max_bridge: int = 10) -> V3Gold:
             if isinstance(hop, (list, tuple))
         )
     elif bridge:
-        hops = (tuple(item.index for item in bridge), tuple(item.index for item in answer))
+        hops = (
+            tuple(item.index for item in bridge),
+            tuple(item.index for item in answer),
+        )
     else:
         hops = (tuple(item.index for item in answer),)
     return V3Gold(
@@ -354,7 +384,9 @@ def build_v3_gold(row: dict, *, max_bridge: int = 10) -> V3Gold:
     )
 
 
-def _map_indices(indices: Iterable[int], mapping: dict[str, str], qid: str) -> list[str]:
+def _map_indices(
+    indices: Iterable[int], mapping: dict[str, str], qid: str
+) -> list[str]:
     values = []
     for index in indices:
         value = mapping.get(f"lb:{qid}:{index}")
@@ -371,16 +403,12 @@ def attach_v3_gold(row: dict, mapping: dict[str, str]) -> dict:
     row["v3_gold"] = gold.to_dict()
     row["answer_gold_docs"] = _map_indices(gold.answer_indices, mapping, qid)
     row["bridge_gold_docs"] = _map_indices(gold.bridge_indices, mapping, qid)
-    row["hop_gold_docs"] = [
-        _map_indices(hop, mapping, qid) for hop in gold.hops
-    ]
+    row["hop_gold_docs"] = [_map_indices(hop, mapping, qid) for hop in gold.hops]
     row["gold_origin"] = gold.origin
     row["bridge_origin"] = (
         "annotated"
         if any(item.source == "annotated" for item in gold.bridge)
-        else "derived"
-        if gold.bridge
-        else "none"
+        else "derived" if gold.bridge else "none"
     )
     row["question_type"] = gold.question_type
     row["hop_count"] = gold.hop_count
@@ -390,7 +418,9 @@ def attach_v3_gold(row: dict, mapping: dict[str, str]) -> dict:
     return row
 
 
-def _recall_at(ranked: list[dict], gold: Iterable[str], k: int, mode: str) -> float | None:
+def _recall_at(
+    ranked: list[dict], gold: Iterable[str], k: int, mode: str
+) -> float | None:
     values = list(dict.fromkeys(str(value) for value in gold if value))
     if not values:
         return None
@@ -398,12 +428,16 @@ def _recall_at(ranked: list[dict], gold: Iterable[str], k: int, mode: str) -> fl
     return sum(position <= k for position in positions) / len(values)
 
 
-def _hop_success_at(ranked: list[dict], hops: Sequence[Sequence[str]], k: int, mode: str) -> float | None:
+def _hop_success_at(
+    ranked: list[dict], hops: Sequence[Sequence[str]], k: int, mode: str
+) -> float | None:
     groups = [list(dict.fromkeys(str(value) for value in hop if value)) for hop in hops]
     groups = [group for group in groups if group]
     if not groups:
         return None
-    return sum(bool(hit_positions(ranked[:k], group, mode=mode)) for group in groups) / len(groups)
+    return sum(
+        bool(hit_positions(ranked[:k], group, mode=mode)) for group in groups
+    ) / len(groups)
 
 
 def compute_v3_metrics(
@@ -421,12 +455,10 @@ def compute_v3_metrics(
         return None
     result = dict(answer_metrics)
     result["bridge_recall"] = {
-        int(k): _recall_at(ranked, bridge_gold, int(k), mode)
-        for k in ks
+        int(k): _recall_at(ranked, bridge_gold, int(k), mode) for k in ks
     }
     result["hop_success_rate"] = {
-        int(k): _hop_success_at(ranked, hop_gold, int(k), mode)
-        for k in ks
+        int(k): _hop_success_at(ranked, hop_gold, int(k), mode) for k in ks
     }
     return result
 
@@ -507,8 +539,13 @@ def summarize_v3(
     return {
         "strict_only": strict_only,
         "total": len(filtered),
-        "by_question_type": {key: aggregate(value) for key, value in sorted(groups.items())},
-        "by_hop_count": {key: aggregate(value) for key, value in sorted(hop_groups.items(), key=lambda item: int(item[0]))},
+        "by_question_type": {
+            key: aggregate(value) for key, value in sorted(groups.items())
+        },
+        "by_hop_count": {
+            key: aggregate(value)
+            for key, value in sorted(hop_groups.items(), key=lambda item: int(item[0]))
+        },
         "overall": aggregate(filtered),
     }
 
@@ -517,12 +554,20 @@ def _fmt(value: tuple[float, float] | None) -> str:
     return "—" if value is None else f"{value[0]:.3f}±{value[1]:.3f}"
 
 
-def render_v3_report(title: str, meta: dict, disclosure: dict, strict: dict | None = None) -> str:
+def render_v3_report(
+    title: str, meta: dict, disclosure: dict, strict: dict | None = None
+) -> str:
     """Render a compact report with type and hop strata."""
     lines = [f"# {title}", ""]
     for key, value in meta.items():
         lines.append(f"- {key}: {value}")
-    lines.extend(["", "> Derived bridge gold is disclosed separately and is excluded from strict comparison.", ""])
+    lines.extend(
+        [
+            "",
+            "> Derived bridge gold is disclosed separately and is excluded from strict comparison.",
+            "",
+        ]
+    )
 
     def section(label: str, summary: dict) -> None:
         lines.extend([f"## {label}", "", "| Metric | Value |", "|---|---|"])
@@ -532,13 +577,28 @@ def render_v3_report(title: str, meta: dict, disclosure: dict, strict: dict | No
         lines.append("")
 
     section("Overall disclosure", disclosure["overall"])
-    lines.extend(["## By question type", "", "| Type | Recall@10 | Bridge Recall@10 | Hop Success Rate@10 |", "|---|---|---|---|"])
+    lines.extend(
+        [
+            "## By question type",
+            "",
+            "| Type | Recall@10 | Bridge Recall@10 | Hop Success Rate@10 |",
+            "|---|---|---|---|",
+        ]
+    )
     for key, summary in disclosure["by_question_type"].items():
         metrics = summary["metrics"]
         lines.append(
             f"| {key} | {_fmt(metrics.get('recall@10'))} | {_fmt(metrics.get('bridge_recall@10'))} | {_fmt(metrics.get('hop_success_rate@10'))} |"
         )
-    lines.extend(["", "## By hop count", "", "| Hops | Recall@10 | Bridge Recall@10 | Hop Success Rate@10 |", "|---|---|---|---|"])
+    lines.extend(
+        [
+            "",
+            "## By hop count",
+            "",
+            "| Hops | Recall@10 | Bridge Recall@10 | Hop Success Rate@10 |",
+            "|---|---|---|---|",
+        ]
+    )
     for key, summary in disclosure["by_hop_count"].items():
         metrics = summary["metrics"]
         lines.append(

@@ -232,7 +232,5 @@ class ExportService:
             package = await ExportPackageRepository(session).get(package_id)
             if package is None:
                 bad_except("导出包不存在")
-            await self._project_service._assert_owned(
-                session, package.project_id, ctx
-            )
+            await self._project_service._assert_owned(session, package.project_id, ctx)
             return package.to_dict()

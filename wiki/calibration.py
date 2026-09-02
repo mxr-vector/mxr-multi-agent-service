@@ -52,13 +52,20 @@ def calibrate_cluster_parameters(
             {
                 "config": asdict(config),
                 "stats": result.stats,
-                "score": _score(result.stats, target_min=target_min, target_max=target_max),
+                "score": _score(
+                    result.stats, target_min=target_min, target_max=target_max
+                ),
             }
         )
-    trials.sort(key=lambda item: (-item["score"], item["config"]["coarse_target_size"], item["config"]["min_cluster_size"]))
+    trials.sort(
+        key=lambda item: (
+            -item["score"],
+            item["config"]["coarse_target_size"],
+            item["config"]["min_cluster_size"],
+        )
+    )
     return {
         "documents": len(document_vectors),
         "trials": trials,
         "recommended": trials[0]["config"] if trials else None,
     }
-

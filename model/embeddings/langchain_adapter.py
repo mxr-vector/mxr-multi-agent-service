@@ -4,6 +4,7 @@ from langchain_core.embeddings import Embeddings
 
 from model.embeddings.factory import get_embedding_client
 
+
 @deprecated
 class LangChainEmbeddingAdapter(Embeddings):
     """

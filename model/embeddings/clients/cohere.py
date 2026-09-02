@@ -12,6 +12,8 @@ cohere SDK v2. langchain_cohere 不兼容新版，因此使用官方SDK cohere.
 
 # cohere 内部默认向量维度（不暴露为 env 配置）
 _DEFAULT_DIMENSION = 1024
+
+
 class CohereEmbeddingClient(BaseEmbeddingClient):
     def __init__(self) -> None:
         super().__init__()
@@ -40,7 +42,7 @@ class CohereEmbeddingClient(BaseEmbeddingClient):
     def embed_query(self, query: Union[str, List[str]]) -> List[float]:
         if isinstance(query, str):
             query = [query]
-        resp =  self._client.embed(
+        resp = self._client.embed(
             texts=query,
             model=self.model_name,
             input_type="query",

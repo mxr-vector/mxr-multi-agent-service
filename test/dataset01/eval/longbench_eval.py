@@ -42,7 +42,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from common import BASE_K_VALUES, DATA_DIR, GOLD_DIR, RESULTS_DIR, ensure_cfg_async, load_json, normalize, save_json
+from common import (
+    BASE_K_VALUES,
+    DATA_DIR,
+    GOLD_DIR,
+    RESULTS_DIR,
+    ensure_cfg_async,
+    load_json,
+    normalize,
+    save_json,
+)
 
 from dual_retrieval import (
     cleanup_kb,
@@ -61,7 +70,9 @@ from dual_retrieval import (
 # 评测知识库按子集分库：每子集独立语料库（dataset01-longbench-{subset}），
 # 检索在子集自身语料内进行，避免跨子集语料污染
 KB_NAME_PREFIX = "dataset01-longbench"
-KB_DESCRIPTION = "RAG 双路召回评测语料库：LongBench {subset} 子集（context 段落单块，诊断性）"
+KB_DESCRIPTION = (
+    "RAG 双路召回评测语料库：LongBench {subset} 子集（context 段落单块，诊断性）"
+)
 
 # 中英 QA 类子集（字段统一：input/context/answers/_id；按子集顺序拼接）
 SUBSETS = [
@@ -146,15 +157,25 @@ def parse_passage_titles(context: str) -> list[dict]:
         line = lines[index]
         if _PASSAGE_MARKER_RE.match(line):
             records.append(
-                {"line_idx": index, "passage_title": None, "title_source": "uri",
-                 "is_marker": True, "is_title_line": False}
+                {
+                    "line_idx": index,
+                    "passage_title": None,
+                    "title_source": "uri",
+                    "is_marker": True,
+                    "is_title_line": False,
+                }
             )
             if index + 1 < len(lines):
                 title = lines[index + 1]
                 current_title = title
                 records.append(
-                    {"line_idx": index + 1, "passage_title": title, "title_source": "parsed",
-                     "is_marker": False, "is_title_line": True}
+                    {
+                        "line_idx": index + 1,
+                        "passage_title": title,
+                        "title_source": "parsed",
+                        "is_marker": False,
+                        "is_title_line": True,
+                    }
                 )
                 index += 2
                 continue
@@ -162,25 +183,39 @@ def parse_passage_titles(context: str) -> list[dict]:
             continue
         if _ARTICLE_MARKER_RE.match(line):
             records.append(
-                {"line_idx": index, "passage_title": None, "title_source": "uri",
-                 "is_marker": True, "is_title_line": False}
+                {
+                    "line_idx": index,
+                    "passage_title": None,
+                    "title_source": "uri",
+                    "is_marker": True,
+                    "is_title_line": False,
+                }
             )
             if index + 1 < len(lines):
                 match = _CN_TITLE_RE.match(lines[index + 1])
                 if match:
                     current_title = match.group(1).strip()
                     records.append(
-                        {"line_idx": index + 1, "passage_title": current_title,
-                         "title_source": "parsed", "is_marker": False, "is_title_line": True}
+                        {
+                            "line_idx": index + 1,
+                            "passage_title": current_title,
+                            "title_source": "parsed",
+                            "is_marker": False,
+                            "is_title_line": True,
+                        }
                     )
                     index += 2
                     continue
             index += 1
             continue
         records.append(
-            {"line_idx": index, "passage_title": current_title,
-             "title_source": "parsed" if current_title else "uri",
-             "is_marker": False, "is_title_line": False}
+            {
+                "line_idx": index,
+                "passage_title": current_title,
+                "title_source": "parsed" if current_title else "uri",
+                "is_marker": False,
+                "is_title_line": False,
+            }
         )
         index += 1
     return records
@@ -198,7 +233,9 @@ def answer_fragments(answer: str) -> list[str]:
     )[:GOLD_FRAG_MAX_COUNT]
 
 
-def defensible_paragraphs(context: str, answers: list[str]) -> tuple[list[int], str | None]:
+def defensible_paragraphs(
+    context: str, answers: list[str]
+) -> tuple[list[int], str | None]:
     """可辩护证据映射（v2）：answer 定位到 context 段落 → 段落下标列表。
 
     匹配顺序（大小写不敏感）：
@@ -259,7 +296,9 @@ def load_rows(subsets: list[str]) -> list[dict]:
                         "gold_paragraphs": raw.get("gold_paragraphs"),
                         "bridge_paragraphs": raw.get("bridge_paragraphs"),
                         "bridge_evidence": raw.get("bridge_evidence"),
-                        "supporting_bridge_paragraphs": raw.get("supporting_bridge_paragraphs"),
+                        "supporting_bridge_paragraphs": raw.get(
+                            "supporting_bridge_paragraphs"
+                        ),
                         "supporting_facts": raw.get("supporting_facts"),
                         "evidence_hops": raw.get("evidence_hops"),
                         "hop_count": raw.get("hop_count"),
@@ -269,7 +308,9 @@ def load_rows(subsets: list[str]) -> list[dict]:
     return rows
 
 
-async def build(session_factory, rows: list[dict], force: bool, batch_size: int = 100) -> object:
+async def build(
+    session_factory, rows: list[dict], force: bool, batch_size: int = 100
+) -> object:
     """按子集分库建库（幂等：各库与 doc map 指纹一致时复用；--force 重建）。
 
     每个子集一个独立评测知识库（dataset01-longbench-{subset}），检索在子集
@@ -297,7 +338,9 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
                 print(f"[lb] --force：清理既有评测知识库 {kb_name}...")
                 await cleanup_kb(session, kb_name)
             if existing is None or force:
-                kb = await create_kb(session, kb_name, KB_DESCRIPTION.format(subset=subset))
+                kb = await create_kb(
+                    session, kb_name, KB_DESCRIPTION.format(subset=subset)
+                )
                 await session.commit()
                 print(
                     f"[lb] 已创建评测知识库: {kb_name} id={kb.id.hex}"
@@ -310,15 +353,15 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     if not force:
         if DOC_MAP_PATH.exists():
             cached = load_json(DOC_MAP_PATH)
-            if cached.get("fingerprint") == fp and set(cached.get("kb_ids", {})) == set(subsets):
+            if cached.get("fingerprint") == fp and set(cached.get("kb_ids", {})) == set(
+                subsets
+            ):
                 print(
                     f"[lb] 评测知识库已存在且指纹一致（{len(subsets)} 个子集库），"
                     f"复用 {len(cached['mapping'])} 个段落映射（重建请加 --force）"
                 )
                 return kb_by_subset, cached["mapping"]
-        print(
-            "[lb] 评测知识库已存在但指纹不一致（重建请加 --force），继续使用既有库"
-        )
+        print("[lb] 评测知识库已存在但指纹不一致（重建请加 --force），继续使用既有库")
         return kb_by_subset, {}
 
     mapping: dict[str, str] = {}
@@ -337,16 +380,24 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
                 continue
             # 逐行对齐的原始标题解析（t1 规则）：保留 passage 页标题作为
             # 文档 title 与内容前缀，使 embedding/主题页具备实体区分度
-            title_records = {r["line_idx"]: r for r in parse_passage_titles(row["context"])}
+            title_records = {
+                r["line_idx"]: r for r in parse_passage_titles(row["context"])
+            }
             for para_idx, para in enumerate(split_paragraphs(row["context"])):
                 uri = f"lb:{row['qid']}:{para_idx}"
                 record = title_records.get(para_idx) or {}
                 passage_title = record.get("passage_title")
                 title_source = record.get("title_source", "uri")
-                title_source_counter[title_source] = title_source_counter.get(title_source, 0) + 1
+                title_source_counter[title_source] = (
+                    title_source_counter.get(title_source, 0) + 1
+                )
                 # 内容前缀标题（标记行/标题行本身不重复前缀）：不改变行级
                 # 文档边界，gold 映射（lb:{qid}:{idx} → doc）保持逐行一致
-                if passage_title and not record.get("is_marker") and not record.get("is_title_line"):
+                if (
+                    passage_title
+                    and not record.get("is_marker")
+                    and not record.get("is_title_line")
+                ):
                     content = f"{passage_title}\n{para}"
                 else:
                     content = para
@@ -410,7 +461,9 @@ async def build(session_factory, rows: list[dict], force: bool, batch_size: int 
     return kb_by_subset, mapping
 
 
-def build_queries(rows: list[dict], mapping: dict[str, str], kb_by_subset: dict) -> list[dict]:
+def build_queries(
+    rows: list[dict], mapping: dict[str, str], kb_by_subset: dict
+) -> list[dict]:
     """构建评测 query 列表（gold = 可辩护段落 → PG 文档 id，按文档去重）。"""
     queries = []
     for row in rows:
@@ -439,9 +492,7 @@ def _subset_of(qid: str) -> str:
     return qid.split(":", 1)[0]
 
 
-def _subset_section_lines(
-    subset: str, summary: dict, ks: Sequence[int]
-) -> list[str]:
+def _subset_section_lines(subset: str, summary: dict, ks: Sequence[int]) -> list[str]:
     """单子集报告分节：标题（含中英文/任务类型标注）+ 独立指标表 + 可辩护统计。"""
     info = SUBSET_INFO.get(subset, {})
     label = f"{subset}（{info.get('lang', '')}，{info.get('task', '')}）"
@@ -469,8 +520,12 @@ async def main() -> None:
     parser = argparse.ArgumentParser(
         description="LongBench 多语言（zh/en）双路召回评测（诊断性）"
     )
-    parser.add_argument("--force", action="store_true", help="已存在评测知识库时清理重建")
-    parser.add_argument("--cleanup", action="store_true", help="整体删除评测知识库后退出")
+    parser.add_argument(
+        "--force", action="store_true", help="已存在评测知识库时清理重建"
+    )
+    parser.add_argument(
+        "--cleanup", action="store_true", help="整体删除评测知识库后退出"
+    )
     parser.add_argument(
         "--subsets",
         type=str,
@@ -483,9 +538,20 @@ async def main() -> None:
         default=DEFAULT_MAX_QUERIES,
         help=f"仅评测前 N 条 query（默认 {DEFAULT_MAX_QUERIES}；冒烟可设小值）",
     )
-    parser.add_argument("--no-rerank", action="store_true", help="跳过 rerank（仅双路召回检索层）")
-    parser.add_argument("--pool", type=int, default=None, help="候选池大小（默认取系统 RAG_CANDIDATE_POOL_SIZE）")
-    parser.add_argument("--retry-failed", action="store_true", help="仅补跑上次失败（status!=ok）的 query 并合并结果")
+    parser.add_argument(
+        "--no-rerank", action="store_true", help="跳过 rerank（仅双路召回检索层）"
+    )
+    parser.add_argument(
+        "--pool",
+        type=int,
+        default=None,
+        help="候选池大小（默认取系统 RAG_CANDIDATE_POOL_SIZE）",
+    )
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="仅补跑上次失败（status!=ok）的 query 并合并结果",
+    )
     args = parser.parse_args()
 
     await ensure_cfg_async()
@@ -561,7 +627,9 @@ async def main() -> None:
             return
         retry = [q for q in queries if q["qid"] in failed_qids]
         print(f"[lb] 补跑失败 query：{len(retry)} 条")
-        fresh = await run_eval(retry, kb_by_subset, pool_size, use_rerank=not args.no_rerank)
+        fresh = await run_eval(
+            retry, kb_by_subset, pool_size, use_rerank=not args.no_rerank
+        )
         by_qid = {r["qid"]: r for r in fresh}
         merged = [by_qid.get(r["qid"], r) for r in prev["results"]]
         results = merged
@@ -579,7 +647,9 @@ async def main() -> None:
             f"（失败 {sum(1 for r in results if r['status'] != 'ok')}）"
         )
     else:
-        results = await run_eval(queries, kb_by_subset, pool_size, use_rerank=not args.no_rerank)
+        results = await run_eval(
+            queries, kb_by_subset, pool_size, use_rerank=not args.no_rerank
+        )
         payload = {
             "meta": {
                 "dataset": f"zai-org/LongBench 多语言（{'/'.join(subsets)}）",
@@ -639,7 +709,9 @@ async def main() -> None:
         lines.append("")
     report_path = RESULTS_DIR / "longbench_dual_report.md"
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"[lb] 汇总已落盘: {SUMMARY_PATH}；分集汇总: {len(per_subset)} 份；报告: {report_path}")
+    print(
+        f"[lb] 汇总已落盘: {SUMMARY_PATH}；分集汇总: {len(per_subset)} 份；报告: {report_path}"
+    )
     m = summary["metrics"]
     if m["mrr"]:
         print(

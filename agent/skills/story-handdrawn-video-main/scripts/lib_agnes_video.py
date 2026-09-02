@@ -14,6 +14,7 @@ GET /agnesapi?video_id= 轮询结果，下载最终 mp4。
   > 父目录 .env > 父父目录 .env（兼容项目根 / monorepo 布局）
 - 同一 key 在 api.agnes-ai.cn（图片端点同 host）可用
 """
+
 from __future__ import annotations
 
 import http.client
@@ -85,8 +86,12 @@ def _resolve_base_url() -> str:
     return os.environ.get("AGNES_VIDEO_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 
 
-def _request(method: str, url: str, payload: dict | None = None,
-             timeout: int = DEFAULT_POLL_TIMEOUT) -> dict:
+def _request(
+    method: str,
+    url: str,
+    payload: dict | None = None,
+    timeout: int = DEFAULT_POLL_TIMEOUT,
+) -> dict:
     key = _resolve_api_key()
     data = None
     headers = {"Authorization": f"Bearer {key}"}
@@ -105,27 +110,38 @@ def _request(method: str, url: str, payload: dict | None = None,
             err_body = e.read().decode("utf-8", errors="replace")
             # 429 是免费 key 的创建限流（1 req/min），等 65s 再试
             if e.code == 429 and attempt < MAX_RETRIES - 1:
-                print(f"  ⚠️ agnes-video HTTP 429 限流（attempt {attempt+1}/{MAX_RETRIES}），{RATE_LIMIT_WAIT_SEC}s 后重试")
+                print(
+                    f"  ⚠️ agnes-video HTTP 429 限流（attempt {attempt+1}/{MAX_RETRIES}），{RATE_LIMIT_WAIT_SEC}s 后重试"
+                )
                 time.sleep(RATE_LIMIT_WAIT_SEC)
                 last_err = RuntimeError(f"HTTP 429: {err_body[:200]}")
                 continue
             if e.code in (500, 502, 503, 504) and attempt < MAX_RETRIES - 1:
-                wait = 5 * (2 ** attempt)
-                print(f"  ⚠️ agnes-video HTTP {e.code}（attempt {attempt+1}/{MAX_RETRIES}），{wait}s 后重试")
+                wait = 5 * (2**attempt)
+                print(
+                    f"  ⚠️ agnes-video HTTP {e.code}（attempt {attempt+1}/{MAX_RETRIES}），{wait}s 后重试"
+                )
                 time.sleep(wait)
                 last_err = RuntimeError(f"HTTP {e.code}: {err_body[:200]}")
                 continue
             raise RuntimeError(f"agnes-video HTTP {e.code}: {err_body[:500]}") from None
-        except (urllib.error.URLError, TimeoutError,
-                http.client.RemoteDisconnected, http.client.BadStatusLine,
-                ConnectionResetError, ConnectionAbortedError) as e:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            http.client.RemoteDisconnected,
+            http.client.BadStatusLine,
+            ConnectionResetError,
+            ConnectionAbortedError,
+        ) as e:
             if attempt < MAX_RETRIES - 1:
-                wait = 5 * (2 ** attempt)
+                wait = 5 * (2**attempt)
                 print(f"  ⚠️ agnes-video 网络错 ({type(e).__name__})，{wait}s 后重试")
                 time.sleep(wait)
                 last_err = e
                 continue
-            raise RuntimeError(f"agnes-video 网络失败: {type(e).__name__}: {e}") from None
+            raise RuntimeError(
+                f"agnes-video 网络失败: {type(e).__name__}: {e}"
+            ) from None
     raise RuntimeError(f"agnes-video 重试 {MAX_RETRIES} 次仍失败: {last_err}")
 
 
@@ -159,8 +175,12 @@ def create_task(
     if seed is not None:
         payload["seed"] = seed
 
-    data = _request("POST", f"{_resolve_base_url()}/v1/videos", payload,
-                    timeout=DEFAULT_CREATE_TIMEOUT)
+    data = _request(
+        "POST",
+        f"{_resolve_base_url()}/v1/videos",
+        payload,
+        timeout=DEFAULT_CREATE_TIMEOUT,
+    )
     video_id = data.get("video_id") or data.get("task_id") or data.get("id")
     if not video_id:
         raise RuntimeError(f"agnes-video 创建响应缺 video_id: {json.dumps(data)[:500]}")
@@ -176,9 +196,9 @@ def _extract_url(data: dict) -> str | None:
     return meta.get("url")
 
 
-def poll_video(video_id: str,
-               interval: int = POLL_INTERVAL_SEC,
-               max_wait: int = POLL_MAX_WAIT_SEC) -> dict:
+def poll_video(
+    video_id: str, interval: int = POLL_INTERVAL_SEC, max_wait: int = POLL_MAX_WAIT_SEC
+) -> dict:
     """轮询直到 completed/failed。返回最终任务对象（含顶层 url 或 metadata.url）。"""
     url = f"{_resolve_base_url()}/agnesapi?video_id={video_id}"
     start = time.time()
@@ -195,9 +215,13 @@ def poll_video(video_id: str,
             return data
         if status == "failed":
             err = data.get("error")
-            raise RuntimeError(f"视频任务失败: {json.dumps(err, ensure_ascii=False)[:500]}")
+            raise RuntimeError(
+                f"视频任务失败: {json.dumps(err, ensure_ascii=False)[:500]}"
+            )
         if elapsed > max_wait:
-            raise RuntimeError(f"视频任务超时（{max_wait}s），最后状态: {status} {progress}%")
+            raise RuntimeError(
+                f"视频任务超时（{max_wait}s），最后状态: {status} {progress}%"
+            )
         time.sleep(interval)
 
 
@@ -207,22 +231,34 @@ def download(url: str, out_path: Path) -> Path:
     last_err: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "story-handdrawn-video"})
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "story-handdrawn-video"}
+            )
             with urllib.request.urlopen(req, timeout=DEFAULT_DOWNLOAD_TIMEOUT) as resp:
                 out_path.write_bytes(resp.read())
             if out_path.stat().st_size < 20_000:
-                raise RuntimeError(f"下载文件过小 ({out_path.stat().st_size}B)，疑似损坏")
+                raise RuntimeError(
+                    f"下载文件过小 ({out_path.stat().st_size}B)，疑似损坏"
+                )
             return out_path
-        except (http.client.IncompleteRead, http.client.RemoteDisconnected,
-                ConnectionResetError, ConnectionAbortedError,
-                urllib.error.URLError, TimeoutError, RuntimeError) as e:
+        except (
+            http.client.IncompleteRead,
+            http.client.RemoteDisconnected,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            urllib.error.URLError,
+            TimeoutError,
+            RuntimeError,
+        ) as e:
             last_err = e
             if attempt < MAX_RETRIES - 1:
-                wait = 5 * (2 ** attempt)
+                wait = 5 * (2**attempt)
                 print(f"  ⚠️ 下载失败 ({type(e).__name__}: {e})，{wait}s 后重试")
                 time.sleep(wait)
                 continue
-            raise RuntimeError(f"下载失败 {MAX_RETRIES} 次: {type(e).__name__}: {e}") from None
+            raise RuntimeError(
+                f"下载失败 {MAX_RETRIES} 次: {type(e).__name__}: {e}"
+            ) from None
     raise RuntimeError(f"下载失败: {last_err}")
 
 
@@ -241,8 +277,10 @@ def generate_video(
     created = create_task(
         prompt,
         negative_prompt=negative_prompt,
-        width=width, height=height,
-        num_frames=num_frames, frame_rate=frame_rate,
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        frame_rate=frame_rate,
         seed=seed,
     )
     video_id = created.get("video_id") or created.get("task_id") or created.get("id")

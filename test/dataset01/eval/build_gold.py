@@ -56,7 +56,7 @@ async def load_corpus_chunks(session, kb_id) -> tuple[dict, dict]:
     doc_ids = []
     for doc_id, source_uri in docs:
         if source_uri and source_uri.startswith("wiki:"):
-            pageid_to_doc[source_uri[len("wiki:"):]] = doc_id.hex
+            pageid_to_doc[source_uri[len("wiki:") :]] = doc_id.hex
         doc_ids.append(doc_id)
 
     chunks = (
@@ -73,11 +73,15 @@ async def load_corpus_chunks(session, kb_id) -> tuple[dict, dict]:
         )
         if pageid is None:
             continue
-        pageid_to_chunks.setdefault(pageid, []).append((chunk_id.hex, normalize(content)))
+        pageid_to_chunks.setdefault(pageid, []).append(
+            (chunk_id.hex, normalize(content))
+        )
     return pageid_to_doc, pageid_to_chunks
 
 
-def match_gold_chunks(norm_content: str, page_chunks: list[tuple[str, str]]) -> list[str]:
+def match_gold_chunks(
+    norm_content: str, page_chunks: list[tuple[str, str]]
+) -> list[str]:
     """单条 content 的严格 gold：在该页叶块内做规范化包含判定。"""
     if not norm_content or not page_chunks:
         return []
@@ -106,9 +110,7 @@ async def build_gold(seed: int, sample_size: int, limit: int | None = None) -> N
     async with get_session() as session:
         kb = await find_eval_kb(session)
         if kb is None:
-            raise SystemExit(
-                "评测知识库不存在：请先运行 build_corpus.py 建库"
-            )
+            raise SystemExit("评测知识库不存在：请先运行 build_corpus.py 建库")
         pageid_to_doc, pageid_to_chunks = await load_corpus_chunks(session, kb.id)
 
     # 页面级粗筛文本（与聚合文档同构：\n 连接 + 规范化），从原始记录重建
@@ -131,7 +133,11 @@ async def build_gold(seed: int, sample_size: int, limit: int | None = None) -> N
         norm_content = normalize(row.content)
         total += 1
 
-        if norm_content and pageid in pageid_to_text and norm_content in pageid_to_text[pageid]:
+        if (
+            norm_content
+            and pageid in pageid_to_text
+            and norm_content in pageid_to_text[pageid]
+        ):
             # 粗筛通过（content 确实出现在页面聚合文本中）→ 逐叶块细化
             gold_chunks = match_gold_chunks(
                 norm_content, pageid_to_chunks.get(pageid, [])
@@ -203,8 +209,15 @@ async def build_gold(seed: int, sample_size: int, limit: int | None = None) -> N
 async def main() -> None:
     parser = argparse.ArgumentParser(description="S2 gold 基准表 + 分层抽样")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="抽样随机种子")
-    parser.add_argument("--sample-size", type=int, default=DEFAULT_SAMPLE_SIZE, help="采样条数")
-    parser.add_argument("--limit", type=int, default=None, help="仅处理前 N 条记录（取前 N 条为测试集，不抽样）")
+    parser.add_argument(
+        "--sample-size", type=int, default=DEFAULT_SAMPLE_SIZE, help="采样条数"
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="仅处理前 N 条记录（取前 N 条为测试集，不抽样）",
+    )
     args = parser.parse_args()
     await build_gold(args.seed, args.sample_size, args.limit)
 

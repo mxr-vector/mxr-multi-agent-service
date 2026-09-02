@@ -61,7 +61,9 @@ class EmbeddingSearch:
         client = EmbeddingFactory.get_client()
         text_embedding = client.embed_query(text)
         labels_embeddings = client.embed_documents(labels)
-        similaritys = SimilarityUtils.batch_similarity(text_embedding, labels_embeddings)
+        similaritys = SimilarityUtils.batch_similarity(
+            text_embedding, labels_embeddings
+        )
 
         best_match_index = max(range(len(similaritys)), key=lambda i: similaritys[i][1])
         return labels[best_match_index], similaritys[best_match_index][1]

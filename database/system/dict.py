@@ -160,9 +160,7 @@ class DictDataRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
-    async def list_by_type(
-        self, dict_type: str, status: str = ""
-    ) -> list[DictData]:
+    async def list_by_type(self, dict_type: str, status: str = "") -> list[DictData]:
         """按类型键取全量字典项（sort_order 升序），status 非空时按状态精确过滤。"""
         stmt = (
             select(DictData)

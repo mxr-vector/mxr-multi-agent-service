@@ -189,11 +189,9 @@ class ProjectService:
                     )
                     continue
                 if not src.is_file():
-                    logger.warning(
-                        f"[STORY] 关键帧图片缺失，跳过迁移: {image_file}"
-                    )
+                    logger.warning(f"[STORY] 关键帧图片缺失，跳过迁移: {image_file}")
                     continue
-                new_rel = new_prefix + image_file[len(old_prefix):]
+                new_rel = new_prefix + image_file[len(old_prefix) :]
                 dst = base / new_rel
                 try:
                     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -204,9 +202,7 @@ class ProjectService:
                     )
                     continue
                 except OSError as exc:
-                    logger.warning(
-                        f"[STORY] 关键帧图片迁移失败: {image_file}: {exc}"
-                    )
+                    logger.warning(f"[STORY] 关键帧图片迁移失败: {image_file}: {exc}")
                     continue
                 moved.append((new_rel, image_file))
             return moved
@@ -223,9 +219,7 @@ class ProjectService:
         await session.flush()
         return moved
 
-    async def _rollback_keyframe_moves(
-        self, moved: "list[tuple[str, str]]"
-    ) -> None:
+    async def _rollback_keyframe_moves(self, moved: "list[tuple[str, str]]") -> None:
         """commit 失败后把已迁移的关键帧图片搬回原位（新→旧），失败仅告警。"""
         base = ENV.upload_dir
 

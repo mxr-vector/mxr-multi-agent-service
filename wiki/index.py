@@ -63,7 +63,9 @@ class TopicIndexBuilder:
         # Pre-computed document vectors (e.g. aggregated evidence embeddings)
         # skip re-embedding; otherwise the factory embeds in input order.
         if vectors is None:
-            vectors = build_document_vectors(normalized, embedding_client=self.embedding_client)
+            vectors = build_document_vectors(
+                normalized, embedding_client=self.embedding_client
+            )
         clusters = cluster_documents(list(vectors), self.cluster_config)
         reviews = await review_anomalous_clusters(clusters.clusters, reviewer=reviewer)
         cross_zone_pairs = find_cross_partition_duplicates(clusters.clusters)
@@ -72,7 +74,9 @@ class TopicIndexBuilder:
         )
         reviews.extend(cross_zone_reviews)
         reviewed_clusters = apply_cluster_reviews(clusters.clusters, reviews)
-        pages = await generate_topic_pages(reviewed_clusters, version=version, generator=generator)
+        pages = await generate_topic_pages(
+            reviewed_clusters, version=version, generator=generator
+        )
         # 页落盘前挂块级指针：查询期 wiki 命中按 chunk id 直查原文，
         # 不挂则在线回退文档级锚定（attach 失败不阻断构建）
         try:
@@ -82,7 +86,9 @@ class TopicIndexBuilder:
         except Exception as exc:  # pragma: no cover - 指针缺失仅降低确定性
             from utils.logger import logger
 
-            logger.warning(f"[WIKI] 块指针挂接失败，页按无指针落盘（在线走回退锚定）: {exc}")
+            logger.warning(
+                f"[WIKI] 块指针挂接失败，页按无指针落盘（在线走回退锚定）: {exc}"
+            )
         store = self.store_factory(scope_id, embedding_client=self.embedding_client)
         if recreate:
             store.delete_collection()
@@ -121,7 +127,9 @@ class TopicIndexBuilder:
         """Rebuild documents belonging to dirty pages' coarse partitions only."""
         store = self.store_factory(scope_id, embedding_client=self.embedding_client)
         dirty_pages = store.list_pages(dirty_only=True)
-        partitions = {page.coarse_partition for page in dirty_pages if page.coarse_partition}
+        partitions = {
+            page.coarse_partition for page in dirty_pages if page.coarse_partition
+        }
         if not partitions:
             return None
         normalized = [

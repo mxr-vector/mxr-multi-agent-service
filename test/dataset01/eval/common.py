@@ -59,7 +59,7 @@ def ensure_csv() -> Path:
         raise SystemExit(
             f"缺少数据文件: {CSV_PATH}\n"
             "请先下载（约 566MB，见 test/dataset01/README.md）：\n"
-            f'  curl -L -o {CSV_PATH} \\\n'
+            f"  curl -L -o {CSV_PATH} \\\n"
             '    "https://modelscope.cn/api/v1/datasets/chal1ce/Agricultrue_Wiki_QA_110K'
             '/repo?Revision=master&FilePath=agriculture_wiki_qa_full.csv"'
         )
@@ -182,7 +182,9 @@ def aggregate_by_page(df: "Any") -> list[dict]:
 
 
 # ---- 分层抽样 ---------------------------------------------------------------
-def stratified_sample(df: "Any", seed: int = DEFAULT_SEED, size: int = DEFAULT_SAMPLE_SIZE) -> list[dict]:
+def stratified_sample(
+    df: "Any", seed: int = DEFAULT_SEED, size: int = DEFAULT_SAMPLE_SIZE
+) -> list[dict]:
     """按 pageid 分层（页内打乱后轮转）抽样 size 条 question，保证页面均衡。
 
     页面数 >= size 时每页至多 1 条；页面数 < size 时轮转多轮。返回抽样清单
@@ -303,9 +305,7 @@ def compute_metrics(
             continue
         hits_topk = sum(1 for p in positions if p <= k)
         dcg = sum(1.0 / math.log2(p + 1) for p in positions if p <= k)
-        idcg = sum(
-            1.0 / math.log2(i + 1) for i in range(1, min(len(gold_set), k) + 1)
-        )
+        idcg = sum(1.0 / math.log2(i + 1) for i in range(1, min(len(gold_set), k) + 1))
         out[k] = {
             "recall": hits_topk / len(gold_set),
             "precision": hits_topk / k,

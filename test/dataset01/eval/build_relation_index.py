@@ -82,7 +82,9 @@ async def reachable_doc_ids(conn, kb_hex: str, subsets_rows: list[dict]) -> set[
     ents: set[str] = set()
     for row in subsets_rows:
         if row.get("question_type") == "multi-hop":
-            ents.update(e.casefold() for e in extract_english_phrases(row["question"], 8))
+            ents.update(
+                e.casefold() for e in extract_english_phrases(row["question"], 8)
+            )
     ents_list = sorted(ents)
     docs: set[str] = set()
     for i in range(0, len(ents_list), 500):
@@ -118,7 +120,11 @@ async def build_kb(
     # qwen3 系默认开思考会产出长思维链（单调用 150s+）；抽取任务显式关闭思考，
     # 兼容 OpenAI 兼容参数与 chat_template_kwargs 两种下发方式（无效参数服务端忽略）
     try:
-        model.extra_body = {**(model.extra_body or {}), "chat_template_kwargs": {"enable_thinking": False}, "enable_thinking": False}
+        model.extra_body = {
+            **(model.extra_body or {}),
+            "chat_template_kwargs": {"enable_thinking": False},
+            "enable_thinking": False,
+        }
     except Exception:
         pass
     sem = asyncio.Semaphore(concurrency)
@@ -127,8 +133,14 @@ async def build_kb(
     async with engine.connect() as conn:
         docs = await reachable_doc_ids(conn, kb_hex, rows)
         if rebuild:
-            await conn.execute(sql("DELETE FROM rag.entity_index_relations WHERE kb_id=:kb"), {"kb": kb_hex})
-            await conn.execute(sql("DELETE FROM rag.entity_index_extract_progress WHERE kb_id=:kb"), {"kb": kb_hex})
+            await conn.execute(
+                sql("DELETE FROM rag.entity_index_relations WHERE kb_id=:kb"),
+                {"kb": kb_hex},
+            )
+            await conn.execute(
+                sql("DELETE FROM rag.entity_index_extract_progress WHERE kb_id=:kb"),
+                {"kb": kb_hex},
+            )
         done = {
             str(r[0])
             for r in (
@@ -169,7 +181,10 @@ async def build_kb(
                 )
             ).all()
             chunk_rows.extend(ch)
-    print(f"[rel] {name}: reachable_docs={len(doc_list)} chunks={len(chunk_rows)}", flush=True)
+    print(
+        f"[rel] {name}: reachable_docs={len(doc_list)} chunks={len(chunk_rows)}",
+        flush=True,
+    )
 
     pending = []
     patterns_cache: dict[str, re.Pattern] = {}
@@ -194,7 +209,10 @@ async def build_kb(
         pending.append((cid, did, (content or "")[:CHUNK_CHARS], ents_here))
         if limit is not None and len(pending) >= limit:
             break
-    print(f"[rel] {name}: eligible={stats['eligible']} skipped_done={stats['skipped_done']}", flush=True)
+    print(
+        f"[rel] {name}: eligible={stats['eligible']} skipped_done={stats['skipped_done']}",
+        flush=True,
+    )
 
     async def extract(cid, did, chunk_text, ents):
         async with sem:
@@ -203,17 +221,30 @@ async def build_kb(
                 try:
                     resp = await asyncio.wait_for(
                         model.ainvoke(
-                            [{"role": "user", "content": PROMPT.format(chunk=chunk_text, entities=", ".join(ents))}]
+                            [
+                                {
+                                    "role": "user",
+                                    "content": PROMPT.format(
+                                        chunk=chunk_text, entities=", ".join(ents)
+                                    ),
+                                }
+                            ]
                         ),
                         timeout=EXTRACT_TIMEOUT,
                     )
                     raw = getattr(resp, "content", None) or str(resp)
                     rels = parse_relations(raw, set(ents))
-                    print(f"[rel] CALL_OK chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s rels={len(rels)}", flush=True)
+                    print(
+                        f"[rel] CALL_OK chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s rels={len(rels)}",
+                        flush=True,
+                    )
                     return ("done", rels)
                 except Exception as exc:
                     if attempt == 1:
-                        print(f"[rel] EXTRACT_FAIL chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+                        print(
+                            f"[rel] EXTRACT_FAIL chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s {type(exc).__name__}: {str(exc)[:120]}",
+                            flush=True,
+                        )
                         return ("failed", [])
                     await asyncio.sleep(2)
 
@@ -305,7 +336,10 @@ async def main() -> None:
         await conn.run_sync(
             lambda sync_conn: Base.metadata.create_all(
                 sync_conn,
-                tables=[EntityIndexRelation.__table__, EntityIndexExtractProgress.__table__],
+                tables=[
+                    EntityIndexRelation.__table__,
+                    EntityIndexExtractProgress.__table__,
+                ],
             )
         )
     await engine.dispose()
@@ -315,8 +349,12 @@ async def main() -> None:
         kb = doc_map["kb_ids"][name]
         rows = [attach_v3_gold(r, {}) for r in load_rows([name])]
         await build_kb(
-            kb, name, rows,
-            concurrency=args.concurrency, limit=args.limit, rebuild=args.rebuild,
+            kb,
+            name,
+            rows,
+            concurrency=args.concurrency,
+            limit=args.limit,
+            rebuild=args.rebuild,
         )
 
 

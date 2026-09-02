@@ -19,14 +19,78 @@ MAX_HOP_QUERIES = 3
 
 # 常见句首/疑问/关系功能词：不构成实体锚点
 _EN_STOP = {
-    "the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "is",
-    "are", "was", "were", "be", "been", "who", "whom", "whose", "what",
-    "which", "when", "where", "why", "how", "did", "do", "does", "has",
-    "have", "had", "both", "from", "with", "by", "as", "it", "its", "this",
-    "that", "these", "those", "there", "their", "his", "her", "not", "no",
-    "yes", "if", "than", "then", "also", "into", "about", "after", "before",
-    "same", "other", "more", "most", "some", "any", "all", "each", "every",
-    "one", "two", "three", "film", "films",
+    "the",
+    "a",
+    "an",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "and",
+    "or",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "who",
+    "whom",
+    "whose",
+    "what",
+    "which",
+    "when",
+    "where",
+    "why",
+    "how",
+    "did",
+    "do",
+    "does",
+    "has",
+    "have",
+    "had",
+    "both",
+    "from",
+    "with",
+    "by",
+    "as",
+    "it",
+    "its",
+    "this",
+    "that",
+    "these",
+    "those",
+    "there",
+    "their",
+    "his",
+    "her",
+    "not",
+    "no",
+    "yes",
+    "if",
+    "than",
+    "then",
+    "also",
+    "into",
+    "about",
+    "after",
+    "before",
+    "same",
+    "other",
+    "more",
+    "most",
+    "some",
+    "any",
+    "all",
+    "each",
+    "every",
+    "one",
+    "two",
+    "three",
+    "film",
+    "films",
 }
 
 # 低置信度锚点阈值：低于该分不触发下钻
@@ -37,8 +101,26 @@ _CJK_RUN_RE = re.compile(r"[\u3400-\u9fff]{2,}")
 # 实体短语内部允许的小写连接词（区分 "Edward Watson was ..." 与
 # "Waldrada of Lotharingia"：was/the-of 类动词不在列表内即断开）
 _EN_CONNECTIVES = {
-    "of", "the", "and", "for", "at", "by", "van", "von", "de", "la", "le",
-    "du", "da", "del", "di", "bin", "ibn", "al", "der", "den",
+    "of",
+    "the",
+    "and",
+    "for",
+    "at",
+    "by",
+    "van",
+    "von",
+    "de",
+    "la",
+    "le",
+    "du",
+    "da",
+    "del",
+    "di",
+    "bin",
+    "ibn",
+    "al",
+    "der",
+    "den",
 }
 _PUNCT_SPLIT_RE = re.compile(r"[,;:!?\u3002\uff0c\uff1b]+")
 
@@ -105,7 +187,10 @@ def extract_english_phrases(text: str, limit: int = 12) -> list[str]:
                 run = tokens[index:end]
                 index = end
                 # 去掉尾部连接词/功能词（"Film)"、"Of" 等片段）与句首代词
-                while run and run[-1].casefold().strip("().") in _EN_STOP | _EN_CONNECTIVES:
+                while (
+                    run
+                    and run[-1].casefold().strip("().") in _EN_STOP | _EN_CONNECTIVES
+                ):
                     run.pop()
                 while run and len(run) > 1 and run[0].casefold() in _EN_STOP:
                     run.pop(0)
@@ -148,7 +233,9 @@ def extract_anchors(
         if not text or key in seen:
             return
         seen.add(key)
-        anchors.append(Anchor(text=text, kind=kind, source=source, confidence=confidence))
+        anchors.append(
+            Anchor(text=text, kind=kind, source=source, confidence=confidence)
+        )
 
     for phrase in extract_english_phrases(question, MAX_QUESTION_ANCHORS):
         add(phrase, "entity", "question", 3)
@@ -182,13 +269,19 @@ def build_hop_queries(
     navigation = navigation or []
     question_entities = extract_english_phrases(question, MAX_QUESTION_ANCHORS)
     question_entities += [
-        run for run in extract_chinese_terms(question, MAX_QUESTION_ANCHORS)
+        run
+        for run in extract_chinese_terms(question, MAX_QUESTION_ANCHORS)
         if run not in question_entities
     ]
     queries: list[HopQuery] = []
     used: set[str] = set()
 
-    def push(focus: str, anchors: tuple[str, ...], docs: tuple[str, ...], member: str | None = None) -> None:
+    def push(
+        focus: str,
+        anchors: tuple[str, ...],
+        docs: tuple[str, ...],
+        member: str | None = None,
+    ) -> None:
         # 原问题作语义主干 + 锚点聚焦补充：截断的实体片段单独成句时
         # 语义信号弱于原问题（评测已验证），拼接后交给独立 rerank 排序
         query = f"{question} Focus: {focus}".strip()
@@ -212,7 +305,9 @@ def build_hop_queries(
     context_entities: list[tuple[str, str]] = []
     for doc in first_hop_docs[:5]:
         doc_id = str(doc.get("document_id") or "")
-        for phrase in extract_english_phrases(str(doc.get("text", "")), MAX_CONTEXT_ANCHORS):
+        for phrase in extract_english_phrases(
+            str(doc.get("text", "")), MAX_CONTEXT_ANCHORS
+        ):
             if phrase.casefold() not in q_keys:
                 context_entities.append((phrase, doc_id))
         for run in extract_chinese_terms(str(doc.get("text", "")), MAX_CONTEXT_ANCHORS):
@@ -297,7 +392,9 @@ def collect_hop_pool(
             key = doc_key(doc)
             if key in seen:
                 for chosen in pool:
-                    if doc_key(chosen) == key and result.hop not in chosen.get("source_hops", []):
+                    if doc_key(chosen) == key and result.hop not in chosen.get(
+                        "source_hops", []
+                    ):
                         chosen.setdefault("source_hops", []).append(result.hop)
                 continue
             entry = dict(doc)
@@ -331,7 +428,8 @@ def _entity_match(question_phrases: tuple[str, ...], page_entities: list[str]) -
             if p_cf in e_cf or e_cf in p_cf:
                 return True
             e_tokens = tuple(
-                token for token in _phrase_tokens(e_cf)
+                token
+                for token in _phrase_tokens(e_cf)
                 if not re.match(r"^[0-9a-f]{16,}", token)
             )
             if len(e_tokens) >= 2:
@@ -363,7 +461,9 @@ def gate_navigation(
     question_phrases = tuple(
         extract_english_phrases(question, 8) + extract_chinese_terms(question, 8)
     )
-    retrieved_ids = {str(doc.get("document_id") or "") for doc in (retrieved_docs or [])}
+    retrieved_ids = {
+        str(doc.get("document_id") or "") for doc in (retrieved_docs or [])
+    }
 
     def significant(values: list[str]) -> list[str]:
         if not generic_terms:
@@ -374,9 +474,13 @@ def gate_navigation(
     generic: list[dict] = []
     for page in navigation:
         members = {str(m) for m in page.get("documents") or []}
-        entity_overlap = _entity_match(question_phrases, significant(list(page.get("entities") or [])))
+        entity_overlap = _entity_match(
+            question_phrases, significant(list(page.get("entities") or []))
+        )
         if not entity_overlap:
-            entity_overlap = _entity_match(question_phrases, significant(list(page.get("keywords") or [])))
+            entity_overlap = _entity_match(
+                question_phrases, significant(list(page.get("keywords") or []))
+            )
         member_overlap = bool(retrieved_ids and retrieved_ids & members)
         if entity_overlap or member_overlap:
             page = dict(page)
@@ -388,5 +492,3 @@ def gate_navigation(
         else:
             generic.append(page)
     return effective, generic
-
-

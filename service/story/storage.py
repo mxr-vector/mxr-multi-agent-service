@@ -100,7 +100,9 @@ def resolve_upload_path(relative: str) -> Path:
     return candidate
 
 
-def assert_asset_relative(relative: str | None, allowed_prefixes: tuple[str, ...]) -> None:
+def assert_asset_relative(
+    relative: str | None, allowed_prefixes: tuple[str, ...]
+) -> None:
     """校验客户端提交的资产相对路径：必须相对、无 ..、以允许前缀开头。"""
     if relative is None:
         return

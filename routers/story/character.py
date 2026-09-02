@@ -236,7 +236,5 @@ async def set_art_selection(
 ):
     """整体设置项目选中立绘（导出使用）；立绘须归属本项目出演角色。"""
     return R.success(
-        data=await _casting_service.set_art_selection(
-            ctx, project_id, payload.art_ids
-        )
+        data=await _casting_service.set_art_selection(ctx, project_id, payload.art_ids)
     )

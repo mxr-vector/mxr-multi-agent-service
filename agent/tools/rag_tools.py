@@ -198,7 +198,9 @@ async def _run_multihop(
     hop0_pool_ids, hop0_docs = await _retrieve_hop(
         evidence_query, kb_ids, CFG.rag_candidate_pool_size, merge_pool_size
     )
-    hop_results: List[HopResult] = [HopResult(hop=0, query=evidence_query, docs=hop0_docs)]
+    hop_results: List[HopResult] = [
+        HopResult(hop=0, query=evidence_query, docs=hop0_docs)
+    ]
     hop_pools: dict[int, List[str]] = {0: hop0_pool_ids}
 
     # 实体索引：为 wiki 门控提供通用实体统计判据（加载失败/未构建时静默降级）
@@ -215,7 +217,9 @@ async def _run_multihop(
     )
 
     degraded = False
-    hop_queries = [{"hop": 0, "query": evidence_query, "anchors": [], "source_documents": []}]
+    hop_queries = [
+        {"hop": 0, "query": evidence_query, "anchors": [], "source_documents": []}
+    ]
     if max_hops > 1:
         queries = build_hop_queries(evidence_query, hop0_docs, effective_pages)
         for index, hop_query in enumerate(queries, start=1):
@@ -231,9 +235,13 @@ async def _run_multihop(
                 }
             )
             try:
-                pool_ids, docs = await _retrieve_hop(hop_query.query, kb_ids, hop_pool_size, merge_pool_size)
+                pool_ids, docs = await _retrieve_hop(
+                    hop_query.query, kb_ids, hop_pool_size, merge_pool_size
+                )
                 hop_pools[index] = pool_ids
-                hop_results.append(HopResult(hop=index, query=hop_query.query, docs=docs))
+                hop_results.append(
+                    HopResult(hop=index, query=hop_query.query, docs=docs)
+                )
             except Exception as exc:
                 # 后续跳异常不阻断：保留已完成跳的候选并记录降级
                 degraded = True
@@ -422,7 +430,9 @@ async def kb_wiki_lookup_impl(
             metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
             navigation_only=True,
         )
-    scopes = [str(value).strip() for value in knowledge_base_ids or [] if str(value).strip()]
+    scopes = [
+        str(value).strip() for value in knowledge_base_ids or [] if str(value).strip()
+    ]
     if not scopes:
         return ToolOutcome(
             text=(
@@ -478,6 +488,8 @@ async def kb_wiki_lookup_impl(
         navigation=navigation,
         navigation_only=True,
     )
+
+
 # ---------- 工具 schema（bind_tools 用；返回文本给模型） ----------
 @tool
 async def knowledge_base_search(
@@ -499,7 +511,9 @@ async def knowledge_base_search(
         multihop: 问题明确需要跨实体/跨文档逐步推理时置 True，将逐跳召回并
             合并各跳证据；单跳/普通问题保持 False。
     """
-    outcome = await knowledge_base_search_impl(query, knowledge_base_ids, top_k, multihop=multihop)
+    outcome = await knowledge_base_search_impl(
+        query, knowledge_base_ids, top_k, multihop=multihop
+    )
     return outcome.text
 
 
@@ -546,7 +560,9 @@ async def entity_relation_lookup_impl(
     top_n = max(1, min(top_k or 8, 20))
     entity_norm = (entity or "").strip().casefold()
     if not entity_norm:
-        return ToolOutcome(text="实体关系查询：实体为空。", docs=[], metrics={"relations": 0})
+        return ToolOutcome(
+            text="实体关系查询：实体为空。", docs=[], metrics={"relations": 0}
+        )
     kb_uuids = []
     for kb in knowledge_base_ids or []:
         try:
@@ -607,11 +623,18 @@ async def entity_relation_lookup_impl(
             + (f" | 事实: {fact[:200]}" if fact else "")
             + f" | chunk_id={item['chunk_id']}"
         )
-    text_out = f"实体「{entity}」的关系（可用 chunk_read 读取来源块全文）：\n" + "\n".join(lines)
+    text_out = (
+        f"实体「{entity}」的关系（可用 chunk_read 读取来源块全文）：\n"
+        + "\n".join(lines)
+    )
     return ToolOutcome(
         text=text_out,
         docs=[],
-        metrics={"relations": len(ranked), "entity": entity_norm, "raw_rows": len(rows)},
+        metrics={
+            "relations": len(ranked),
+            "entity": entity_norm,
+            "raw_rows": len(rows),
+        },
     )
 
 
@@ -632,7 +655,9 @@ async def chunk_read_impl(
     per_chars = max(200, min(max_chars or 4000, 8000))
     clean = [str(i).strip() for i in (ids or []) if str(i).strip()][:5]
     if not clean:
-        return ToolOutcome(text="块读取：未提供有效 id。", docs=[], metrics={"chunks": 0})
+        return ToolOutcome(
+            text="块读取：未提供有效 id。", docs=[], metrics={"chunks": 0}
+        )
     # 输入 → 规范化带连字符 UUID 串（found 键的规范形）；带/不带连字符均可命中
     norm: dict[str, str] = {}
     uuids = []
@@ -652,7 +677,11 @@ async def chunk_read_impl(
             kb_uuids.append(uuid.UUID(str(kb)))
         except ValueError:
             continue
-    scope = " AND c.document_id IN (SELECT id FROM rag.rag_documents WHERE knowledge_base_id = ANY(:kbs))" if kb_uuids else ""
+    scope = (
+        " AND c.document_id IN (SELECT id FROM rag.rag_documents WHERE knowledge_base_id = ANY(:kbs))"
+        if kb_uuids
+        else ""
+    )
     engine = create_async_engine(PostgresConfig.from_env().async_connection)
     found: dict[str, dict] = {}
     try:
@@ -711,10 +740,16 @@ async def chunk_read_impl(
             f"{hit['content'][:per_chars]}"
         )
         docs_out.append(
-            {"document_id": hit["document_id"], "chunk_id": hit["chunk_id"], "text": hit["content"][:per_chars]}
+            {
+                "document_id": hit["document_id"],
+                "chunk_id": hit["chunk_id"],
+                "text": hit["content"][:per_chars],
+            }
         )
     if not lines:
-        return ToolOutcome(text="块读取：未找到对应块。", docs=[], metrics={"chunks": 0})
+        return ToolOutcome(
+            text="块读取：未找到对应块。", docs=[], metrics={"chunks": 0}
+        )
     return ToolOutcome(
         text="\n\n".join(lines), docs=docs_out, metrics={"chunks": len(lines)}
     )

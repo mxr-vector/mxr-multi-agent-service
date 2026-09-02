@@ -16,6 +16,7 @@ Python，把图像生成从 Codex Image2 / OpenAI API 改成 apiz CLI（默认 f
   python gen_story_images.py examples/story.txt --title "..." --dry-run
   python gen_story_images.py examples/story.txt --title "..." --visual-plan plan.json
 """
+
 from __future__ import annotations
 import argparse
 import hashlib
@@ -28,8 +29,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from lib_apiz import generate_image as apiz_generate_image, upload as apiz_upload, DEFAULT_IMAGE_MODEL  # noqa: E402
-from lib_agnes import generate_image as agnes_generate_image, DEFAULT_MODEL as AGNES_DEFAULT_MODEL  # noqa: E402
+from lib_apiz import (
+    generate_image as apiz_generate_image,
+    upload as apiz_upload,
+    DEFAULT_IMAGE_MODEL,
+)  # noqa: E402
+from lib_agnes import (
+    generate_image as agnes_generate_image,
+    DEFAULT_MODEL as AGNES_DEFAULT_MODEL,
+)  # noqa: E402
 
 DEFAULT_BACKEND = "agnes"
 DEFAULT_LANG = "zh"
@@ -56,20 +64,151 @@ STYLE_LOCK_EN = (
 DEFAULT_CHARACTER_LOCK = ""
 
 # 英文关键词提取用的停用词表（用于从句子里挑出重点教学词汇）
-ENGLISH_STOP_WORDS = frozenset({
-    "the","a","an","is","are","was","were","be","been","being","am","do","does",
-    "did","have","has","had","will","would","can","could","should","shall","may",
-    "might","must","to","of","in","on","at","for","with","by","from","as","into",
-    "about","than","then","so","very","too","and","but","or","if","because","when",
-    "while","where","what","who","whom","which","how","why","this","that","these",
-    "those","i","you","he","she","it","we","they","my","your","his","her","its",
-    "our","their","me","him","us","them","not","no","yes","just","also","only",
-    "there","here","up","down","out","over","again","once","all","any","some","one",
-    "two","more","most","other","such","own","same","few","further","off","now",
-    "get","got","go","goes","went","gone","come","came","say","said","make","made",
-    "see","saw","know","knew","think","thought","let","like","want","well","back",
-    "even","still","yet","ever","never","always","often","every","much","many",
-})
+ENGLISH_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "am",
+        "do",
+        "does",
+        "did",
+        "have",
+        "has",
+        "had",
+        "will",
+        "would",
+        "can",
+        "could",
+        "should",
+        "shall",
+        "may",
+        "might",
+        "must",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "for",
+        "with",
+        "by",
+        "from",
+        "as",
+        "into",
+        "about",
+        "than",
+        "then",
+        "so",
+        "very",
+        "too",
+        "and",
+        "but",
+        "or",
+        "if",
+        "because",
+        "when",
+        "while",
+        "where",
+        "what",
+        "who",
+        "whom",
+        "which",
+        "how",
+        "why",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "you",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "me",
+        "him",
+        "us",
+        "them",
+        "not",
+        "no",
+        "yes",
+        "just",
+        "also",
+        "only",
+        "there",
+        "here",
+        "up",
+        "down",
+        "out",
+        "over",
+        "again",
+        "once",
+        "all",
+        "any",
+        "some",
+        "one",
+        "two",
+        "more",
+        "most",
+        "other",
+        "such",
+        "own",
+        "same",
+        "few",
+        "further",
+        "off",
+        "now",
+        "get",
+        "got",
+        "go",
+        "goes",
+        "went",
+        "gone",
+        "come",
+        "came",
+        "say",
+        "said",
+        "make",
+        "made",
+        "see",
+        "saw",
+        "know",
+        "knew",
+        "think",
+        "thought",
+        "let",
+        "like",
+        "want",
+        "well",
+        "back",
+        "even",
+        "still",
+        "yet",
+        "ever",
+        "never",
+        "always",
+        "often",
+        "every",
+        "much",
+        "many",
+    }
+)
 
 # ============================================================================
 # 分句算法（直接照抄 story-to-video.mjs 的 splitStory / splitLongBeat / formatCaption）
@@ -153,7 +292,12 @@ def format_caption(text: str, max_chars_per_line: int = 13, max_lines: int = 3) 
             lines.append(remaining)
             break
         window = remaining[: max_chars_per_line + 1]
-        cut = max(window.rfind("，"), window.rfind("、"), window.rfind("；"), window.rfind("："))
+        cut = max(
+            window.rfind("，"),
+            window.rfind("、"),
+            window.rfind("；"),
+            window.rfind("："),
+        )
         if cut < max_chars_per_line * 0.45:
             cut = max_chars_per_line
         else:
@@ -262,7 +406,9 @@ def split_story_en(text: str) -> list[str]:
     return [b for b in beats if b]
 
 
-def format_caption_en(text: str, max_chars_per_line: int = 42, max_lines: int = 3) -> str:
+def format_caption_en(
+    text: str, max_chars_per_line: int = 42, max_lines: int = 3
+) -> str:
     """英文字幕格式化：按词换行，保持词完整。"""
     words = text.split()
     lines = []
@@ -323,15 +469,28 @@ def detect_caption_crop_y(master_path: Path, project_root: Path) -> int:
     """用 ffmpeg cropdetect 自动检测 caption 区域。失败时返回 0（top-aligned）。"""
     proc = subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-loglevel", "verbose",
-            "-loop", "1", "-i", str(master_path),
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "verbose",
+            "-loop",
+            "1",
+            "-i",
+            str(master_path),
             "-vf",
             f"crop=1024:{CAPTION_SCAN_HEIGHT}:0:0,negate,format=gray,"
             f"lut=y='if(gt(val,80),255,0)',cropdetect=limit=0.1:round=2:reset=0",
-            "-frames:v", "3", "-f", "null", "-",
+            "-frames:v",
+            "3",
+            "-f",
+            "null",
+            "-",
         ],
-        cwd=project_root, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     log = f"{proc.stdout}\n{proc.stderr}"
     matches = list(re.finditer(r"crop=(\d+):(\d+):(\d+):(\d+)", log))
@@ -349,12 +508,23 @@ def ffmpeg_run(input_path: Path, vf: str, output: Path, project_root: Path) -> N
     """跑 ffmpeg 单帧切图（用于 master → text/bw/color）。"""
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-i", str(input_path),
-            "-vf", vf, "-frames:v", "1", "-y", str(output),
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(input_path),
+            "-vf",
+            vf,
+            "-frames:v",
+            "1",
+            "-y",
+            str(output),
         ],
-        cwd=project_root, check=True,
-        encoding="utf-8", errors="replace",
+        cwd=project_root,
+        check=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
 
@@ -362,11 +532,23 @@ def _probe_size(path: Path) -> tuple[int, int]:
     """读图片宽高。失败返回 (0, 0)。"""
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=p=0",
-             str(path)],
-            capture_output=True, text=True, check=True,
-            encoding="utf-8", errors="replace",
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            encoding="utf-8",
+            errors="replace",
         )
         w, h = out.stdout.strip().split(",")
         return int(w), int(h)
@@ -374,7 +556,9 @@ def _probe_size(path: Path) -> tuple[int, int]:
         return 0, 0
 
 
-def _normalize_master(master_path: Path, project_root: Path, text_mode_image2: bool) -> Path:
+def _normalize_master(
+    master_path: Path, project_root: Path, text_mode_image2: bool
+) -> Path:
     """nano-banana-2 有时返回 416×624 而非 1024×1536；先 in-place upscale 到目标尺寸。
 
     text_mode_image2=True 目标 1024×1536，False 目标 1024×1024。
@@ -397,12 +581,24 @@ def _normalize_master(master_path: Path, project_root: Path, text_mode_image2: b
         )
     tmp = master_path.with_suffix(".normalized.png")
     subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-i", str(master_path),
-         "-vf", f"scale={target_w}:{target_h}:flags=lanczos",
-         "-frames:v", "1", "-y", str(tmp)],
-        cwd=project_root, check=True,
-        encoding="utf-8", errors="replace",
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(master_path),
+            "-vf",
+            f"scale={target_w}:{target_h}:flags=lanczos",
+            "-frames:v",
+            "1",
+            "-y",
+            str(tmp),
+        ],
+        cwd=project_root,
+        check=True,
+        encoding="utf-8",
+        errors="replace",
     )
     tmp.replace(master_path)
     print(f"  ↑ master normalized {w}×{h} → {target_w}×{target_h}")
@@ -427,14 +623,17 @@ def split_master_into_layers(
     bw_path = asset_dir / f"{scene_id}_bw.png"
     color_path = asset_dir / f"{scene_id}_color.png"
 
-    rel = lambda p: f"assets/{p.relative_to(project_root / 'public' / 'assets').as_posix()}"
+    rel = (
+        lambda p: f"assets/{p.relative_to(project_root / 'public' / 'assets').as_posix()}"
+    )
 
     if text_mode_image2:
         caption_y = detect_caption_crop_y(master_path, project_root)
         ffmpeg_run(
             master_path,
             f"crop=1024:{CAPTION_CROP_HEIGHT}:0:{caption_y},scale=1536:765:flags=lanczos",
-            text_path, project_root,
+            text_path,
+            project_root,
         )
 
     # bw 层
@@ -461,6 +660,7 @@ def split_master_into_layers(
 # Prompt 模板（直接照抄 story-to-video.mjs）
 # ============================================================================
 
+
 def build_character_reference_prompt(character_lock: str) -> str:
     return f"""Use case: illustration-story
 Asset type: fixed protagonist character reference sheet for a hand-drawn Chinese diary-comic video
@@ -485,16 +685,20 @@ def build_master_prompt(
     # percentages (10%) in the prompt — nano-banana-2 has been observed drawing
     # those numbers onto the card as visible text. The ffmpeg crop auto-detects
     # the text/illustration boundary, so relative layout descriptions suffice.
-    master_shape = "tall portrait (top caption + bottom illustration)" if text_mode_image2 else "square canvas"
+    master_shape = (
+        "tall portrait (top caption + bottom illustration)"
+        if text_mode_image2
+        else "square canvas"
+    )
     if text_mode_image2:
         caption_panel = (
-            f'Top copy panel (roughly the top third of the card): pure white background. '
-            f'Write ONLY this Simplified Chinese caption verbatim, preserving the explicit line breaks:\n'
+            f"Top copy panel (roughly the top third of the card): pure white background. "
+            f"Write ONLY this Simplified Chinese caption verbatim, preserving the explicit line breaks:\n"
             f'"{caption}"\n'
-            f'Use thick casual black felt-tip handwriting, one to three lines only, generous '
-            f'left and right margins, and a large readable letter size. Do not put '
-            f'any illustration or decorative mark in this top panel. Keep all text in the top '
-            f'panel; do not write text inside the illustration area below.'
+            f"Use thick casual black felt-tip handwriting, one to three lines only, generous "
+            f"left and right margins, and a large readable letter size. Do not put "
+            f"any illustration or decorative mark in this top panel. Keep all text in the top "
+            f"panel; do not write text inside the illustration area below."
         )
         text_constraint = (
             "no extra text outside the exact top caption, no letters or numbers in the "
@@ -533,15 +737,16 @@ def build_master_prompt(
             "only for the protagonist's identity, never copy its pose or composition."
         )
     else:
-        input_images_line = (
-            "Input images: the supplied original-video frames are style references only. Ignore all text in references."
+        input_images_line = "Input images: the supplied original-video frames are style references only. Ignore all text in references."
+        protagonist_line = (
+            "Create one concrete, immediately readable tableau for that sentence."
         )
-        protagonist_line = "Create one concrete, immediately readable tableau for that sentence."
         continuity_line = ""
 
     isolation_block = (
         "\nNarrative isolation: show only people required by the current sentence."
-        if has_character_ref else ""
+        if has_character_ref
+        else ""
     )
 
     # In font mode the caption is rendered by Remotion (TextWipe). agnes sees
@@ -561,7 +766,7 @@ def build_master_prompt(
         )
     else:
         narrative_line = (
-            f'Content to depict VISUALLY — do NOT write or letter any of these '
+            f"Content to depict VISUALLY — do NOT write or letter any of these "
             f'characters on the canvas; the caption is added later: "{text}"'
         )
 
@@ -584,6 +789,7 @@ Constraints: non-graphic, emotionally restrained family storytelling; no visible
 # ============================================================================
 # 英文教学模式：教育闪卡 prompt（句子 + 关键词音标 + 插画 烧在图上）
 # ============================================================================
+
 
 def build_english_flashcard_prompt(
     sentence: str,
@@ -679,6 +885,7 @@ Color: soft bright educational colors — sage green, dusty blue, warm tan, bric
 # 主流程
 # ============================================================================
 
+
 def safe_title(title: str) -> str:
     normalized = unicodedata.normalize("NFKC", title)
     cleaned = re.sub(r"[^\w]+", "-", normalized, flags=re.UNICODE)
@@ -699,8 +906,11 @@ def apiz_preflight_balance() -> None:
     try:
         proc = subprocess.run(
             ["apiz", "account", "balance", "--json"],
-            capture_output=True, text=True, timeout=15,
-            encoding="utf-8", errors="replace",
+            capture_output=True,
+            text=True,
+            timeout=15,
+            encoding="utf-8",
+            errors="replace",
         )
     except FileNotFoundError:
         print("  ⚠️ 未找到 apiz CLI，跳过余额预检查", file=sys.stderr)
@@ -733,55 +943,76 @@ def main():
     )
     parser.add_argument("input", help="story.txt 路径（UTF-8）")
     parser.add_argument(
-        "--backend", choices=["agnes", "apiz"], default=DEFAULT_BACKEND,
+        "--backend",
+        choices=["agnes", "apiz"],
+        default=DEFAULT_BACKEND,
         help=f"图片后端：agnes Agnes Image 2.1 Flash 默认且免费 / apiz fal-ai/nano-banana-2 收费",
     )
     parser.add_argument(
-        "--lang", choices=["zh", "en"], default=DEFAULT_LANG,
+        "--lang",
+        choices=["zh", "en"],
+        default=DEFAULT_LANG,
         help="语言模式：zh 中文手绘日记风（默认）/ en 英文教学闪卡风（句子+关键词音标+插画烧在图上，用于英语教学）",
     )
-    parser.add_argument("--title", default="手绘故事", help="故事标题（用于资产目录命名）")
     parser.add_argument(
-        "--character-lock", default=DEFAULT_CHARACTER_LOCK,
+        "--title", default="手绘故事", help="故事标题（用于资产目录命名）"
+    )
+    parser.add_argument(
+        "--character-lock",
+        default=DEFAULT_CHARACTER_LOCK,
         help="角色一致性约束（默认通用版）",
     )
     parser.add_argument(
-        "--visual-plan", help="可选 visual_plan.json（场景 id → 视觉方向）",
+        "--visual-plan",
+        help="可选 visual_plan.json（场景 id → 视觉方向）",
     )
     parser.add_argument(
-        "--text-mode", choices=["image2", "font"], default=None,
+        "--text-mode",
+        choices=["image2", "font"],
+        default=None,
         help="caption 渲染方式：image2（图片模型画手写体，仅 apiz 支持） / font（MaShanZheng 字体，agnes 必须用这个）。不传时按后端自动选：agnes→font，apiz→image2",
     )
     parser.add_argument(
-        "--transition", choices=["cut", "page-flip"], default="cut",
+        "--transition",
+        choices=["cut", "page-flip"],
+        default="cut",
         help="转场：cut 直接切（默认） / page-flip 右下角卷页",
     )
     parser.add_argument(
-        "--transition-sec", type=float, default=0.7,
+        "--transition-sec",
+        type=float,
+        default=0.7,
         help="page-flip 转场秒数（0–2，默认 0.7）",
     )
     parser.add_argument(
-        "--model", default=DEFAULT_IMAGE_MODEL,
+        "--model",
+        default=DEFAULT_IMAGE_MODEL,
         help=f"apiz 模型 id（默认 {DEFAULT_IMAGE_MODEL}）",
     )
     parser.add_argument(
-        "--character-ref", action="store_true",
+        "--character-ref",
+        action="store_true",
         help="生成 00_character_reference.png 并用作图生图参考（默认关闭：纯文生图，避免角色立绘污染）",
     )
     parser.add_argument(
-        "--character-ref-image", default=None,
+        "--character-ref-image",
+        default=None,
         help="用户提供的角色参考图路径（开启图生图锁身份，跳过自动生成 00）",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="只打印 prompt 和计划，不实际生成图片",
     )
     parser.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="已存在的 master 也重新生成（默认跳过）",
     )
     parser.add_argument(
-        "--concurrency", type=int, default=4,
+        "--concurrency",
+        type=int,
+        default=4,
         help="master 并发生成数（默认 4；agnes/apiz 是 IO 密集型，并发可把 15 张图时间砍到 1/4）",
     )
     args = parser.parse_args()
@@ -796,11 +1027,15 @@ def main():
             print(f"  ℹ️ --lang en 模式，强制 text_mode=image2（模型画教学闪卡文字）")
             if args.backend == "agnes":
                 print(f"  ⚠️ agnes + image2 可能会把插画画满整个画布（已知问题）。")
-                print(f"     英文教学闪卡推荐用 --backend apiz（nano-banana-2 文字渲染更稳）。")
+                print(
+                    f"     英文教学闪卡推荐用 --backend apiz（nano-banana-2 文字渲染更稳）。"
+                )
                 print(f"     如坚持用 agnes，接受 70% 文字质量即可，不要逐张修。")
         else:
             args.text_mode = "font" if args.backend == "agnes" else "image2"
-            print(f"  ℹ️ --text-mode 未指定，按后端 {args.backend} 自动选 {args.text_mode}")
+            print(
+                f"  ℹ️ --text-mode 未指定，按后端 {args.backend} 自动选 {args.text_mode}"
+            )
 
     project_root = Path.cwd()
     story_path = Path(args.input).resolve()
@@ -820,15 +1055,17 @@ def main():
         print(f"  {i:02d}. {part}")
 
     # 计算资产目录 hash（避免不同故事冲突）
-    hash_input = "\n".join([
-        f"{args.backend}-{args.lang}-v1",
-        args.title,
-        args.text_mode,
-        args.transition,
-        str(args.transition_sec),
-        args.character_lock,
-        source_text,
-    ])
+    hash_input = "\n".join(
+        [
+            f"{args.backend}-{args.lang}-v1",
+            args.title,
+            args.text_mode,
+            args.transition,
+            str(args.transition_sec),
+            args.character_lock,
+            source_text,
+        ]
+    )
     story_hash = hashlib.sha256(hash_input.encode("utf-8")).digest().hex()[:8]
     asset_set = f"{safe_title(args.title)}-{story_hash}"
     asset_dir = project_root / "public" / "assets" / "generated" / asset_set
@@ -908,13 +1145,15 @@ def main():
                 print(f"  ⚠️ 上传失败 ({e})，后续 master 将不带 character 参考图")
                 char_ref_url = None
     else:
-        print(f"\nℹ️  未启用 character_reference（默认纯文生图）。"
-              f"如需角色锁，加 --character-ref 或 --character-ref-image <path>")
+        print(
+            f"\nℹ️  未启用 character_reference（默认纯文生图）。"
+            f"如需角色锁，加 --character-ref 或 --character-ref-image <path>"
+        )
 
     # —— Step 2: 每句生成 master + 切三层 ——
     # 先组装每场计划（prompt/path/caption/keywords），再并发生成 master（IO 密集），
     # 最后串行切三层 + 拼 storyboard。并发把 15 张图的墙钟时间砍到约 1/N。
-    is_en = (args.lang == "en")
+    is_en = args.lang == "en"
     scene_plans = []
     for i, text in enumerate(story_parts, 1):
         sid = f"{i:02d}"
@@ -937,25 +1176,36 @@ def main():
         else:
             visual_direction = str(
                 vp_entry
-                or ("A simple colorful illustration related to the sentence meaning, clean educational style."
+                or (
+                    "A simple colorful illustration related to the sentence meaning, clean educational style."
                     if is_en
-                    else "Stage one simple visual beat that expresses only the current sentence.")
+                    else "Stage one simple visual beat that expresses only the current sentence."
+                )
             )
         master_path = asset_dir / f"{sid}_master.png"
         if is_en:
             prompt = build_english_flashcard_prompt(
-                sentence=text, keywords=keywords, visual_direction=visual_direction,
+                sentence=text,
+                keywords=keywords,
+                visual_direction=visual_direction,
             )
         else:
             prompt = build_master_prompt(
-                text=text, caption=caption, visual_direction=visual_direction,
-                character_lock=args.character_lock, text_mode_image2=(args.text_mode == "image2"),
+                text=text,
+                caption=caption,
+                visual_direction=visual_direction,
+                character_lock=args.character_lock,
+                text_mode_image2=(args.text_mode == "image2"),
                 has_character_ref=use_character_ref,
             )
         (prompt_dir / f"{sid}_master.txt").write_text(prompt + "\n", encoding="utf-8")
         plan_entry = {
-            "sid": sid, "text": text, "caption": caption,
-            "duration": duration, "master_path": master_path, "prompt": prompt,
+            "sid": sid,
+            "text": text,
+            "caption": caption,
+            "duration": duration,
+            "master_path": master_path,
+            "prompt": prompt,
         }
         if is_en:
             plan_entry["keywords"] = keywords
@@ -969,7 +1219,9 @@ def main():
         sid = plan["sid"]
         master_path = plan["master_path"]
         if args.dry_run:
-            print(f"\n[{sid}] [dry-run] prompt first 200 chars: {plan['prompt'][:200]}...")
+            print(
+                f"\n[{sid}] [dry-run] prompt first 200 chars: {plan['prompt'][:200]}..."
+            )
             return sid, None
         if master_path.exists() and not args.force:
             print(f"[{sid}] master 已存在，跳过")
@@ -978,14 +1230,24 @@ def main():
         try:
             if args.backend == "agnes":
                 agnes_generate_image(
-                    prompt=plan["prompt"], out_path=master_path,
-                    model=AGNES_DEFAULT_MODEL, size="2K", ratio="2:3",
-                    image_ref=char_ref_path if (char_ref_path and char_ref_path.exists()) else None,
+                    prompt=plan["prompt"],
+                    out_path=master_path,
+                    model=AGNES_DEFAULT_MODEL,
+                    size="2K",
+                    ratio="2:3",
+                    image_ref=(
+                        char_ref_path
+                        if (char_ref_path and char_ref_path.exists())
+                        else None
+                    ),
                 )
             else:
                 apiz_generate_image(
-                    prompt=plan["prompt"], out_path=master_path, model=args.model,
-                    image_size="portrait_4_3", image_url=char_ref_url,
+                    prompt=plan["prompt"],
+                    out_path=master_path,
+                    model=args.model,
+                    image_size="portrait_4_3",
+                    image_url=char_ref_url,
                 )
             # apiz CLI has been observed returning exit 0 without writing a
             # file when the account is below the minimum balance. Verify the
@@ -1039,13 +1301,18 @@ def main():
         sid = plan["sid"]
         if not args.dry_run and plan["master_path"].exists():
             assets = split_master_into_layers(
-                master_path=plan["master_path"], asset_dir=asset_dir, scene_id=sid,
-                project_root=project_root, text_mode_image2=(args.text_mode == "image2"),
+                master_path=plan["master_path"],
+                asset_dir=asset_dir,
+                scene_id=sid,
+                project_root=project_root,
+                text_mode_image2=(args.text_mode == "image2"),
             )
         else:
             assets = {
                 "text_image": (
-                    f"assets/generated/{asset_set}/{sid}_text.png" if args.text_mode == "image2" else None
+                    f"assets/generated/{asset_set}/{sid}_text.png"
+                    if args.text_mode == "image2"
+                    else None
                 ),
                 "bw": f"assets/generated/{asset_set}/{sid}_bw.png",
                 "detail": None,
@@ -1116,7 +1383,10 @@ def main():
     print(f"\n{'='*60}")
     print(f"✓ storyboard 写入 {out_path}")
     print(f"  语言: {args.lang} | 场景数: {len(scenes)}")
-    print(f"  转场: {args.transition}" + (f" ({args.transition_sec}s)" if args.transition == "page-flip" else ""))
+    print(
+        f"  转场: {args.transition}"
+        + (f" ({args.transition_sec}s)" if args.transition == "page-flip" else "")
+    )
     if is_en:
         print(f"  英文教学模式：每张图含句子+关键词音标+插画（教育闪卡）")
         print(f"  TTS 用 en-US-JennyNeural（narration.yaml voice 字段）")
@@ -1124,7 +1394,9 @@ def main():
         print("\n[dry-run] 没有实际生成图片。去掉 --dry-run 跑实际生成。")
     else:
         print("\n下一步：")
-        print("  1. python ../../scripts/gen_tts.py narration.yaml --out-dir public/audio/narration")
+        print(
+            "  1. python ../../scripts/gen_tts.py narration.yaml --out-dir public/audio/narration"
+        )
         print("  2. python ../../scripts/apply_timeline.py")
         print("  3. npm run render:preview  # 720×960 预览")
 

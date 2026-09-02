@@ -5,7 +5,8 @@ from utils.logger import logger
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    '''访问日志中间件'''
+    """访问日志中间件"""
+
     async def dispatch(self, request: Request, call_next):
         # 记录开始时间
         start_time = time.time()

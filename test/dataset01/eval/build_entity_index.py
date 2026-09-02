@@ -28,7 +28,11 @@ async def main() -> None:
     kb_ids_map = doc_map.get("kb_ids") or {}
     if args.kb_ids:
         wanted = {k.strip() for k in args.kb_ids.split(",") if k.strip()}
-        kb_ids_map = {name: kid for name, kid in kb_ids_map.items() if kid in wanted or name in wanted}
+        kb_ids_map = {
+            name: kid
+            for name, kid in kb_ids_map.items()
+            if kid in wanted or name in wanted
+        }
     percent = CFG.entity_generic_df_percent
 
     for name, kid in kb_ids_map.items():

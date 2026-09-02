@@ -9,7 +9,13 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from common import BASE_K_VALUES, RESULTS_DIR, ensure_cfg_async, load_json, save_json
-from longbench_eval import DEFAULT_MAX_QUERIES, DOC_MAP_PATH, SUBSETS, _data_path, load_rows
+from longbench_eval import (
+    DEFAULT_MAX_QUERIES,
+    DOC_MAP_PATH,
+    SUBSETS,
+    _data_path,
+    load_rows,
+)
 from v3 import attach_v3_gold, render_v3_report, summarize_v3
 
 RESULTS_PATH = RESULTS_DIR / "longbench_v3_wiki_results.json"
@@ -19,8 +25,12 @@ CONCURRENCY = 4
 TIMEOUT = 240
 
 
-async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop: bool = True,
-                      multihop_only_multihop: bool = False) -> list[dict]:
+async def run_queries(
+    rows: list[dict],
+    concurrency: int = CONCURRENCY,
+    multihop: bool = True,
+    multihop_only_multihop: bool = False,
+) -> list[dict]:
     from agent.tools.rag_tools import (
         kb_wiki_lookup_impl,
         knowledge_base_search_impl,
@@ -54,7 +64,9 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
             try:
                 async with asyncio.timeout(TIMEOUT):
                     wiki = await kb_wiki_lookup_impl(
-                        row["question"], row.get("wiki_scopes") or [row["kb_hex"]], top_k=5
+                        row["question"],
+                        row.get("wiki_scopes") or [row["kb_hex"]],
+                        top_k=5,
                     )
                     output["wiki_hits"] = wiki.metrics.get("wiki_hits", 0)
                     evidence = await knowledge_base_search_impl(
@@ -62,7 +74,8 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
                         [row["kb_hex"]],
                         top_k=10,
                         navigation=wiki.navigation,
-                        multihop=multihop and (
+                        multihop=multihop
+                        and (
                             not multihop_only_multihop
                             or row.get("question_type") == "multi-hop"
                         ),
@@ -84,9 +97,15 @@ async def run_queries(rows: list[dict], concurrency: int = CONCURRENCY, multihop
                 )
                 output["hops_executed"] = metrics.get("hops_executed", 0)
                 output["hop_queries"] = metrics.get("hop_queries", [])
-                output["navigation_effective_pages"] = metrics.get("navigation_effective_pages", 0)
-                output["navigation_generic_pages"] = metrics.get("navigation_generic_pages", 0)
-                output["degraded"] = bool(metrics.get("degraded")) or bool(metrics.get("degraded_reason"))
+                output["navigation_effective_pages"] = metrics.get(
+                    "navigation_effective_pages", 0
+                )
+                output["navigation_generic_pages"] = metrics.get(
+                    "navigation_generic_pages", 0
+                )
+                output["degraded"] = bool(metrics.get("degraded")) or bool(
+                    metrics.get("degraded_reason")
+                )
                 # 逐跳 gold 归因（D6）：每个跳组 gold 在最终 top-k / 逐跳候选池 /
                 # 全部未命中三态定位失败阶段（裁剪 vs 召回）
                 final_ids = {c["document_id"] for c in output["candidates"]}
@@ -133,16 +152,21 @@ def render_multihop_diagnostics(results: list[dict]) -> str:
     timeouts = sum(1 for item in results if item.get("status") == "timeout")
     failed = sum(1 for item in results if item.get("status") == "failed")
     with_wiki = [item for item in ok if item.get("wiki_hits", 0) > 0]
-    nav_effective = [item for item in with_wiki if item.get("navigation_effective_pages", 0) > 0]
+    nav_effective = [
+        item for item in with_wiki if item.get("navigation_effective_pages", 0) > 0
+    ]
     degraded = [item for item in ok if item.get("degraded")]
     attribution = Counter(
-        entry["stage"] for item in ok for entry in item.get("hop_gold_attribution") or []
+        entry["stage"]
+        for item in ok
+        for entry in item.get("hop_gold_attribution") or []
     )
     total_groups = sum(attribution.values())
 
     # 标注型两跳验收口径（0.80 目标；完整分母，不剔除失败样本）
     target_rows = [
-        item for item in results
+        item
+        for item in results
         if item.get("gold_origin") == "annotated" and item.get("hop_count") == 2
     ]
     target_ok = [item for item in target_rows if item.get("status") == "ok"]
@@ -163,10 +187,18 @@ def render_multihop_diagnostics(results: list[dict]) -> str:
         "## Multihop diagnostics",
         "",
         f"- 分母完整性: executed={len(results)}, ok={len(ok)}, timeout={timeouts}, failed={failed}",
-        f"- 导航有效率: {len(nav_effective)}/{len(with_wiki)}"
-        f" = {len(nav_effective) / len(with_wiki):.1%}（命中 wiki 且页面含问题实体/成员重合）" if with_wiki else "- 导航有效率: 无 wiki 命中",
+        (
+            f"- 导航有效率: {len(nav_effective)}/{len(with_wiki)}"
+            f" = {len(nav_effective) / len(with_wiki):.1%}（命中 wiki 且页面含问题实体/成员重合）"
+            if with_wiki
+            else "- 导航有效率: 无 wiki 命中"
+        ),
         f"- 降级样本: {len(degraded)}（后续跳异常但保留已完成跳候选）",
-        f"- 平均执行跳数: {sum(item.get('hops_executed', 0) for item in ok) / len(ok):.2f}" if ok else "",
+        (
+            f"- 平均执行跳数: {sum(item.get('hops_executed', 0) for item in ok) / len(ok):.2f}"
+            if ok
+            else ""
+        ),
         "",
         "### 逐跳 gold 归因（按跳组计数）",
         "",
@@ -197,7 +229,11 @@ def render_multihop_diagnostics(results: list[dict]) -> str:
         f"- 样本: {len(target_rows)} 条 query（ok {len(target_ok)}，非 ok {len(target_rows) - len(target_ok)} 计入分母披露）",
         f"- 跳组命中: {group_success}/{group_total}"
         + (f" = {target_rate:.3f}" if target_rate is not None else "（无有效跳组）"),
-        f"- 目标达成: {'是' if target_rate is not None and target_rate >= 0.80 else '否'}" if target_rate is not None else "- 目标达成: 无法判定",
+        (
+            f"- 目标达成: {'是' if target_rate is not None and target_rate >= 0.80 else '否'}"
+            if target_rate is not None
+            else "- 目标达成: 无法判定"
+        ),
     ]
     return "\n".join(lines) + "\n"
 
@@ -206,21 +242,40 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="LongBench v3 wiki comparison")
     parser.add_argument("--subsets", default=",".join(SUBSETS))
     parser.add_argument("--max-queries", type=int, default=DEFAULT_MAX_QUERIES)
-    parser.add_argument("--wiki-scope", default=None, help="override wiki collection scope for every query")
-    parser.add_argument("--no-multihop", action="store_true", help="关闭逐跳下钻（旧单轮导航对照）")
-    parser.add_argument("--multihop-only-multihop", action="store_true",
-                        help="仅多跳题启用逐跳（生产真实语义：agent 只对多跳题传 multihop=True）")
-    parser.add_argument("--retry-failed", action="store_true", help="仅补跑上次失败/超时 query 并合并结果")
+    parser.add_argument(
+        "--wiki-scope",
+        default=None,
+        help="override wiki collection scope for every query",
+    )
+    parser.add_argument(
+        "--no-multihop", action="store_true", help="关闭逐跳下钻（旧单轮导航对照）"
+    )
+    parser.add_argument(
+        "--multihop-only-multihop",
+        action="store_true",
+        help="仅多跳题启用逐跳（生产真实语义：agent 只对多跳题传 multihop=True）",
+    )
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="仅补跑上次失败/超时 query 并合并结果",
+    )
     args = parser.parse_args()
     subsets = [item.strip() for item in args.subsets.split(",") if item.strip()]
-    missing = [str(_data_path(item)) for item in subsets if not _data_path(item).exists()]
+    missing = [
+        str(_data_path(item)) for item in subsets if not _data_path(item).exists()
+    ]
     if missing:
         raise SystemExit(f"Missing LongBench data files: {missing}")
     await ensure_cfg_async()
     if not DOC_MAP_PATH.exists():
-        raise SystemExit(f"Missing document map: {DOC_MAP_PATH}; run longbench_eval.py first")
+        raise SystemExit(
+            f"Missing document map: {DOC_MAP_PATH}; run longbench_eval.py first"
+        )
     doc_map = load_json(DOC_MAP_PATH)
-    rows = [attach_v3_gold(row, doc_map.get("mapping") or {}) for row in load_rows(subsets)]
+    rows = [
+        attach_v3_gold(row, doc_map.get("mapping") or {}) for row in load_rows(subsets)
+    ]
     rows = rows[: args.max_queries] if args.max_queries else rows
     queries = []
     for row in rows:
@@ -237,11 +292,16 @@ async def main() -> None:
             raise SystemExit("--retry-failed 需要已有结果文件")
         prior = load_json(RESULTS_PATH).get("results") or []
         prior_results = {item["qid"]: item for item in prior}
-        failed_qids = {qid for qid, item in prior_results.items() if item.get("status") != "ok"}
+        failed_qids = {
+            qid for qid, item in prior_results.items() if item.get("status") != "ok"
+        }
         queries = [q for q in queries if q["qid"] in failed_qids]
         print(f"[v3-wiki] retry-failed: 补跑 {len(queries)} 条", flush=True)
-    results = await run_queries(queries, multihop=not args.no_multihop,
-                                multihop_only_multihop=args.multihop_only_multihop)
+    results = await run_queries(
+        queries,
+        multihop=not args.no_multihop,
+        multihop_only_multihop=args.multihop_only_multihop,
+    )
     if prior_results:
         merged = {item["qid"]: item for item in results}
         for qid, item in prior_results.items():
@@ -270,11 +330,17 @@ async def main() -> None:
             sum(item.get("wiki_hits", 0) > 0 for item in ok) / len(ok) if ok else 0.0
         ),
         "navigation_effective_rate": (
-            sum(item.get("navigation_effective_pages", 0) > 0 for item in ok if item.get("wiki_hits", 0) > 0)
+            sum(
+                item.get("navigation_effective_pages", 0) > 0
+                for item in ok
+                if item.get("wiki_hits", 0) > 0
+            )
             / max(1, sum(1 for item in ok if item.get("wiki_hits", 0) > 0))
         ),
         "degraded_queries": sum(1 for item in ok if item.get("degraded")),
-        "timeout_queries": sum(1 for item in results if item.get("status") == "timeout"),
+        "timeout_queries": sum(
+            1 for item in results if item.get("status") == "timeout"
+        ),
         "failed_queries": sum(1 for item in results if item.get("status") == "failed"),
         "avg_hops_executed": (
             sum(item.get("hops_executed", 0) for item in ok) / len(ok) if ok else 0.0
@@ -282,7 +348,9 @@ async def main() -> None:
         "avg_online_llm_calls_inside_evidence_tool": (
             sum(item.get("online_llm_calls", 0) for item in ok) / len(ok) if ok else 0.0
         ),
-        "avg_latency_ms": sum(item.get("latency_ms", 0) for item in ok) / len(ok) if ok else 0.0,
+        "avg_latency_ms": (
+            sum(item.get("latency_ms", 0) for item in ok) / len(ok) if ok else 0.0
+        ),
     }
     summary = {"meta": meta, "disclosure": disclosure, "strict": strict, "cost": cost}
     save_json(SUMMARY_PATH, summary)

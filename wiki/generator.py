@@ -29,13 +29,24 @@ class TopicPageDraft(BaseModel):
 def _tokens(values: Sequence[str], limit: int = 12) -> list[str]:
     counts: dict[str, int] = {}
     for value in values:
-        for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u3400-\u9fff]{2,}", value or ""):
+        for token in re.findall(
+            r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u3400-\u9fff]{2,}", value or ""
+        ):
             counts[token.casefold()] = counts.get(token.casefold(), 0) + 1
-    return [key for key, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]]
+    return [
+        key
+        for key, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[
+            :limit
+        ]
+    ]
 
 
-def _fallback_draft(cluster: TopicCluster, related_topics: Sequence[str]) -> TopicPageDraft:
-    titles = [item.document.title for item in cluster.document_vectors if item.document.title]
+def _fallback_draft(
+    cluster: TopicCluster, related_topics: Sequence[str]
+) -> TopicPageDraft:
+    titles = [
+        item.document.title for item in cluster.document_vectors if item.document.title
+    ]
     keywords = _tokens(titles)
     title = titles[0] if titles else f"Topic {cluster.cluster_id}"
     if len(title) > 80:
@@ -53,7 +64,9 @@ def _fallback_draft(cluster: TopicCluster, related_topics: Sequence[str]) -> Top
 
 
 def _parse_json_object(text: str) -> dict | None:
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", (text or "").strip(), flags=re.IGNORECASE).strip()
+    text = re.sub(
+        r"^```(?:json)?\s*|\s*```$", "", (text or "").strip(), flags=re.IGNORECASE
+    ).strip()
     try:
         value = json.loads(text)
         return value if isinstance(value, dict) else None
@@ -75,11 +88,21 @@ def _normalize_draft(data: dict) -> dict:
     ({"id": ..., "title": ...}) instead of bare id strings.
     """
     normalized = dict(data)
-    for key in ("documents", "related_topics", "keywords", "entities", "representative_questions"):
+    for key in (
+        "documents",
+        "related_topics",
+        "keywords",
+        "entities",
+        "representative_questions",
+    ):
         values = normalized.get(key)
         if isinstance(values, list):
             normalized[key] = [
-                item.get("id") if isinstance(item, dict) and item.get("id") is not None else item
+                (
+                    item.get("id")
+                    if isinstance(item, dict) and item.get("id") is not None
+                    else item
+                )
                 for item in values
             ]
     return normalized
@@ -139,7 +162,10 @@ async def generate_topic_page(
 
             async def generator(prompt: str):
                 response = await model.ainvoke([{"role": "user", "content": prompt}])
-                return _parse_json_object(str(getattr(response, "content", response))) or {}
+                return (
+                    _parse_json_object(str(getattr(response, "content", response)))
+                    or {}
+                )
 
         except Exception:
             generator = None
@@ -153,14 +179,18 @@ async def generate_topic_page(
             elif isinstance(result, dict):
                 draft = TopicPageDraft.model_validate(_normalize_draft(result))
             else:
-                draft = TopicPageDraft.model_validate(getattr(result, "model_dump", lambda: {})())
+                draft = TopicPageDraft.model_validate(
+                    getattr(result, "model_dump", lambda: {})()
+                )
         except Exception:
             draft = None
     if draft is None:
         draft = _fallback_draft(cluster, related_topics)
 
     allowed_docs = set(cluster.document_ids)
-    documents = tuple(dict.fromkeys(item for item in draft.documents if item in allowed_docs))
+    documents = tuple(
+        dict.fromkeys(item for item in draft.documents if item in allowed_docs)
+    )
     if not documents:
         documents = tuple(cluster.document_ids)
     related = tuple(
@@ -174,10 +204,18 @@ async def generate_topic_page(
         topic_id=cluster.cluster_id,
         title=draft.title.strip() or f"Topic {cluster.cluster_id}",
         summary=draft.summary.strip(),
-        keywords=tuple(dict.fromkeys(value.strip() for value in draft.keywords if value.strip())),
-        entities=tuple(dict.fromkeys(value.strip() for value in draft.entities if value.strip())),
+        keywords=tuple(
+            dict.fromkeys(value.strip() for value in draft.keywords if value.strip())
+        ),
+        entities=tuple(
+            dict.fromkeys(value.strip() for value in draft.entities if value.strip())
+        ),
         representative_questions=tuple(
-            dict.fromkeys(value.strip() for value in draft.representative_questions if value.strip())
+            dict.fromkeys(
+                value.strip()
+                for value in draft.representative_questions
+                if value.strip()
+            )
         ),
         documents=documents,
         related_topics=related,

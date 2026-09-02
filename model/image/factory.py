@@ -27,9 +27,7 @@ def build_image_client() -> OpenAI:
     )
 
 
-def generate_image(
-    prompt: str, size: str = "1024x1024", n: int = 1
-) -> list[str]:
+def generate_image(prompt: str, size: str = "1024x1024", n: int = 1) -> list[str]:
     """调用 images/generations 生成图像，返回图片内容列表（base64 或 URL）。
 
     model 固定取配置快照 CFG.image.model_name（调用方不传模型名）；

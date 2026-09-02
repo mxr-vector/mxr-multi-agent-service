@@ -61,9 +61,7 @@ class DashScopeEmbeddingClient(BaseEmbeddingClient):
             )
         return resp.output
 
-    def _call_text_embedding(
-        self, input: List[str], text_type: str
-    ) -> Dict[str, Any]:
+    def _call_text_embedding(self, input: List[str], text_type: str) -> Dict[str, Any]:
         resp = self._client.TextEmbedding.call(
             model=self.model_name,
             input=input,
@@ -73,9 +71,7 @@ class DashScopeEmbeddingClient(BaseEmbeddingClient):
             base_address=self.api_url,
         )
         if resp.status_code != HTTPStatus.OK:
-            raise RuntimeError(
-                f"DashScope 向量请求失败: {resp.code} {resp.message}"
-            )
+            raise RuntimeError(f"DashScope 向量请求失败: {resp.code} {resp.message}")
         return resp.output
 
     @staticmethod

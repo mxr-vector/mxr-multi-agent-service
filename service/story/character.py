@@ -103,9 +103,7 @@ class CharacterService:
         async with get_session() as session:
             repo = CharacterRepository(session)
             character = await self._assert_owned(repo, character_id, ctx)
-            arts = await CharacterArtRepository(session).list_by_character(
-                character_id
-            )
+            arts = await CharacterArtRepository(session).list_by_character(character_id)
             castings = await ProjectAssetRepository(session).casting_projects(
                 character_id
             )
@@ -254,9 +252,9 @@ class CharacterService:
         async with get_session() as session:
             repo = CharacterRepository(session)
             character = await self._assert_owned(repo, character_id, ctx)
-            casting_count = await ProjectAssetRepository(
-                session
-            ).casting_project_count(character_id)
+            casting_count = await ProjectAssetRepository(session).casting_project_count(
+                character_id
+            )
             if casting_count > 0:
                 bad_except(f"角色正被 {casting_count} 个项目出演，请先移除出演登记")
             keyframe_refs = await repo.keyframe_ref_count(character_id)
@@ -269,6 +267,7 @@ class CharacterService:
             await art_repo.delete_by_character(character_id)
             await repo.delete(character)
             await session.commit()
+
         # 提交成功后按 DB 记录精确清理文件（不整目录 rmtree，防误删同名角色/他人文件）
         def _cleanup() -> None:
             parents: set[str] = set()
@@ -304,7 +303,9 @@ class CharacterService:
             character = await repo.get_for_update(character_id)
             if character is None or character.user_id != ctx.user_id:
                 bad_except("角色不存在")
-            art_dir = character_art_dir(character.user_id, character.name, character.id.hex)
+            art_dir = character_art_dir(
+                character.user_id, character.name, character.id.hex
+            )
             dir_name = sanitize_dir_name(character.name, character.id.hex)
             target_dir = ENV.upload_dir / art_dir
 
@@ -390,6 +391,7 @@ class CharacterService:
                 if project is not None:
                     await project_repo.recount_assets(project)
             await session.commit()
+
         # 提交成功后精确清理立绘文件与空目录（失败仅告警）
         def _cleanup() -> None:
             unlink_quietly(image_file)

@@ -13,6 +13,7 @@
   <out-dir>/timeline.json          [{id, seconds}, ...]
   stdout 打印分句结果
 """
+
 from __future__ import annotations
 
 import argparse
@@ -58,9 +59,20 @@ def parse_lrc(path: Path, pass_end: float | None) -> list[tuple[float, str, str]
 
 def ffprobe_duration(path: Path) -> float:
     proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe 失败: {proc.stderr}")
@@ -72,8 +84,11 @@ def main() -> None:
     p.add_argument("source_mp3")
     p.add_argument("source_lrc")
     p.add_argument("--out-dir", default="public/audio/narration")
-    p.add_argument("--pass-end", default=None,
-                   help="只取该时间戳之前的行（MM:SS.cs），用于跳过复述段")
+    p.add_argument(
+        "--pass-end",
+        default=None,
+        help="只取该时间戳之前的行（MM:SS.cs），用于跳过复述段",
+    )
     p.add_argument("--pass-end-seconds", type=float, default=None)
     args = p.parse_args()
 
@@ -98,10 +113,23 @@ def main() -> None:
         dur = nxt - ts
         out = out_dir / f"{sid}.mp3"
         cmd = [
-            "ffmpeg", "-y", "-ss", f"{ts:.3f}", "-t", f"{dur:.3f}",
-            "-i", str(src_mp3), "-c:a", "libmp3lame", "-q:a", "4", str(out),
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{ts:.3f}",
+            "-t",
+            f"{dur:.3f}",
+            "-i",
+            str(src_mp3),
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "4",
+            str(out),
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
         if r.returncode != 0:
             print(r.stderr[-500:], file=sys.stderr)
             raise SystemExit(1)
@@ -110,7 +138,8 @@ def main() -> None:
         print(f"  {sid} {ts:7.2f}  {actual:6.2f}s  {en[:60]}")
 
     (out_dir / "timeline.json").write_text(
-        json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"wrote {out_dir / 'timeline.json'}")
 
 

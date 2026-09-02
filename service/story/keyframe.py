@@ -108,16 +108,12 @@ class KeyframeService:
         if script is None or script.project_id != project_id:
             bad_except("溯源剧本不存在或不属于本项目")
 
-    async def _with_characters(
-        self, session, keyframes: list
-    ) -> list[dict]:
+    async def _with_characters(self, session, keyframes: list) -> list[dict]:
         """为关键帧列表附加出场角色（含角色名与头像）与导出选择状态，批量查询防 N+1。"""
         kf_ids = [keyframe.id for keyframe in keyframes]
         if not kf_ids:
             return [keyframe.to_dict() for keyframe in keyframes]
-        rows = (
-            await KeyframeCharacterRepository(session).list_by_keyframes(kf_ids)
-        )
+        rows = await KeyframeCharacterRepository(session).list_by_keyframes(kf_ids)
         character_ids = {row.character_id for row in rows}
         characters = {}
         if character_ids:
@@ -168,9 +164,7 @@ class KeyframeService:
             bad_except(f"关键帧名称不能超过 {_KEYFRAME_NAME_MAX} 字符")
         async with get_session() as session:
             await self._project_service._assert_owned(session, project_id, ctx)
-            await self._assert_script_in_project(
-                session, project_id, payload.script_id
-            )
+            await self._assert_script_in_project(session, project_id, payload.script_id)
             repo = KeyframeRepository(session)
             if (
                 payload.scene_no is not None
@@ -217,7 +211,9 @@ class KeyframeService:
             keyframe = await self._assert_keyframe_owned(session, keyframe_id, ctx)
             project = await ProjectRepository(session).get(keyframe.project_id)
             old_file = keyframe.image_file
-            relative = f"{_keyframe_image_directory(project, keyframe)}/{uuid7().hex}.{ext}"
+            relative = (
+                f"{_keyframe_image_directory(project, keyframe)}/{uuid7().hex}.{ext}"
+            )
             target = ENV.upload_dir / relative
 
             def _save() -> None:
@@ -263,7 +259,9 @@ class KeyframeService:
         try:
             src = resolve_upload_path(keyframe.image_file)
         except Exception:
-            logger.warning(f"[STORY] 关键帧图片路径非法，跳过迁移: {keyframe.image_file}")
+            logger.warning(
+                f"[STORY] 关键帧图片路径非法，跳过迁移: {keyframe.image_file}"
+            )
             return
         new_rel = f"{new_dir}/{Path(keyframe.image_file).name}"
 
@@ -278,7 +276,9 @@ class KeyframeService:
                 shutil.move(str(src), str(ENV.upload_dir / new_rel))
                 return True
             except OSError as exc:
-                logger.warning(f"[STORY] 关键帧图片迁移失败: {keyframe.image_file}: {exc}")
+                logger.warning(
+                    f"[STORY] 关键帧图片迁移失败: {keyframe.image_file}: {exc}"
+                )
                 return False
 
         moved = await asyncio.to_thread(_move)
@@ -302,7 +302,11 @@ class KeyframeService:
                 bad_except(f"关键帧状态非法: {fields['status']}")
             if "prompt" in fields and not (fields["prompt"] or "").strip():
                 bad_except("正向提示词不能为空")
-            if "name" in fields and fields["name"] and len(fields["name"]) > _KEYFRAME_NAME_MAX:
+            if (
+                "name" in fields
+                and fields["name"]
+                and len(fields["name"]) > _KEYFRAME_NAME_MAX
+            ):
                 bad_except(f"关键帧名称不能超过 {_KEYFRAME_NAME_MAX} 字符")
             if "script_id" in fields:
                 await self._assert_script_in_project(
@@ -368,9 +372,7 @@ class KeyframeService:
             keyframe_id, normalized
         )
 
-    async def set_characters(
-        self, ctx, keyframe_id: uuid.UUID, entries: list
-    ) -> dict:
+    async def set_characters(self, ctx, keyframe_id: uuid.UUID, entries: list) -> dict:
         """整体设置关键帧出场角色（含参考立绘与局部描述），返回关键帧详情。"""
         async with get_session() as session:
             keyframe = await self._assert_keyframe_owned(session, keyframe_id, ctx)

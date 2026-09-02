@@ -116,7 +116,9 @@ async def build_entity_index(
                     ),
                     [
                         {"kb": kb_id, "entity": e, "df": df, "generic": g}
-                        for (kb_id, e, df, g) in entity_rows[start : start + POSTING_BATCH]
+                        for (kb_id, e, df, g) in entity_rows[
+                            start : start + POSTING_BATCH
+                        ]
                     ],
                 )
             for start in range(0, len(posting_rows), POSTING_BATCH):
@@ -153,7 +155,8 @@ async def build_entity_index(
 # ---------- 关系索引（生产级：全量范围 + 断点续建） ----------
 # 用 string.Template 注入不可信文档内容：str.format 对含花括号的文本块（JSON/代码/
 # 模板文本）会抛 KeyError/ValueError，导致该类块被永久标记 failed。
-RELATION_PROMPT = Template("""你是信息抽取助手。给定文本块与其中已索引的实体列表，抽取这些实体之间的直接关系。
+RELATION_PROMPT = Template(
+    """你是信息抽取助手。给定文本块与其中已索引的实体列表，抽取这些实体之间的直接关系。
 严格要求：
 1. 输出 JSON 数组（单行紧凑格式），每项形如 {"head": 实体, "relation": 关系短语, "tail": 实体, "fact": 承载该关系的原文句子}；
 2. relation 用简洁自由文本（如 父亲 / 导演 / 位于），语言与文本一致；
@@ -161,7 +164,8 @@ RELATION_PROMPT = Template("""你是信息抽取助手。给定文本块与其�
 4. 只抽取文本明确陈述的关系，不得推测或虚构；最多 6 条；无关系时输出 []；不输出任何解释文字。
 文本块：
 $chunk
-已索引实体：$entities""")
+已索引实体：$entities"""
+)
 
 # 关系抽取参数（实测档位：关思考 + 并发 8 + 180s 超时 ≈ 2,200 块/小时）
 RELATION_CONCURRENCY = 8
@@ -266,7 +270,9 @@ async def build_relations(
         async with engine.connect() as conn:
             ent_cnt = (
                 await conn.execute(
-                    text("SELECT count(*) FROM rag.entity_index_entities WHERE kb_id=:kb"),
+                    text(
+                        "SELECT count(*) FROM rag.entity_index_entities WHERE kb_id=:kb"
+                    ),
                     {"kb": kb_id},
                 )
             ).scalar()
@@ -281,7 +287,9 @@ async def build_relations(
                     {"kb": kb_id},
                 )
                 await conn.execute(
-                    text("DELETE FROM rag.entity_index_extract_progress WHERE kb_id=:kb"),
+                    text(
+                        "DELETE FROM rag.entity_index_extract_progress WHERE kb_id=:kb"
+                    ),
                     {"kb": kb_id},
                 )
             print(f"[rel] 重建：已清空 {kb_id.hex} 的关系记录与进度行", flush=True)
@@ -324,18 +332,32 @@ async def build_relations(
                                 }
                             resp = await asyncio.wait_for(
                                 model.ainvoke(
-                                    [{"role": "user", "content": RELATION_PROMPT.substitute(chunk=chunk_text, entities=", ".join(ents))}],
+                                    [
+                                        {
+                                            "role": "user",
+                                            "content": RELATION_PROMPT.substitute(
+                                                chunk=chunk_text,
+                                                entities=", ".join(ents),
+                                            ),
+                                        }
+                                    ],
                                     **kwargs,
                                 ),
                                 timeout=extract_timeout,
                             )
                             raw = getattr(resp, "content", None) or str(resp)
                             rels = _parse_relations(raw, set(ents))
-                            print(f"[rel] CALL_OK chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s rels={len(rels)}", flush=True)
+                            print(
+                                f"[rel] CALL_OK chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s rels={len(rels)}",
+                                flush=True,
+                            )
                             return ("done", rels)
                         except Exception as exc:
                             if attempt == 1:
-                                print(f"[rel] EXTRACT_FAIL chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+                                print(
+                                    f"[rel] EXTRACT_FAIL chunk={str(cid)[:12]} {time.monotonic()-t0:.1f}s {type(exc).__name__}: {str(exc)[:120]}",
+                                    flush=True,
+                                )
                                 return ("failed", [])
                             await asyncio.sleep(2)
 
@@ -410,7 +432,9 @@ async def build_relations(
                     if len(ents_here) < 2:
                         continue
                     stats["eligible"] += 1
-                    pending.append((cid, did, (content or "")[:RELATION_CHUNK_CHARS], ents_here))
+                    pending.append(
+                        (cid, did, (content or "")[:RELATION_CHUNK_CHARS], ents_here)
+                    )
                 results = await asyncio.gather(*(extract(*item) for item in pending))
                 for (cid, did, _chunk, _ents), (status, rels) in zip(pending, results):
                     flush_prog.append({"kb": kb_id, "chunk": cid, "status": status})

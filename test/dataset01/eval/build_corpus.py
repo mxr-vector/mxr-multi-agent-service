@@ -65,7 +65,9 @@ async def create_eval_kb(session) -> object:
     )
 
 
-async def ingest_page_document(session, kb, page: dict) -> tuple[object, list[dict], int]:
+async def ingest_page_document(
+    session, kb, page: dict
+) -> tuple[object, list[dict], int]:
     """
     单页面文档：聚合文本切块 → 两级块树落 PG（每文档一事务由调用方提交）。
     返回 (doc, leaf_specs, leaf_count)；leaf_specs 为向量化用
@@ -211,14 +213,16 @@ async def cleanup_eval_kb(session) -> int:
     # 先删向量集合（与生产删除文档同序：先 Qdrant 后 PG，避免孤儿点可被检索）
     await asyncio.to_thread(QdrantManager(kb.qdrant_collection).delete_collection)
     doc_ids = (
-        await session.execute(
-            select(Document.id).where(Document.knowledge_base_id == kb.id)
+        (
+            await session.execute(
+                select(Document.id).where(Document.knowledge_base_id == kb.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if doc_ids:
-        await session.execute(
-            delete(Chunk).where(Chunk.document_id.in_(list(doc_ids)))
-        )
+        await session.execute(delete(Chunk).where(Chunk.document_id.in_(list(doc_ids))))
         await session.execute(
             delete(Document).where(Document.knowledge_base_id == kb.id)
         )
@@ -227,7 +231,9 @@ async def cleanup_eval_kb(session) -> int:
     return 1
 
 
-async def build_corpus(csv_path, batch_size: int, force: bool, smoke: bool, limit: int | None = None) -> None:
+async def build_corpus(
+    csv_path, batch_size: int, force: bool, smoke: bool, limit: int | None = None
+) -> None:
     from database.postgre_client import get_session
 
     ensure_dirs()
@@ -250,7 +256,9 @@ async def build_corpus(csv_path, batch_size: int, force: bool, smoke: bool, limi
 
         kb = await create_eval_kb(session)
         await session.commit()
-        print(f"[S1] 已创建评测知识库: {KB_NAME} id={kb.id.hex} collection={kb.qdrant_collection}")
+        print(
+            f"[S1] 已创建评测知识库: {KB_NAME} id={kb.id.hex} collection={kb.qdrant_collection}"
+        )
 
         total_pages = len(pages)
         total_chunks = 0
@@ -284,7 +292,9 @@ async def build_corpus(csv_path, batch_size: int, force: bool, smoke: bool, limi
 
         if pending_specs:
             await vectorize_batch(kb, pending_specs)
-            print(f"[S1] 向量化 {pending_pages} 个文档 / {len(pending_specs)} 叶块（收尾）")
+            print(
+                f"[S1] 向量化 {pending_pages} 个文档 / {len(pending_specs)} 叶块（收尾）"
+            )
 
         # 数据集统计
         stats = {
@@ -306,9 +316,11 @@ async def build_corpus(csv_path, batch_size: int, force: bool, smoke: bool, limi
                 "max": max(doc_lengths) if doc_lengths else 0,
                 "mean": round(statistics.fmean(doc_lengths), 1) if doc_lengths else 0,
                 "p50": int(statistics.median(doc_lengths)) if doc_lengths else 0,
-                "p90": sorted(doc_lengths)[int(len(doc_lengths) * 0.9) - 1]
-                if doc_lengths
-                else 0,
+                "p90": (
+                    sorted(doc_lengths)[int(len(doc_lengths) * 0.9) - 1]
+                    if doc_lengths
+                    else 0
+                ),
             },
             "qa_per_page": {
                 "min": min(qa_per_page) if qa_per_page else 0,
@@ -351,17 +363,19 @@ async def smoke_check(session, kb, df) -> None:
         if c.level == 0 and normalize(content) in normalize(c.content)
     }
     if not gold_ids:
-        print(f"[S1] --smoke 警告：content 未命中任何叶块（content 可能被切块截断）: {content[:60]}")
+        print(
+            f"[S1] --smoke 警告：content 未命中任何叶块（content 可能被切块截断）: {content[:60]}"
+        )
         return
 
-    candidates = await asyncio.to_thread(
-        hybrid_retrieve_multi, question, [kb.id], 10
-    )
+    candidates = await asyncio.to_thread(hybrid_retrieve_multi, question, [kb.id], 10)
     top_ids = [cand["point_id"] for cand in candidates]
     hit = [pid for pid in top_ids if pid in gold_ids]
     rank = (top_ids.index(hit[0]) + 1) if hit else None
     if rank:
-        print(f"[S1] --smoke PASS：question 在 top-{len(top_ids)} 召回证据叶块（rank={rank}）")
+        print(
+            f"[S1] --smoke PASS：question 在 top-{len(top_ids)} 召回证据叶块（rank={rank}）"
+        )
     else:
         print(
             f"[S1] --smoke FAIL：未召回证据叶块。question={question[:60]}\n"
@@ -403,9 +417,11 @@ async def stats_only(csv_path, limit: int | None = None) -> None:
             "max": max(doc_lengths) if doc_lengths else 0,
             "mean": round(statistics.fmean(doc_lengths), 1) if doc_lengths else 0,
             "p50": int(statistics.median(doc_lengths)) if doc_lengths else 0,
-            "p90": sorted(doc_lengths)[int(len(doc_lengths) * 0.9) - 1]
-            if doc_lengths
-            else 0,
+            "p90": (
+                sorted(doc_lengths)[int(len(doc_lengths) * 0.9) - 1]
+                if doc_lengths
+                else 0
+            ),
         },
         "qa_per_page": {
             "min": min(qa_per_page) if qa_per_page else 0,
@@ -422,12 +438,22 @@ async def stats_only(csv_path, limit: int | None = None) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser(description="S1 评测建库（农业维基 QA 110K）")
     parser.add_argument("--csv", default=str(ensure_csv()), help="CSV 路径")
-    parser.add_argument("--batch", type=int, default=DEFAULT_BATCH_SIZE, help="每批向量化文档数")
-    parser.add_argument("--force", action="store_true", help="已存在评测知识库时清理重建")
-    parser.add_argument("--cleanup", action="store_true", help="整体删除评测知识库后退出")
+    parser.add_argument(
+        "--batch", type=int, default=DEFAULT_BATCH_SIZE, help="每批向量化文档数"
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="已存在评测知识库时清理重建"
+    )
+    parser.add_argument(
+        "--cleanup", action="store_true", help="整体删除评测知识库后退出"
+    )
     parser.add_argument("--smoke", action="store_true", help="建库后抽样验证召回")
-    parser.add_argument("--stats-only", action="store_true", help="仅输出数据集统计（不建库）")
-    parser.add_argument("--limit", type=int, default=None, help="仅处理前 N 条记录（子集建库）")
+    parser.add_argument(
+        "--stats-only", action="store_true", help="仅输出数据集统计（不建库）"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="仅处理前 N 条记录（子集建库）"
+    )
     args = parser.parse_args()
 
     if args.cleanup:
@@ -435,7 +461,11 @@ async def main() -> None:
 
         async with get_session() as session:
             removed = await cleanup_eval_kb(session)
-        print(f"[S1] 已删除评测知识库 {KB_NAME}" if removed else f"[S1] 评测知识库 {KB_NAME} 不存在")
+        print(
+            f"[S1] 已删除评测知识库 {KB_NAME}"
+            if removed
+            else f"[S1] 评测知识库 {KB_NAME} 不存在"
+        )
         return
 
     if args.stats_only:

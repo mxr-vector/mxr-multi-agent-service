@@ -93,9 +93,7 @@ class StoryCharacterArt(Base):
         server_default=text("uuidv7()"),
     )
 
-    character_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False
-    )
+    character_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     image_file: Mapped[str] = mapped_column(String(500), nullable=False)
     image_width: Mapped[int | None] = mapped_column(Integer, nullable=True)

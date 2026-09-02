@@ -12,6 +12,7 @@
 5. 性能监控日志
 6. Agent行为追踪
 """
+
 import sys
 from loguru import logger
 from contextvars import ContextVar
@@ -23,6 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_ROOT = BASE_DIR / "logs"
 
 logger.remove()
+
 
 # 拦截器：handler 级 filter 注入 request_id。
 # 用 filter 而非 logger.patch()：patch 只对当前实例生效，fastembed 等第三方库

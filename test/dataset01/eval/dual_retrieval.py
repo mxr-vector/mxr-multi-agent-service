@@ -46,6 +46,7 @@ def sha256_of_text(text: str) -> str:
 
 # ---- 知识库管理 ---------------------------------------------------------------
 
+
 async def find_kb(session, kb_name: str):
     """按名称查评测知识库（含软删除，供清理兜底）。"""
     from entity.rag.knowledge_base import KnowledgeBase
@@ -87,17 +88,19 @@ async def cleanup_kb(session, kb_name: str) -> int:
         return 0
     await asyncio.to_thread(QdrantManager(kb.qdrant_collection).delete_collection)
     doc_ids = (
-        await session.execute(
-            select(Document.id).where(Document.knowledge_base_id == kb.id)
+        (
+            await session.execute(
+                select(Document.id).where(Document.knowledge_base_id == kb.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if doc_ids:
         batch_size = 10000
         for start in range(0, len(doc_ids), batch_size):
             batch = list(doc_ids[start : start + batch_size])
-            await session.execute(
-                delete(Chunk).where(Chunk.document_id.in_(batch))
-            )
+            await session.execute(delete(Chunk).where(Chunk.document_id.in_(batch)))
         await session.execute(
             delete(Document).where(Document.knowledge_base_id == kb.id)
         )
@@ -131,6 +134,7 @@ def get_eval_session():
 
 
 # ---- 文档摄入 ---------------------------------------------------------------
+
 
 async def _bulk_insert_chunks(session, chunks) -> None:
     from database.rag.chunks import ChunkRepository
@@ -412,6 +416,7 @@ async def ingest_document_retry(
 
 # ---- 评测执行 ---------------------------------------------------------------
 
+
 async def rerank_candidates(query: str, candidates: list[dict]) -> list[dict]:
     """rerank 精排候选池（生产 rerank 角色，Qwen3-Embedding-4B cohere 协议）。"""
     if not candidates:
@@ -489,13 +494,18 @@ async def run_eval(
         done += 1
         if done % PROGRESS_EVERY == 0 or done == len(queries):
             elapsed = time.monotonic() - started_all
-            print(f"[eval] 进度 {done}/{len(queries)}（耗时 {elapsed:.0f}s）", flush=True)
+            print(
+                f"[eval] 进度 {done}/{len(queries)}（耗时 {elapsed:.0f}s）", flush=True
+            )
     failed = sum(1 for r in results if r["status"] == "failed")
-    print(f"[eval] 完成：{len(results)} 条（失败 {failed}，rerank={'on' if use_rerank else 'off'}）")
+    print(
+        f"[eval] 完成：{len(results)} 条（失败 {failed}，rerank={'on' if use_rerank else 'off'}）"
+    )
     return results
 
 
 # ---- 指标汇总 ---------------------------------------------------------------
+
 
 def summarize(results: list[dict], ks: Sequence[int]) -> dict:
     """文档级口径（mode='doc'）宏平均 Recall@K / Precision@K / NDCG@K / MRR。
@@ -571,7 +581,9 @@ def report_lines(
     for key, value in meta.items():
         if key not in ("kb_id", "pool_size", "rerank", "created_at"):
             lines.append(f"- {key}：{value}")
-    lines.extend(["", "## 文档级指标（gold = qrels/可辩护证据 → document_id，mode=doc）", ""])
+    lines.extend(
+        ["", "## 文档级指标（gold = qrels/可辩护证据 → document_id，mode=doc）", ""]
+    )
     lines.append("| K | Recall@K | Precision@K | NDCG@K |")
     lines.append("|---|---|---|---|")
     for k in ks:

@@ -154,7 +154,9 @@ class DocumentService:
             return doc.to_dict()
 
     @staticmethod
-    def _enqueue_wiki_dirty(document_id: uuid.UUID, knowledge_base_id: uuid.UUID) -> None:
+    def _enqueue_wiki_dirty(
+        document_id: uuid.UUID, knowledge_base_id: uuid.UUID
+    ) -> None:
         """Propagate document changes without coupling ingestion to wiki availability."""
         try:
             from wiki.jobs import enqueue_document_change

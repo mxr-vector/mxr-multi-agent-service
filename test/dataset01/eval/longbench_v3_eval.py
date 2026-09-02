@@ -13,7 +13,14 @@ import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from common import BASE_K_VALUES, GOLD_DIR, RESULTS_DIR, ensure_cfg_async, load_json, save_json
+from common import (
+    BASE_K_VALUES,
+    GOLD_DIR,
+    RESULTS_DIR,
+    ensure_cfg_async,
+    load_json,
+    save_json,
+)
 from dual_retrieval import run_eval
 from longbench_eval import (
     DEFAULT_MAX_QUERIES,
@@ -45,7 +52,9 @@ async def main() -> None:
     args = parser.parse_args()
 
     subsets = [item.strip() for item in args.subsets.split(",") if item.strip()]
-    missing = [str(_data_path(item)) for item in subsets if not _data_path(item).exists()]
+    missing = [
+        str(_data_path(item)) for item in subsets if not _data_path(item).exists()
+    ]
     if missing:
         raise SystemExit(f"Missing LongBench data files: {missing}")
     await ensure_cfg_async()
@@ -110,4 +119,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

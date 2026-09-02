@@ -104,7 +104,9 @@ async def upload_image(
         else ""
     )
     if ext not in IMAGE_EXTENSION_MIME:
-        bad_except(f"不支持的图片类型: {file.filename or '(无扩展名)'}（仅 png/jpg/jpeg/webp）")
+        bad_except(
+            f"不支持的图片类型: {file.filename or '(无扩展名)'}（仅 png/jpg/jpeg/webp）"
+        )
     data = await file.read()
     # 以实际读到的字节数校验（Content-Length 可伪造）
     max_bytes = ENV.upload_max_size_mb * 1024 * 1024

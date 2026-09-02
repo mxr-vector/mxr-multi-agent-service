@@ -248,9 +248,7 @@ class StoryKeyframeCharacter(Base):
     __tablename__ = "story_keyframe_characters"
     __table_args__ = {"schema": "story"}
 
-    keyframe_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True
-    )
+    keyframe_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     character_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True
     )

@@ -99,7 +99,9 @@ class TopicPage:
     chunks: tuple[str, ...] = ()
     related_topics: tuple[str, ...] = ()
     version: int = 1
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     dirty: bool = False
     coarse_partition: str | None = None
 
@@ -153,7 +155,9 @@ class TopicPage:
             ),
             documents=tuple(str(value) for value in payload.get("documents") or []),
             chunks=tuple(str(value) for value in payload.get("chunks") or []),
-            related_topics=tuple(str(value) for value in payload.get("related_topics") or []),
+            related_topics=tuple(
+                str(value) for value in payload.get("related_topics") or []
+            ),
             version=int(payload.get("version") or 1),
             updated_at=_iso(payload.get("updated_at")),
             dirty=bool(payload.get("dirty", False)),
@@ -168,4 +172,3 @@ class TopicPage:
 def topic_page_from_mapping(mapping: dict, *, topic_id: str | None = None) -> TopicPage:
     """Public helper used by persistence adapters and tests."""
     return TopicPage.from_payload(mapping, topic_id=topic_id)
-

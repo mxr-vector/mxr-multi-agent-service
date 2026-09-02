@@ -26,7 +26,9 @@ def test_extractor_and_split():
     from entity_index.extractors import RuleEntityExtractor
 
     ext = RuleEntityExtractor()
-    ents = ext.extract("Do both Beauty And The Bad Man and Wild Child (Film) films share directors?")
+    ents = ext.extract(
+        "Do both Beauty And The Bad Man and Wild Child (Film) films share directors?"
+    )
     assert "beauty and the bad man" in ents, ents
     assert "wild child" in ents, ents
 

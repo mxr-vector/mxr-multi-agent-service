@@ -41,7 +41,10 @@ class EmbeddingFactory:
         impl = cls._registry.get(provider)
         if impl is None:
             valid = ", ".join(cls._registry)
-            raise ValueError(f"无效的 EMBEDDING_PROVIDER: {provider!r}，合法值为: {valid}")
+            raise ValueError(
+                f"无效的 EMBEDDING_PROVIDER: {provider!r}，合法值为: {valid}"
+            )
         return impl()
+
 
 get_embedding_client = EmbeddingFactory.get_client

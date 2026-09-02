@@ -320,7 +320,9 @@ def _semantic_parent_texts(full_text: str) -> list[str]:
     return parents
 
 
-def _section_title_at(sections: list[tuple[str | None, int, int]], offset: int) -> str | None:
+def _section_title_at(
+    sections: list[tuple[str | None, int, int]], offset: int
+) -> str | None:
     """按全文偏移定位所在章节标题；无结构信号或越界时返回 None。"""
     for title, start, end in sections:
         if start <= offset < end:
@@ -387,9 +389,7 @@ def _build_parent_record(
                 "char_start": c_start,
                 "char_end": c_end,
                 "page_start": _page_for_offset(page_ranges, abs_start),
-                "page_end": _page_for_offset(
-                    page_ranges, max(abs_end - 1, abs_start)
-                ),
+                "page_end": _page_for_offset(page_ranges, max(abs_end - 1, abs_start)),
                 "chapter_title": chapter_title,
                 "content_hash": _sha256(child_text),
             }

@@ -32,4 +32,3 @@ def verify_evidence_fallback() -> dict:
         "knowledge_base_search_registered": TOOL_KNOWLEDGE_BASE_SEARCH in TOOL_IMPLS,
         "wiki_is_optional": True,
     }
-

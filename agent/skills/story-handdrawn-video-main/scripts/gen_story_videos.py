@@ -18,6 +18,7 @@
   negative_prompt 负责抑制画面里出现文字）
 - 有 visual_plan 时，那场用用户写的英文 scene body（质量更高、无乱码风险）
 """
+
 from __future__ import annotations
 
 import argparse
@@ -239,11 +240,23 @@ def split_paragraphs(text: str) -> list[str]:
 # 工具：ffprobe、帧数、prompt
 # ----------------------------------------------------------------------------
 
+
 def ffprobe_duration(path: Path) -> float:
     proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe 失败: {proc.stderr}")
@@ -275,8 +288,13 @@ def load_teaching_content(path: Path | None) -> dict[str, dict]:
     return {str(k): dict(v) for k, v in data.items()}
 
 
-def resolve_scene_body(visual_plan: dict[str, str], sid: str, idx: int, caption: str,
-                       teaching: dict | None = None) -> str:
+def resolve_scene_body(
+    visual_plan: dict[str, str],
+    sid: str,
+    idx: int,
+    caption: str,
+    teaching: dict | None = None,
+) -> str:
     """Look up by s01 / 01 / 1 forms.
 
     Priority: teaching_content[sid].visual > visual_plan[sid] > 01/1 keys > caption.
@@ -297,13 +315,15 @@ def resolve_scene_body(visual_plan: dict[str, str], sid: str, idx: int, caption:
 # 主流程
 # ----------------------------------------------------------------------------
 
+
 def run_tts(narration_yaml: Path) -> None:
     """调 gen_tts.py 子进程（edge-tts 免费，无需 API key）。"""
     cmd = [
         sys.executable,
         str(Path(__file__).parent / "gen_tts.py"),
         str(narration_yaml),
-        "--out-dir", "public/audio/narration",
+        "--out-dir",
+        "public/audio/narration",
     ]
     print("$", " ".join(cmd))
     result = subprocess.run(cmd, encoding="utf-8", errors="replace")
@@ -311,15 +331,24 @@ def run_tts(narration_yaml: Path) -> None:
         raise RuntimeError(f"gen_tts.py 退出码 {result.returncode}")
 
 
-def submit_one_video(sid: str, scene_body: str, width: int, height: int,
-                     num_frames: int, frame_rate: int, out_path: Path,
-                     style: str = "crayon") -> tuple[str, str, dict]:
+def submit_one_video(
+    sid: str,
+    scene_body: str,
+    width: int,
+    height: int,
+    num_frames: int,
+    frame_rate: int,
+    out_path: Path,
+    style: str = "crayon",
+) -> tuple[str, str, dict]:
     """提交一段视频并阻塞到下载完成。返回 (sid, status, data)。"""
     if out_path.exists() and out_path.stat().st_size > 20_000:
         print(f"[{sid}] 已存在，跳过")
         return sid, "skipped", {}
     prompt = build_prompt(scene_body, style=style)
-    print(f"[{sid}] 提交视频任务（{width}x{height}, {num_frames} frames @ {frame_rate}fps）...")
+    print(
+        f"[{sid}] 提交视频任务（{width}x{height}, {num_frames} frames @ {frame_rate}fps）..."
+    )
     t0 = time.time()
     try:
         final = agnes.generate_video(
@@ -341,26 +370,46 @@ def submit_one_video(sid: str, scene_body: str, width: int, height: int,
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="故事 → TTS → Agnes 文生视频 → storyboard.json")
+    p = argparse.ArgumentParser(
+        description="故事 → TTS → Agnes 文生视频 → storyboard.json"
+    )
     p.add_argument("story_txt", help="故事文本路径（UTF-8）")
     p.add_argument("--title", default="", help="项目标题（写入 storyboard.json）")
     p.add_argument("--visual-plan", default=None, help="visual_plan.json 路径")
-    p.add_argument("--teaching-content", default=None,
-                   help="teaching_content.json 路径（textbook 模式）；含 keyword/ipa/meaning/definition/example/visual")
+    p.add_argument(
+        "--teaching-content",
+        default=None,
+        help="teaching_content.json 路径（textbook 模式）；含 keyword/ipa/meaning/definition/example/visual",
+    )
     p.add_argument("--lang", choices=["zh", "en"], default="zh")
     p.add_argument("--width", type=int, default=720)
     p.add_argument("--height", type=int, default=1280)
     p.add_argument("--frame-rate", type=int, default=24)
     p.add_argument("--max-seconds", type=float, default=18.0)
-    p.add_argument("--concurrency", type=int, default=1,
-                   help="并发数。免费 Agnes Video key 限流 1 req/min，默认 1；调高会大量 429")
-    p.add_argument("--style", choices=sorted(STYLE_PRESETS.keys()), default="crayon",
-                   help="视觉风格：crayon=Q版蜡笔（默认，童话/生活）；textbook=牛津教材风（教学/口播/历史）")
+    p.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="并发数。免费 Agnes Video key 限流 1 req/min，默认 1；调高会大量 429",
+    )
+    p.add_argument(
+        "--style",
+        choices=sorted(STYLE_PRESETS.keys()),
+        default="crayon",
+        help="视觉风格：crayon=Q版蜡笔（默认，童话/生活）；textbook=牛津教材风（教学/口播/历史）",
+    )
     p.add_argument("--skip-tts", action="store_true", help="跳过 TTS（复用已有 mp3）")
-    p.add_argument("--paragraph-beats", action="store_true",
-                   help="每个空行段落即一拍，不按逗号/连词再拆（适合 LRC 已切片的项目）")
-    p.add_argument("--skip-video", action="store_true", help="跳过视频生成（只重写 storyboard）")
-    p.add_argument("--dry-run", action="store_true", help="只打印 prompt 和参数，不发任何生成请求")
+    p.add_argument(
+        "--paragraph-beats",
+        action="store_true",
+        help="每个空行段落即一拍，不按逗号/连词再拆（适合 LRC 已切片的项目）",
+    )
+    p.add_argument(
+        "--skip-video", action="store_true", help="跳过视频生成（只重写 storyboard）"
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="只打印 prompt 和参数，不发任何生成请求"
+    )
     args = p.parse_args()
 
     project_root = Path.cwd()
@@ -392,23 +441,27 @@ def main() -> None:
     default_voice = "en-US-JennyNeural" if args.lang == "en" else "zh-CN-XiaoyiNeural"
     narration_yaml = project_root / "narration.yaml"
     lines = [
-        f'lang: {args.lang}',
-        f'voice: {default_voice}',
+        f"lang: {args.lang}",
+        f"voice: {default_voice}",
         "speed: 1.0",
         "scenes:",
     ]
     for i, cap in enumerate(captions, 1):
         sid = f"s{i:02d}"
         safe = cap.replace('"', '\\"')
-        lines.append(f'  - id: {sid}')
+        lines.append(f"  - id: {sid}")
         lines.append(f'    text: "{safe}"')
     narration_yaml.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"narration.yaml 写入 {narration_yaml}")
 
     visual_plan = load_visual_plan(Path(args.visual_plan) if args.visual_plan else None)
-    teaching = load_teaching_content(Path(args.teaching_content) if args.teaching_content else None)
+    teaching = load_teaching_content(
+        Path(args.teaching_content) if args.teaching_content else None
+    )
     if args.style == "textbook" and not teaching:
-        print("⚠️ textbook 模式建议提供 --teaching-content teaching_content.json（含 keyword/ipa/meaning/definition/example/visual）")
+        print(
+            "⚠️ textbook 模式建议提供 --teaching-content teaching_content.json（含 keyword/ipa/meaning/definition/example/visual）"
+        )
 
     if args.dry_run:
         print("\n=== DRY RUN：以下为每场 prompt ===\n")
@@ -446,11 +499,16 @@ def main() -> None:
         num_frames = nearest_8n_plus_1(target, hi=max_frames)
         body = resolve_scene_body(visual_plan, sid, i, cap, teaching)
         out_path = video_dir / f"{sid}.mp4"
-        jobs.append({
-            "sid": sid, "caption": cap, "body": body,
-            "duration_sec": round(sec, 2), "num_frames": num_frames,
-            "out_path": out_path,
-        })
+        jobs.append(
+            {
+                "sid": sid,
+                "caption": cap,
+                "body": body,
+                "duration_sec": round(sec, 2),
+                "num_frames": num_frames,
+                "out_path": out_path,
+            }
+        )
 
     # 并发提交视频
     if args.skip_video:
@@ -462,17 +520,25 @@ def main() -> None:
             futures = {
                 ex.submit(
                     submit_one_video,
-                    j["sid"], j["body"], args.width, args.height,
-                    j["num_frames"], args.frame_rate, j["out_path"],
+                    j["sid"],
+                    j["body"],
+                    args.width,
+                    args.height,
+                    j["num_frames"],
+                    args.frame_rate,
+                    j["out_path"],
                     args.style,
-                ): j for j in jobs
+                ): j
+                for j in jobs
             }
             for fut in as_completed(futures):
                 sid, status, data = fut.result()
                 if status == "failed":
                     failures.append(sid)
         if failures:
-            print(f"\n⚠️ {len(failures)} 场失败: {', '.join(failures)}", file=sys.stderr)
+            print(
+                f"\n⚠️ {len(failures)} 场失败: {', '.join(failures)}", file=sys.stderr
+            )
             print("其他场已完成；删对应 mp4 后重跑脚本即可续跑。", file=sys.stderr)
         else:
             print("\n全部视频片段生成完成。")
@@ -510,7 +576,9 @@ def main() -> None:
         "scenes": scenes_out,
     }
     sb_path = project_root / "storyboard.json"
-    sb_path.write_text(json.dumps(storyboard, ensure_ascii=False, indent=2), encoding="utf-8")
+    sb_path.write_text(
+        json.dumps(storyboard, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"\nstoryboard.json 写入 {sb_path}")
     print("下一步：npm run dev 检查排版，然后 npm run render:preview 出片。")
 

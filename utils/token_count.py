@@ -89,6 +89,8 @@ if __name__ == "__main__":
 
     sample = "你好，请介绍一下 Flink CDC 支持哪些数据库。"
     print(f"已知模型 gpt-4o: {count_tokens('gpt-4o', sample)} token")
-    print(f"未知模型 Qwen3-Chat-30B-AWQ: {count_tokens('Qwen3-Chat-30B-AWQ', sample)} token")
+    print(
+        f"未知模型 Qwen3-Chat-30B-AWQ: {count_tokens('Qwen3-Chat-30B-AWQ', sample)} token"
+    )
     msgs = [SystemMessage(content="你是一个严谨的助手。"), HumanMessage(content=sample)]
     print(f"消息列表估算: {count_messages_tokens('Qwen3-Chat-30B-AWQ', msgs)} token")

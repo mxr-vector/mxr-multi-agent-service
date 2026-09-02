@@ -20,9 +20,9 @@ _bundles: "OrderedDict[str, EntityBundle]" = OrderedDict()
 
 @dataclass(frozen=True)
 class EntityBundle:
-    postings: dict[str, tuple[str, ...]]      # entity -> document_ids
+    postings: dict[str, tuple[str, ...]]  # entity -> document_ids
     doc_entities: dict[str, tuple[str, ...]]  # document_id -> entities
-    generic: frozenset[str]                   # 统计判据判定的通用实体
+    generic: frozenset[str]  # 统计判据判定的通用实体
 
 
 def invalidate_entity_bundle(kb_id: str | None = None) -> None:

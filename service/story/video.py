@@ -54,7 +54,13 @@ if _FFMPEG is None:
     logger.warning("[STORY] 未检测到 ffmpeg，视频封面将降级为手动上传")
 
 # 视频可更新字段白名单（溯源字段登记后不可改，防脏引用）
-_VIDEO_UPDATABLE = {"title", "episode_no", "target_platform", "external_task_id", "remark"}
+_VIDEO_UPDATABLE = {
+    "title",
+    "episode_no",
+    "target_platform",
+    "external_task_id",
+    "remark",
+}
 
 
 def probe_video_meta(path: Path) -> dict:
@@ -180,9 +186,7 @@ class VideoService:
                 if script is None or script.project_id != project_id:
                     bad_except("溯源剧本不存在或不属于本项目")
             if export_package_id is not None:
-                package = await ExportPackageRepository(session).get(
-                    export_package_id
-                )
+                package = await ExportPackageRepository(session).get(export_package_id)
                 if package is None or package.project_id != project_id:
                     bad_except("溯源导出包不存在或不属于本项目")
 
@@ -230,6 +234,7 @@ class VideoService:
                 await session.commit()
                 return video.to_dict()
         except Exception:
+
             def _rollback() -> None:
                 video_path.unlink(missing_ok=True)
                 cover_path.unlink(missing_ok=True)
@@ -356,8 +361,6 @@ class VideoService:
                 bad_except("该视频还没有封面，请先生成或上传封面")
             project_repo = ProjectRepository(session)
             project = await project_repo.get(video.project_id)
-            await project_repo.update_fields(
-                project, {"cover_image": video.cover_file}
-            )
+            await project_repo.update_fields(project, {"cover_image": video.cover_file})
             await session.commit()
             return project.to_dict()

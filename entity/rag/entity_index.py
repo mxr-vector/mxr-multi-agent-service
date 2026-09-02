@@ -54,7 +54,9 @@ class EntityIndexRelation(Base):
     head_entity: Mapped[str] = mapped_column(String(256), nullable=False)
     tail_entity: Mapped[str] = mapped_column(String(256), nullable=False)
     relation: Mapped[str] = mapped_column(String(256), nullable=False)
-    fact_text: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    fact_text: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
     chunk_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

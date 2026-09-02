@@ -23,8 +23,12 @@ class WikiJob:
     completed: int = 0
     result: dict = field(default_factory=dict)
     error: str | None = None
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    updated_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -155,4 +159,3 @@ def enqueue_document_change(document_id: str, scope_id: str) -> None:
         return
     _dirty_tasks.add(task)
     task.add_done_callback(_dirty_tasks.discard)
-

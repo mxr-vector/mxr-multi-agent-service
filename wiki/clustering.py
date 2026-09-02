@@ -46,7 +46,9 @@ class TopicCluster:
 
     @property
     def centroid(self) -> np.ndarray:
-        return np.mean(np.asarray([item.vector for item in self.document_vectors]), axis=0)
+        return np.mean(
+            np.asarray([item.vector for item in self.document_vectors]), axis=0
+        )
 
     @property
     def spread(self) -> float:
@@ -57,7 +59,11 @@ class TopicCluster:
         return float(np.mean(np.linalg.norm(vectors - center, axis=1)))
 
     def preview(self, limit: int = 80) -> list[str]:
-        return [item.document.title[:limit] for item in self.document_vectors if item.document.title][:20]
+        return [
+            item.document.title[:limit]
+            for item in self.document_vectors
+            if item.document.title
+        ][:20]
 
 
 @dataclass(frozen=True)
@@ -72,7 +78,9 @@ def _kmeans_labels(matrix: np.ndarray, count: int, random_state: int) -> np.ndar
     count = max(1, min(int(count), len(matrix)))
     if count == 1:
         return np.zeros(len(matrix), dtype=int)
-    return KMeans(n_clusters=count, random_state=random_state, n_init=10).fit_predict(matrix)
+    return KMeans(n_clusters=count, random_state=random_state, n_init=10).fit_predict(
+        matrix
+    )
 
 
 def _hdbscan_labels(matrix: np.ndarray, min_cluster_size: int) -> np.ndarray:
@@ -131,10 +139,16 @@ def _merge_small_clusters(
     if len(clusters) <= 1:
         return clusters
     result = list(clusters)
-    for source in sorted(list(result), key=lambda item: (len(item.document_vectors), item.cluster_id)):
+    for source in sorted(
+        list(result), key=lambda item: (len(item.document_vectors), item.cluster_id)
+    ):
         if source not in result or len(source.document_vectors) >= min_size:
             continue
-        targets = [item for item in result if item is not source and item.coarse_partition == source.coarse_partition]
+        targets = [
+            item
+            for item in result
+            if item is not source and item.coarse_partition == source.coarse_partition
+        ]
         if not targets:
             targets = [item for item in result if item is not source]
         if not targets:
@@ -156,16 +170,25 @@ def cluster_documents(
     """Run K-Means coarse partitioning followed by intra-partition HDBSCAN."""
     config = config or ClusterConfig()
     if not documents:
-        return ClusterResult((), {"documents": 0, "clusters": 0, "noise_documents": 0, "noise_ratio": 0.0})
+        return ClusterResult(
+            (),
+            {"documents": 0, "clusters": 0, "noise_documents": 0, "noise_ratio": 0.0},
+        )
     matrix = np.asarray([item.vector for item in documents], dtype=float)
     coarse_count = max(1, math.ceil(len(documents) / config.coarse_target_size))
     coarse_labels = _kmeans_labels(matrix, coarse_count, config.random_state)
     clusters: list[TopicCluster] = []
     noise_count = 0
     for coarse_label in sorted(set(int(value) for value in coarse_labels)):
-        coarse_items = [item for label, item in zip(coarse_labels, documents) if int(label) == coarse_label]
+        coarse_items = [
+            item
+            for label, item in zip(coarse_labels, documents)
+            if int(label) == coarse_label
+        ]
         local_matrix = np.asarray([item.vector for item in coarse_items], dtype=float)
-        local_labels = _hdbscan_labels(local_matrix, min(config.min_cluster_size, len(coarse_items)))
+        local_labels = _hdbscan_labels(
+            local_matrix, min(config.min_cluster_size, len(coarse_items))
+        )
         groups: dict[int, list[DocumentVector]] = {}
         for label, item in zip(local_labels, coarse_items):
             groups.setdefault(int(label), []).append(item)
@@ -227,7 +250,10 @@ def cluster_documents(
     spreads = [cluster.spread for cluster in merged]
     median_spread = float(np.median(spreads)) if spreads else 0.0
     for cluster in merged:
-        if median_spread and cluster.spread > median_spread * config.variance_multiplier:
+        if (
+            median_spread
+            and cluster.spread > median_spread * config.variance_multiplier
+        ):
             cluster.quality_flags.append("high_variance")
     stats = {
         "documents": len(documents),
@@ -235,9 +261,17 @@ def cluster_documents(
         "clusters": len(merged),
         "noise_documents": noise_count,
         "noise_ratio": noise_count / len(documents),
-        "cluster_size_min": min((len(item.document_vectors) for item in merged), default=0),
-        "cluster_size_max": max((len(item.document_vectors) for item in merged), default=0),
-        "cluster_size_mean": float(np.mean([len(item.document_vectors) for item in merged])) if merged else 0.0,
+        "cluster_size_min": min(
+            (len(item.document_vectors) for item in merged), default=0
+        ),
+        "cluster_size_max": max(
+            (len(item.document_vectors) for item in merged), default=0
+        ),
+        "cluster_size_mean": (
+            float(np.mean([len(item.document_vectors) for item in merged]))
+            if merged
+            else 0.0
+        ),
         "quality_flagged_clusters": sum(bool(item.quality_flags) for item in merged),
         "noise_policy": config.noise_policy,
     }
@@ -333,9 +367,13 @@ async def review_anomalous_clusters(
                     reason=str(data.get("reason", "")),
                 )
             except Exception as exc:
-                return ClusterReview(cluster_id=cluster.cluster_id, reason=f"review_failed:{exc}")
+                return ClusterReview(
+                    cluster_id=cluster.cluster_id, reason=f"review_failed:{exc}"
+                )
 
-    output = list(await asyncio.gather(*(review_one(cluster) for cluster in candidates)))
+    output = list(
+        await asyncio.gather(*(review_one(cluster) for cluster in candidates))
+    )
     return output
 
 
@@ -350,16 +388,24 @@ def find_cross_partition_duplicates(
         from sklearn.neighbors import NearestNeighbors
 
         neighbors = min(8, len(clusters) - 1)
-        distances, indices = NearestNeighbors(
-            n_neighbors=neighbors + 1, metric="cosine"
-        ).fit(matrix).kneighbors(matrix)
+        distances, indices = (
+            NearestNeighbors(n_neighbors=neighbors + 1, metric="cosine")
+            .fit(matrix)
+            .kneighbors(matrix)
+        )
         pairs: list[tuple[TopicCluster, TopicCluster]] = []
         seen: set[tuple[int, int]] = set()
-        for left_index, (row_distances, row_indices) in enumerate(zip(distances, indices)):
+        for left_index, (row_distances, row_indices) in enumerate(
+            zip(distances, indices)
+        ):
             for distance, right_index in zip(row_distances[1:], row_indices[1:]):
                 right_index = int(right_index)
                 key = tuple(sorted((left_index, right_index)))
-                if key in seen or clusters[left_index].coarse_partition == clusters[right_index].coarse_partition:
+                if (
+                    key in seen
+                    or clusters[left_index].coarse_partition
+                    == clusters[right_index].coarse_partition
+                ):
                     continue
                 seen.add(key)
                 if 1.0 - float(distance) >= threshold:
@@ -376,7 +422,14 @@ def find_cross_partition_duplicates(
                     continue
                 left_norm = float(np.linalg.norm(left.centroid))
                 right_norm = float(np.linalg.norm(right.centroid))
-                if left_norm and right_norm and float(np.dot(left.centroid, right.centroid) / (left_norm * right_norm)) >= threshold:
+                if (
+                    left_norm
+                    and right_norm
+                    and float(
+                        np.dot(left.centroid, right.centroid) / (left_norm * right_norm)
+                    )
+                    >= threshold
+                ):
                     pairs.append((left, right))
         return pairs
 
@@ -442,7 +495,9 @@ async def review_cross_partition_duplicates(
                     reason=f"cross_zone_review_failed:{exc}",
                 )
 
-    reviews = list(await asyncio.gather(*(review_one(left, right) for left, right in pairs)))
+    reviews = list(
+        await asyncio.gather(*(review_one(left, right) for left, right in pairs))
+    )
     return reviews
 
 
@@ -453,7 +508,11 @@ def apply_cluster_reviews(
     result = list(clusters)
     by_id = {cluster.cluster_id: cluster for cluster in result}
     for review in reviews:
-        if not review.merge_with or review.cluster_id not in by_id or review.merge_with not in by_id:
+        if (
+            not review.merge_with
+            or review.cluster_id not in by_id
+            or review.merge_with not in by_id
+        ):
             continue
         source = by_id.get(review.cluster_id)
         target = by_id.get(review.merge_with)

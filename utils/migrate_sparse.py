@@ -54,19 +54,27 @@ async def list_kbs() -> None:
     """列出全部知识库（排除软删除）与叶块数。"""
     async with get_session() as session:
         kbs = (
-            await session.execute(
-                select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
+            (
+                await session.execute(
+                    select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for kb in kbs:
             doc_ids = (
-                await session.execute(
-                    select(Document.id).where(
-                        Document.knowledge_base_id == kb.id,
-                        Document.status != "deleted",
+                (
+                    await session.execute(
+                        select(Document.id).where(
+                            Document.knowledge_base_id == kb.id,
+                            Document.status != "deleted",
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if not doc_ids:
                 continue
             chunk_count = (
@@ -79,7 +87,9 @@ async def list_kbs() -> None:
                     )
                 )
             ).scalar_one()
-            print(f"{kb.id}  {kb.name}  {chunk_count} 叶块  collection={kb.qdrant_collection}")
+            print(
+                f"{kb.id}  {kb.name}  {chunk_count} 叶块  collection={kb.qdrant_collection}"
+            )
 
 
 async def migrate_kb(kb_id: str, batch_size: int, encoder: str) -> None:
@@ -92,13 +102,17 @@ async def migrate_kb(kb_id: str, batch_size: int, encoder: str) -> None:
         if kb is None:
             raise SystemExit(f"知识库不存在: {kb_id}")
         doc_ids = (
-            await session.execute(
-                select(Document.id).where(
-                    Document.knowledge_base_id == kb_uuid,
-                    Document.status != "deleted",
+            (
+                await session.execute(
+                    select(Document.id).where(
+                        Document.knowledge_base_id == kb_uuid,
+                        Document.status != "deleted",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         rows = (
             await session.execute(
                 select(Chunk.id, Chunk.content)
@@ -116,9 +130,7 @@ async def migrate_kb(kb_id: str, batch_size: int, encoder: str) -> None:
     skipped = 0
     for start in range(0, len(chunks), batch_size):
         batch = chunks[start : start + batch_size]
-        sparse_vectors = await asyncio.to_thread(
-            embed_documents, [t for _, t in batch]
-        )
+        sparse_vectors = await asyncio.to_thread(embed_documents, [t for _, t in batch])
         points = []
         for (cid, _), sv in zip(batch, sparse_vectors):
             if not sv.indices:  # 空分词点（全停用词）：update_vectors 拒绝空向量
@@ -136,9 +148,13 @@ async def migrate_kb(kb_id: str, batch_size: int, encoder: str) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser(description="既有知识库 sparse 向量迁移")
     parser.add_argument("--list", action="store_true", help="列出全部知识库与叶块数")
-    parser.add_argument("--kb-id", type=str, default=None, help="目标知识库 id（hex uuid）")
+    parser.add_argument(
+        "--kb-id", type=str, default=None, help="目标知识库 id（hex uuid）"
+    )
     parser.add_argument("--batch", type=int, default=DEFAULT_BATCH, help="每批叶块数")
-    parser.add_argument("--encoder", choices=["jieba", "legacy"], default="jieba", help="目标编码器")
+    parser.add_argument(
+        "--encoder", choices=["jieba", "legacy"], default="jieba", help="目标编码器"
+    )
     args = parser.parse_args()
 
     if args.list:

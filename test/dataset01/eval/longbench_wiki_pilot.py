@@ -28,7 +28,9 @@ PILOT_RESULT_PATH = RESULTS_DIR / "longbench_wiki_pilot.json"
 AUDIT_PATH = RESULTS_DIR / "longbench_wiki_purity_audit.json"
 
 
-async def load_documents(kb_ids: list[str], limit: int | None = None) -> list[WikiDocument]:
+async def load_documents(
+    kb_ids: list[str], limit: int | None = None
+) -> list[WikiDocument]:
     from entity.rag.document import Document
     from sqlalchemy import select
 
@@ -73,7 +75,11 @@ def load_existing_vectors(kb_hex: str) -> dict[str, tuple[float, ...]]:
     absent so callers fall back to factory embedding.
     """
     import numpy as np
-    from database.qdrant_client import DENSE_VECTOR_NAME, QdrantManager, build_kb_collection_name
+    from database.qdrant_client import (
+        DENSE_VECTOR_NAME,
+        QdrantManager,
+        build_kb_collection_name,
+    )
 
     manager = QdrantManager(build_kb_collection_name(uuid.UUID(kb_hex)))
     if not manager.client.collection_exists(manager.collection):
@@ -90,7 +96,11 @@ def load_existing_vectors(kb_hex: str) -> dict[str, tuple[float, ...]]:
             with_payload=["document_id"],
         )
         for point in batch:
-            vectors = point.vector if isinstance(point.vector, dict) else {DENSE_VECTOR_NAME: point.vector}
+            vectors = (
+                point.vector
+                if isinstance(point.vector, dict)
+                else {DENSE_VECTOR_NAME: point.vector}
+            )
             dense = vectors.get(DENSE_VECTOR_NAME)
             document_id = (point.payload or {}).get("document_id")
             if dense is None or not document_id:
@@ -120,7 +130,11 @@ def reuse_document_vectors(
             missing.append(document)
             continue
         vectors.append(
-            DocumentVector(document=document, text=document.title or document.document_id, vector=vector)
+            DocumentVector(
+                document=document,
+                text=document.title or document.document_id,
+                vector=vector,
+            )
         )
     if missing:
         vectors.extend(build_document_vectors(missing))
@@ -156,16 +170,23 @@ async def build_pilot(
             "document_count": document_count,
             "page_count": sum(record["page_count"] for record in scope_records),
             "cluster_stats": [record["cluster_stats"] for record in scope_records],
-            "noise_policy": [record["cluster_stats"].get("noise_policy") for record in scope_records],
+            "noise_policy": [
+                record["cluster_stats"].get("noise_policy") for record in scope_records
+            ],
             "version": [record["version"] for record in scope_records],
-            "collections": [TopicPageStore(record["scope_id"]).collection for record in scope_records],
+            "collections": [
+                TopicPageStore(record["scope_id"]).collection
+                for record in scope_records
+            ],
             "library_scopes": [record["scope_id"] for record in scope_records],
             "offline_generation": offline_generation,
             "resumed": resume,
         }
 
     for index_scope in build_scopes:
-        documents = await load_documents([index_scope] if per_library else kb_ids, limit)
+        documents = await load_documents(
+            [index_scope] if per_library else kb_ids, limit
+        )
         if not documents:
             continue
         document_count += len(documents)
@@ -189,19 +210,25 @@ async def build_pilot(
             print(f"[wiki] resumed existing scope {index_scope}: {len(pages)} pages")
             continue
 
-        reused = load_existing_vectors(index_scope) if reuse_vectors and per_library else {}
+        reused = (
+            load_existing_vectors(index_scope) if reuse_vectors and per_library else {}
+        )
         vectors = reuse_document_vectors(documents, reused)
         print(
             f"[wiki] scope {index_scope}: {len(reused)} docs reuse evidence vectors"
-            + (f", {len(documents) - len(reused)} fall back to embedding" if vectors else "")
+            + (
+                f", {len(documents) - len(reused)} fall back to embedding"
+                if vectors
+                else ""
+            )
         )
         result = await builder.build(
-                documents,
-                index_scope,
-                generator=generator,
-                recreate=True,
-                vectors=vectors,
-            )
+            documents,
+            index_scope,
+            generator=generator,
+            recreate=True,
+            vectors=vectors,
+        )
         scope_records.append(
             {
                 "scope_id": result.scope_id,
@@ -213,7 +240,9 @@ async def build_pilot(
         save_json(PILOT_RESULT_PATH, payload(complete=False))
         print(f"[wiki] completed scope {result.scope_id}: {len(result.pages)} pages")
     if not scope_records:
-        raise SystemExit("No active LongBench documents found for the supplied knowledge-base ids")
+        raise SystemExit(
+            "No active LongBench documents found for the supplied knowledge-base ids"
+        )
     result_payload = payload(complete=True)
     save_json(PILOT_RESULT_PATH, result_payload)
     print(f"[wiki] pilot complete: {result_payload}")
@@ -223,19 +252,24 @@ async def build_pilot(
 def audit_pages(scope_id: str | None = None, sample_size: int = 20) -> dict:
     scopes = [scope_id] if scope_id else []
     if not scopes and PILOT_RESULT_PATH.exists():
-        scopes = list(json.loads(PILOT_RESULT_PATH.read_text(encoding="utf-8")).get("library_scopes") or [])
+        scopes = list(
+            json.loads(PILOT_RESULT_PATH.read_text(encoding="utf-8")).get(
+                "library_scopes"
+            )
+            or []
+        )
     if not scopes:
         scopes = [PILOT_SCOPE]
     pages = [
-        (scope, page)
-        for scope in scopes
-        for page in TopicPageStore(scope).list_pages()
+        (scope, page) for scope in scopes for page in TopicPageStore(scope).list_pages()
     ]
     if not pages:
         raise SystemExit("Wiki topic collection is empty; run the pilot build first")
     sample_size = min(sample_size, len(pages))
     rng = random.Random(42)
-    sample = sorted(rng.sample(pages, sample_size), key=lambda item: (item[0], item[1].topic_id))
+    sample = sorted(
+        rng.sample(pages, sample_size), key=lambda item: (item[0], item[1].topic_id)
+    )
     payload = {
         "scope_id": scope_id,
         "sample_size": len(sample),
@@ -267,12 +301,22 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="LongBench LLM Wiki pilot")
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build")
-    build.add_argument("--kb-ids", required=True, help="comma-separated LongBench knowledge-base UUIDs")
+    build.add_argument(
+        "--kb-ids", required=True, help="comma-separated LongBench knowledge-base UUIDs"
+    )
     build.add_argument("--scope-id", default=PILOT_SCOPE)
     build.add_argument("--max-documents", type=int, default=None)
     build.add_argument("--offline-generation", action="store_true")
-    build.add_argument("--resume", action="store_true", help="reuse non-empty per-library topic collections")
-    build.add_argument("--no-reuse-vectors", action="store_true", help="embed document vectors from scratch")
+    build.add_argument(
+        "--resume",
+        action="store_true",
+        help="reuse non-empty per-library topic collections",
+    )
+    build.add_argument(
+        "--no-reuse-vectors",
+        action="store_true",
+        help="embed document vectors from scratch",
+    )
     audit = sub.add_parser("audit")
     audit.add_argument("--scope-id", default=None)
     audit.add_argument("--sample-size", type=int, default=20)

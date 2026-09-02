@@ -58,9 +58,7 @@ class ProjectRepository:
         防止 UNIQUE(project_id, version) 冲突。
         """
         stmt = (
-            select(StoryProject)
-            .where(StoryProject.id == project_id)
-            .with_for_update()
+            select(StoryProject).where(StoryProject.id == project_id).with_for_update()
         )
         result = await self.session.execute(stmt)
         return result.scalars().first()

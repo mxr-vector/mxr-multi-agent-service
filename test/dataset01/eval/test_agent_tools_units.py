@@ -33,7 +33,11 @@ async def _run() -> int:
 
     # 空实体：短路返回空结果（不触库）
     out = await entity_relation_lookup_impl("", ["kb"], None)
-    check("relation_empty_entity", out.metrics.get("relations") == 0 and "为空" in out.text, out.text)
+    check(
+        "relation_empty_entity",
+        out.metrics.get("relations") == 0 and "为空" in out.text,
+        out.text,
+    )
 
     # 无效库 id：解析后为空 → 无记录路径（不报错）
     out = await entity_relation_lookup_impl("some entity", ["not-a-uuid"], None)

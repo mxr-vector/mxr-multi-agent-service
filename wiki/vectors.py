@@ -23,7 +23,9 @@ def _flatten_metadata(value: Any, prefix: str = "") -> list[str]:
     if isinstance(value, dict):
         parts: list[str] = []
         for key in sorted(value):
-            child = _flatten_metadata(value[key], f"{prefix}.{key}" if prefix else str(key))
+            child = _flatten_metadata(
+                value[key], f"{prefix}.{key}" if prefix else str(key)
+            )
             parts.extend(child)
         return parts
     if isinstance(value, (list, tuple, set)):
@@ -33,9 +35,15 @@ def _flatten_metadata(value: Any, prefix: str = "") -> list[str]:
     return [f"{prefix}: {value}" if prefix else str(value)]
 
 
-def build_document_text(document: WikiDocument | Any, *, max_content_chars: int = 4000) -> str:
+def build_document_text(
+    document: WikiDocument | Any, *, max_content_chars: int = 4000
+) -> str:
     """Compose title + metadata + representative blocks in a stable order."""
-    doc = document if isinstance(document, WikiDocument) else WikiDocument.from_record(document)
+    doc = (
+        document
+        if isinstance(document, WikiDocument)
+        else WikiDocument.from_record(document)
+    )
     blocks = list(doc.representative_blocks)
     if not blocks and doc.content:
         blocks = [doc.content[:max_content_chars]]
@@ -91,11 +99,14 @@ def build_document_vectors(
                 f"embedding provider returned {len(vectors)} vectors for {len(batch_texts)} documents"
             )
         output.extend(
-            DocumentVector(document=document, text=text, vector=tuple(float(value) for value in vector))
+            DocumentVector(
+                document=document,
+                text=text,
+                vector=tuple(float(value) for value in vector),
+            )
             for document, text, vector in zip(batch_documents, batch_texts, vectors)
         )
     return output
 
 
 document_vectors = build_document_vectors
-

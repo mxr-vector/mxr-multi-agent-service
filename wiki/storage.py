@@ -13,7 +13,9 @@ WIKI_COLLECTION_PREFIX = "wiki_topics"
 WIKI_COLLECTION_VERSION = "v1"
 
 
-def build_topic_collection_name(scope_id: str | None = None, version: str = WIKI_COLLECTION_VERSION) -> str:
+def build_topic_collection_name(
+    scope_id: str | None = None, version: str = WIKI_COLLECTION_VERSION
+) -> str:
     """Build a collection name separate from every evidence collection."""
     scope = re.sub(r"[^a-zA-Z0-9_-]", "", str(scope_id or "global"))[:64] or "global"
     return f"{WIKI_COLLECTION_PREFIX}_{scope}_{version}"
@@ -28,14 +30,22 @@ class WikiSearchHit:
         value = self.page.to_dict()
         value["score"] = self.score
         if self.page.dirty:
-            value["staleness_notice"] = "topic page is dirty and may lag recent document changes"
+            value["staleness_notice"] = (
+                "topic page is dirty and may lag recent document changes"
+            )
         return value
 
 
 class TopicPageStore:
     """Qdrant adapter; page metadata is the durable version/dirty registry."""
 
-    def __init__(self, scope_id: str | None = None, *, manager: Any | None = None, embedding_client: Any | None = None):
+    def __init__(
+        self,
+        scope_id: str | None = None,
+        *,
+        manager: Any | None = None,
+        embedding_client: Any | None = None,
+    ):
         self.scope_id = str(scope_id or "global")
         self.collection = build_topic_collection_name(self.scope_id)
         self._manager = manager
@@ -128,7 +138,9 @@ class TopicPageStore:
             return []
         return [
             WikiSearchHit(
-                page=TopicPage.from_payload(point.payload or {}, topic_id=str(point.id)),
+                page=TopicPage.from_payload(
+                    point.payload or {}, topic_id=str(point.id)
+                ),
                 score=getattr(point, "score", None),
             )
             for point in points
@@ -150,14 +162,21 @@ class TopicPageStore:
             records.extend(batch)
             if offset is None or not batch:
                 break
-        pages = [TopicPage.from_payload(record.payload or {}, topic_id=str(record.id)) for record in records]
+        pages = [
+            TopicPage.from_payload(record.payload or {}, topic_id=str(record.id))
+            for record in records
+        ]
         return [page for page in pages if page.dirty] if dirty_only else pages
 
     def find_by_document_ids(self, document_ids: Iterable[str]) -> list[TopicPage]:
         wanted = {str(value) for value in document_ids}
-        return [page for page in self.list_pages() if wanted.intersection(page.documents)]
+        return [
+            page for page in self.list_pages() if wanted.intersection(page.documents)
+        ]
 
-    def mark_dirty(self, document_ids: Iterable[str], *, reason: str = "document_changed") -> list[str]:
+    def mark_dirty(
+        self, document_ids: Iterable[str], *, reason: str = "document_changed"
+    ) -> list[str]:
         pages = self.find_by_document_ids(document_ids)
         if not pages:
             return []
@@ -175,7 +194,9 @@ class TopicPageStore:
     def delete_collection(self) -> None:
         self.manager.delete_collection()
 
-    def search_many(self, query: str, scopes: Sequence[str], top_k: int = 5) -> list[WikiSearchHit]:
+    def search_many(
+        self, query: str, scopes: Sequence[str], top_k: int = 5
+    ) -> list[WikiSearchHit]:
         stores = [
             TopicPageStore(scope, embedding_client=self._embedding_client)
             for scope in dict.fromkeys(str(value) for value in scopes if value)
@@ -186,14 +207,16 @@ class TopicPageStore:
         query_vector = self.embedding_client.embed_query(query)
         hits: list[WikiSearchHit] = []
         for store in stores:
-            hits.extend(
-                store.search(query, top_k, query_vector=query_vector)
-            )
-        hits.sort(key=lambda item: item.score if item.score is not None else 0.0, reverse=True)
+            hits.extend(store.search(query, top_k, query_vector=query_vector))
+        hits.sort(
+            key=lambda item: item.score if item.score is not None else 0.0, reverse=True
+        )
         return hits[:top_k]
 
 
-def search_topic_pages(query: str, scopes: Sequence[str], top_k: int = 5) -> list[WikiSearchHit]:
+def search_topic_pages(
+    query: str, scopes: Sequence[str], top_k: int = 5
+) -> list[WikiSearchHit]:
     """Convenience entry point for the agent tool and evaluation scripts."""
     if not scopes:
         return []

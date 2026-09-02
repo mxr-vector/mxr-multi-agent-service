@@ -30,9 +30,10 @@ class SimilarityUtils:
 
         return np.dot(a, b) / denominator
 
-
     @staticmethod
-    def batch_similarity(query_embedding: np.ndarray, embeddings: List[List[float]]) -> List[Tuple[int, float]]:
+    def batch_similarity(
+        query_embedding: np.ndarray, embeddings: List[List[float]]
+    ) -> List[Tuple[int, float]]:
         """
         批量计算 query 与文档向量相似度
 
@@ -53,13 +54,8 @@ class SimilarityUtils:
         similarities = []
 
         for i, vector in enumerate(embeddings):
-            similarity = SimilarityUtils.cosine_similarity(
-                query_embedding,
-                vector
-            )
+            similarity = SimilarityUtils.cosine_similarity(query_embedding, vector)
 
-            similarities.append(
-                (i, similarity)
-            )
+            similarities.append((i, similarity))
 
         return similarities
