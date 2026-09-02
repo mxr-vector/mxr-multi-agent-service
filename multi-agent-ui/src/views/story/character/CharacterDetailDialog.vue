@@ -4,7 +4,13 @@
  */
 import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { characterApi, storyFileUrl, type StoryArtType, type StoryCharacterDetailVO, type StoryRoleType } from "@/api/story";
+import {
+  characterApi,
+  storyFileUrl,
+  type StoryArtType,
+  type StoryCharacterDetailVO,
+  type StoryRoleType,
+} from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import KeyValueEditor from "./KeyValueEditor.vue";
 
@@ -257,7 +263,9 @@ async function handleDeleteArt(artId: string) {
                     :value="option.value"
                   />
                 </el-select>
-                <el-button size="small" :loading="uploading" @click="openArtPicker">上传立绘</el-button>
+                <el-button size="small" :loading="uploading" @click="openArtPicker">
+                  上传立绘
+                </el-button>
               </div>
             </div>
             <div class="required-arts">
@@ -274,14 +282,23 @@ async function handleDeleteArt(artId: string) {
             <div v-if="detail.arts.length" class="art-grid">
               <div v-for="art in detail.arts" :key="art.id" class="art-item">
                 <el-image :src="storyFileUrl(art.image_file)" fit="cover" class="art-image" />
-                <el-tag v-if="art.is_primary" class="art-badge" size="small" type="warning">主立绘</el-tag>
+                <el-tag v-if="art.is_primary" class="art-badge" size="small" type="warning">
+                  主立绘
+                </el-tag>
                 <div class="art-name">{{ art.name || "未命名" }}</div>
                 <div class="art-type">{{ ART_TYPE_LABEL[art.art_type] ?? art.art_type }}</div>
                 <div class="art-actions">
-                  <el-button v-if="!art.is_primary" size="small" link @click="handleSetPrimary(art.id)">
+                  <el-button
+                    v-if="!art.is_primary"
+                    size="small"
+                    link
+                    @click="handleSetPrimary(art.id)"
+                  >
                     设为主立绘
                   </el-button>
-                  <el-button size="small" link type="danger" @click="handleDeleteArt(art.id)">删除</el-button>
+                  <el-button size="small" link type="danger" @click="handleDeleteArt(art.id)">
+                    删除
+                  </el-button>
                 </div>
               </div>
             </div>
@@ -291,7 +308,11 @@ async function handleDeleteArt(artId: string) {
               <span class="side-title">出演项目</span>
             </div>
             <div v-if="detail.casting_projects.length" class="casting-list">
-              <el-tag v-for="project in detail.casting_projects" :key="project.project_id" class="casting-tag">
+              <el-tag
+                v-for="project in detail.casting_projects"
+                :key="project.project_id"
+                class="casting-tag"
+              >
                 {{ project.title }}
               </el-tag>
             </div>

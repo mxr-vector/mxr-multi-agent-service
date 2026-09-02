@@ -44,8 +44,7 @@ export const STORY_PROJECT_URL = {
   /** 关键帧列表 / 创建 */
   keyframes: (projectId: string) => `${BASE}/projects/${projectId}/keyframes`,
   /** 导出选中关键帧 */
-  keyframeSelection: (projectId: string) =>
-    `${BASE}/projects/${projectId}/keyframe-selection`,
+  keyframeSelection: (projectId: string) => `${BASE}/projects/${projectId}/keyframe-selection`,
   /** 视频上传登记 / 列表 */
   videos: (projectId: string) => `${BASE}/projects/${projectId}/videos`,
   /** 导出包生成 / 列表 */

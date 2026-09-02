@@ -394,12 +394,20 @@ function numbering(keyframe: StoryKeyframeVO): string {
       </el-table-column>
       <el-table-column label="正向提示词" min-width="200">
         <template #default="{ row }">
-          <span class="prompt-brief">{{ row.prompt.slice(0, 50) }}{{ row.prompt.length > 50 ? "…" : "" }}</span>
+          <span class="prompt-brief">
+            {{ row.prompt.slice(0, 50) }}{{ row.prompt.length > 50 ? "…" : "" }}
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="出场角色" min-width="140">
         <template #default="{ row }">
-          <span v-if="row.characters.length">{{ row.characters.map((c: StoryKeyframeCharacterVO) => c.character_name ?? "?").join("、") }}</span>
+          <span v-if="row.characters.length">
+            {{
+              row.characters
+                .map((c: StoryKeyframeCharacterVO) => c.character_name ?? "?")
+                .join("、")
+            }}
+          </span>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -460,32 +468,77 @@ function numbering(keyframe: StoryKeyframeVO): string {
         </el-form-item>
         <el-form-item label="编号">
           <div class="numbering-row">
-            <el-input-number v-model="form.chapter_no" :min="0" controls-position="right" placeholder="章节" />
-            <el-input-number v-model="form.scene_no" :min="0" controls-position="right" placeholder="场景" />
-            <el-input-number v-model="form.shot_no" :min="0" controls-position="right" placeholder="镜头" />
+            <el-input-number
+              v-model="form.chapter_no"
+              :min="0"
+              controls-position="right"
+              placeholder="章节"
+            />
+            <el-input-number
+              v-model="form.scene_no"
+              :min="0"
+              controls-position="right"
+              placeholder="场景"
+            />
+            <el-input-number
+              v-model="form.shot_no"
+              :min="0"
+              controls-position="right"
+              placeholder="镜头"
+            />
             <span class="muted">场景 + 镜头组合项目内唯一</span>
           </div>
         </el-form-item>
         <el-form-item label="正向提示词">
-          <el-input v-model="form.prompt" type="textarea" :rows="3" placeholder="图片模型生成输入" />
+          <el-input
+            v-model="form.prompt"
+            type="textarea"
+            :rows="3"
+            placeholder="图片模型生成输入"
+          />
         </el-form-item>
         <el-form-item label="负向提示词">
           <el-input v-model="form.negative_prompt" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="场景描述">
-          <el-input v-model="form.scene_description" type="textarea" :rows="2" placeholder="当前场景发生了什么" />
+          <el-input
+            v-model="form.scene_description"
+            type="textarea"
+            :rows="2"
+            placeholder="当前场景发生了什么"
+          />
         </el-form-item>
         <el-form-item label="画面描述">
-          <el-input v-model="form.visual_description" type="textarea" :rows="2" placeholder="画面应该长什么样" />
+          <el-input
+            v-model="form.visual_description"
+            type="textarea"
+            :rows="2"
+            placeholder="画面应该长什么样"
+          />
         </el-form-item>
         <el-form-item label="镜头描述">
-          <el-input v-model="form.camera_description" type="textarea" :rows="2" placeholder="景别/机位/焦段/运动" />
+          <el-input
+            v-model="form.camera_description"
+            type="textarea"
+            :rows="2"
+            placeholder="景别/机位/焦段/运动"
+          />
         </el-form-item>
         <el-form-item label="光线描述">
-          <el-input v-model="form.lighting_description" type="textarea" :rows="2" placeholder="光线/时间/氛围" />
+          <el-input
+            v-model="form.lighting_description"
+            type="textarea"
+            :rows="2"
+            placeholder="光线/时间/氛围"
+          />
         </el-form-item>
         <el-form-item label="风格描述">
-          <el-input v-model="form.style_description" type="textarea" :rows="2" placeholder="与角色/项目风格一致" />
+          <el-input
+            v-model="form.style_description"
+            type="textarea"
+            :rows="2"
+            placeholder="与角色/项目风格一致"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -511,7 +564,13 @@ function numbering(keyframe: StoryKeyframeVO): string {
               <el-option label="次要" value="secondary" />
               <el-option label="背景" value="background" />
             </el-select>
-            <el-select v-model="option.art_id" size="small" clearable placeholder="参考立绘（默认主立绘）" class="cast-art">
+            <el-select
+              v-model="option.art_id"
+              size="small"
+              clearable
+              placeholder="参考立绘（默认主立绘）"
+              class="cast-art"
+            >
               <el-option
                 v-for="art in option.arts"
                 :key="art.id"
@@ -530,7 +589,9 @@ function numbering(keyframe: StoryKeyframeVO): string {
       </div>
       <template #footer>
         <el-button @click="castVisible = false">取消</el-button>
-        <el-button type="primary" :loading="castSubmitting" @click="handleCastSubmit">保存</el-button>
+        <el-button type="primary" :loading="castSubmitting" @click="handleCastSubmit">
+          保存
+        </el-button>
       </template>
     </el-dialog>
 
@@ -544,7 +605,9 @@ function numbering(keyframe: StoryKeyframeVO): string {
       </el-checkbox-group>
       <template #footer>
         <el-button @click="selectionVisible = false">取消</el-button>
-        <el-button type="primary" :loading="selectionSubmitting" @click="handleSelectionSubmit">保存</el-button>
+        <el-button type="primary" :loading="selectionSubmitting" @click="handleSelectionSubmit">
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>

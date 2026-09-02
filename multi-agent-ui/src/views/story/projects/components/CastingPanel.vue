@@ -54,7 +54,9 @@ onMounted(loadCasting);
 // —— 添加出演 ——
 const addVisible = ref(false);
 const addLoading = ref(false);
-const library = ref<{ id: string; name: string; avatar_file: string | null; casting: boolean }[]>([]);
+const library = ref<{ id: string; name: string; avatar_file: string | null; casting: boolean }[]>(
+  []
+);
 const picked = ref<string[]>([]);
 
 async function openAdd() {
@@ -135,7 +137,9 @@ async function handleSaveArts() {
 <template>
   <div class="casting-panel">
     <div class="panel-toolbar">
-      <span class="panel-hint">出演角色引用角色库（非拷贝）；选中的立绘参与导出，未选择时导出默认使用主立绘。</span>
+      <span class="panel-hint">
+        出演角色引用角色库（非拷贝）；选中的立绘参与导出，未选择时导出默认使用主立绘。
+      </span>
       <div class="toolbar-actions">
         <el-button v-if="artDirty" type="primary" @click="handleSaveArts">保存选中立绘</el-button>
         <el-button type="primary" @click="openAdd">添加出演角色</el-button>
@@ -154,8 +158,17 @@ async function handleSaveArts() {
             <div class="cast-sub">立绘 {{ item.arts.length }} 张</div>
           </div>
           <div class="cast-actions">
-            <el-button size="small" link :disabled="index === 0" @click="move(index, -1)">上移</el-button>
-            <el-button size="small" link :disabled="index === items.length - 1" @click="move(index, 1)">下移</el-button>
+            <el-button size="small" link :disabled="index === 0" @click="move(index, -1)">
+              上移
+            </el-button>
+            <el-button
+              size="small"
+              link
+              :disabled="index === items.length - 1"
+              @click="move(index, 1)"
+            >
+              下移
+            </el-button>
             <el-button size="small" link type="danger" @click="handleRemove(item)">移除</el-button>
           </div>
         </div>
@@ -178,7 +191,11 @@ async function handleSaveArts() {
     <!-- 添加出演 -->
     <el-dialog v-model="addVisible" title="添加出演角色" width="560px" destroy-on-close>
       <div v-loading="addLoading" class="library-list">
-        <el-empty v-if="!library.length && !addLoading" description="角色库为空，请先到角色库创建" :image-size="80" />
+        <el-empty
+          v-if="!library.length && !addLoading"
+          description="角色库为空，请先到角色库创建"
+          :image-size="80"
+        />
         <el-checkbox-group v-model="picked">
           <div v-for="character in library" :key="character.id" class="library-item">
             <el-checkbox :value="character.id" :disabled="character.casting">

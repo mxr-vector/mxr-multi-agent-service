@@ -5,7 +5,12 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { projectApi, storyFileUrl, type StoryProjectVO, type StoryProjectPayload } from "@/api/story";
+import {
+  projectApi,
+  storyFileUrl,
+  type StoryProjectVO,
+  type StoryProjectPayload,
+} from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import { formatDateTime } from "@/utils/format";
@@ -24,7 +29,11 @@ const total = ref(0);
 async function loadProjects() {
   loading.value = true;
   try {
-    const res = await projectApi.list({ page: page.value, size: size.value, keyword: keyword.value || undefined });
+    const res = await projectApi.list({
+      page: page.value,
+      size: size.value,
+      keyword: keyword.value || undefined,
+    });
     list.value = res.data?.items ?? [];
     total.value = res.data?.total ?? 0;
   } finally {
@@ -96,7 +105,9 @@ async function handleDelete(project: StoryProjectVO) {
     <div class="page-toolbar">
       <div class="toolbar-left">
         <h2 class="page-title">项目管理</h2>
-        <span class="page-desc">一个项目 = 一部作品：剧本、关键帧、出演角色与视频成品都在这里维护。</span>
+        <span class="page-desc">
+          一个项目 = 一部作品：剧本、关键帧、出演角色与视频成品都在这里维护。
+        </span>
       </div>
       <div class="toolbar-right">
         <el-input v-model="keyword" placeholder="搜索项目标题" clearable class="search-input" />
@@ -107,11 +118,23 @@ async function handleDelete(project: StoryProjectVO) {
     <div class="list-panel">
       <div v-loading="loading" class="list-scroll">
         <div v-if="list.length" class="card-grid">
-          <div v-for="project in list" :key="project.id" class="project-card" @click="openWorkspace(project)">
+          <div
+            v-for="project in list"
+            :key="project.id"
+            class="project-card"
+            @click="openWorkspace(project)"
+          >
             <div class="card-cover">
-              <el-image v-if="project.cover_image" :src="storyFileUrl(project.cover_image)" fit="cover" class="cover-image" />
+              <el-image
+                v-if="project.cover_image"
+                :src="storyFileUrl(project.cover_image)"
+                fit="cover"
+                class="cover-image"
+              />
               <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
-              <el-tag v-if="project.status === 'archived'" class="cover-badge" size="small">已归档</el-tag>
+              <el-tag v-if="project.status === 'archived'" class="cover-badge" size="small">
+                已归档
+              </el-tag>
             </div>
             <div class="card-body">
               <div class="card-title">{{ project.title }}</div>
@@ -126,7 +149,9 @@ async function handleDelete(project: StoryProjectVO) {
                 <span class="card-time">{{ formatDateTime(project.updated_at) }}</span>
                 <span class="card-actions" @click.stop>
                   <el-button size="small" link @click="openEdit(project)">编辑</el-button>
-                  <el-button size="small" link type="danger" @click="handleDelete(project)">删除</el-button>
+                  <el-button size="small" link type="danger" @click="handleDelete(project)">
+                    删除
+                  </el-button>
                 </span>
               </div>
             </div>
@@ -198,7 +223,9 @@ async function handleDelete(project: StoryProjectVO) {
   background: #fff;
   overflow: hidden;
   cursor: pointer;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
 }
 .project-card:hover {
   border-color: #526ae2;

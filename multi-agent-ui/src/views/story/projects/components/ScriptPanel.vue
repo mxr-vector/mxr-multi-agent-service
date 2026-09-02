@@ -135,7 +135,9 @@ async function handleEdit() {
       </el-table-column>
       <el-table-column label="内容摘要" min-width="220">
         <template #default="{ row }">
-          <span class="content-brief">{{ row.content.slice(0, 60) }}{{ row.content.length > 60 ? "…" : "" }}</span>
+          <span class="content-brief">
+            {{ row.content.slice(0, 60) }}{{ row.content.length > 60 ? "…" : "" }}
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="更新时间" width="150">
@@ -143,7 +145,9 @@ async function handleEdit() {
       </el-table-column>
       <el-table-column label="操作" width="160">
         <template #default="{ row }">
-          <el-button v-if="!row.is_current" size="small" link @click="handleSwitch(row)">设为当前</el-button>
+          <el-button v-if="!row.is_current" size="small" link @click="handleSwitch(row)">
+            设为当前
+          </el-button>
           <el-button size="small" link @click="openEdit(row)">编辑</el-button>
         </template>
       </el-table-column>
@@ -159,7 +163,12 @@ async function handleEdit() {
           <el-input v-model="saveForm.title" placeholder="可选，如：第二稿" />
         </el-form-item>
         <el-form-item label="剧本内容">
-          <el-input v-model="saveForm.content" type="textarea" :rows="10" placeholder="完整剧本文本" />
+          <el-input
+            v-model="saveForm.content"
+            type="textarea"
+            :rows="10"
+            placeholder="完整剧本文本"
+          />
         </el-form-item>
         <el-form-item label="设为当前">
           <el-switch v-model="saveForm.set_current" />
@@ -172,7 +181,12 @@ async function handleEdit() {
     </el-dialog>
 
     <!-- 编辑既有版本 -->
-    <el-dialog v-model="editVisible" :title="`编辑 v${editing?.version ?? ''}`" width="680px" destroy-on-close>
+    <el-dialog
+      v-model="editVisible"
+      :title="`编辑 v${editing?.version ?? ''}`"
+      width="680px"
+      destroy-on-close
+    >
       <el-form label-width="88px">
         <el-form-item label="版本标题">
           <el-input v-model="editForm.title" placeholder="可选" />

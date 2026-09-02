@@ -57,9 +57,7 @@ export const scriptApi = {
   },
   /** 切换当前版本（先复位再置位） */
   switchCurrent(scriptId: string) {
-    return request.put<StoryScriptVO, ApiResult<StoryScriptVO>>(
-      STORY_SCRIPT_URL.current(scriptId)
-    );
+    return request.put<StoryScriptVO, ApiResult<StoryScriptVO>>(STORY_SCRIPT_URL.current(scriptId));
   },
   /** 编辑既有版本内容/标题 */
   update(scriptId: string, payload: StoryScriptUpdatePayload) {

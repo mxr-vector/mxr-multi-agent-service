@@ -101,9 +101,7 @@ export const keyframeApi = {
   },
   /** 关键帧详情 */
   detail(id: string) {
-    return request.get<StoryKeyframeVO, ApiResult<StoryKeyframeVO>>(
-      STORY_KEYFRAME_URL.byId(id)
-    );
+    return request.get<StoryKeyframeVO, ApiResult<StoryKeyframeVO>>(STORY_KEYFRAME_URL.byId(id));
   },
   /** 编辑关键帧 */
   update(id: string, payload: StoryKeyframeUpdatePayload) {

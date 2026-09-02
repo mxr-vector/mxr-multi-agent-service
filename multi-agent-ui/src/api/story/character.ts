@@ -18,12 +18,7 @@ export type StoryArtType =
   | "other";
 
 /** 角色分类（戏内角色属性） */
-export type StoryRoleType =
-  | "protagonist"
-  | "supporting"
-  | "antagonist"
-  | "npc"
-  | "other";
+export type StoryRoleType = "protagonist" | "supporting" | "antagonist" | "npc" | "other";
 
 /** 角色立绘 VO */
 export interface StoryCharacterArtVO {
@@ -138,8 +133,6 @@ export const characterApi = {
   },
   /** 删除立绘 */
   removeArt(characterId: string, artId: string) {
-    return request.delete<null, ApiResult<null>>(
-      STORY_CHARACTER_URL.artById(characterId, artId)
-    );
+    return request.delete<null, ApiResult<null>>(STORY_CHARACTER_URL.artById(characterId, artId));
   },
 };

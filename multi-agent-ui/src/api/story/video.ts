@@ -82,10 +82,7 @@ export const videoApi = {
   },
   /** 编辑视频登记字段 */
   update(id: string, payload: StoryVideoUpdatePayload) {
-    return request.put<StoryVideoVO, ApiResult<StoryVideoVO>>(
-      STORY_VIDEO_URL.byId(id),
-      payload
-    );
+    return request.put<StoryVideoVO, ApiResult<StoryVideoVO>>(STORY_VIDEO_URL.byId(id), payload);
   },
   /** 删除视频登记 */
   remove(id: string) {
@@ -95,11 +92,9 @@ export const videoApi = {
   uploadCover(id: string, file: File) {
     const form = new FormData();
     form.append("file", file);
-    return request.post<StoryVideoVO, ApiResult<StoryVideoVO>>(
-      STORY_VIDEO_URL.cover(id),
-      form,
-      { headers: { "Content-Type": "multipart/form-data" } }
-    );
+    return request.post<StoryVideoVO, ApiResult<StoryVideoVO>>(STORY_VIDEO_URL.cover(id), form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
   },
   /** 把视频封面设为项目封面 */
   setProjectCover(id: string) {

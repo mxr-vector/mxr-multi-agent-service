@@ -7,7 +7,12 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
-import { projectApi, storyFileUrl, type StoryProjectDetailVO, type StoryProjectPayload } from "@/api/story";
+import {
+  projectApi,
+  storyFileUrl,
+  type StoryProjectDetailVO,
+  type StoryProjectPayload,
+} from "@/api/story";
 import ProjectFormDialog from "./ProjectFormDialog.vue";
 import OverviewPanel from "./components/OverviewPanel.vue";
 import ScriptPanel from "./components/ScriptPanel.vue";
@@ -20,7 +25,15 @@ const route = useRoute();
 const router = useRouter();
 const projectId = computed(() => String(route.params.id ?? ""));
 
-const TAB_KEYS = ["overview", "script", "keyframe", "casting", "video", "export", "session"] as const;
+const TAB_KEYS = [
+  "overview",
+  "script",
+  "keyframe",
+  "casting",
+  "video",
+  "export",
+  "session",
+] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 const activeTab = computed<TabKey>({
@@ -83,7 +96,12 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
         <div class="workspace-head">
           <el-button :icon="ArrowLeft" text @click="goBack">返回</el-button>
           <div class="head-cover">
-            <el-image v-if="project.cover_image" :src="storyFileUrl(project.cover_image)" fit="cover" class="cover-image" />
+            <el-image
+              v-if="project.cover_image"
+              :src="storyFileUrl(project.cover_image)"
+              fit="cover"
+              class="cover-image"
+            />
             <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
           </div>
           <div class="head-main">
@@ -110,16 +128,32 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
             <OverviewPanel v-if="activeTab === 'overview'" :project="project" />
           </el-tab-pane>
           <el-tab-pane label="剧本" name="script">
-            <ScriptPanel v-if="activeTab === 'script'" :project-id="projectId" @changed="loadProject" />
+            <ScriptPanel
+              v-if="activeTab === 'script'"
+              :project-id="projectId"
+              @changed="loadProject"
+            />
           </el-tab-pane>
           <el-tab-pane label="关键帧" name="keyframe">
-            <KeyframePanel v-if="activeTab === 'keyframe'" :project-id="projectId" @changed="loadProject" />
+            <KeyframePanel
+              v-if="activeTab === 'keyframe'"
+              :project-id="projectId"
+              @changed="loadProject"
+            />
           </el-tab-pane>
           <el-tab-pane label="出演角色" name="casting">
-            <CastingPanel v-if="activeTab === 'casting'" :project-id="projectId" @changed="loadProject" />
+            <CastingPanel
+              v-if="activeTab === 'casting'"
+              :project-id="projectId"
+              @changed="loadProject"
+            />
           </el-tab-pane>
           <el-tab-pane label="视频成品" name="video">
-            <VideoPanel v-if="activeTab === 'video'" :project-id="projectId" @changed="loadProject" />
+            <VideoPanel
+              v-if="activeTab === 'video'"
+              :project-id="projectId"
+              @changed="loadProject"
+            />
           </el-tab-pane>
           <el-tab-pane label="导出包" name="export">
             <ExportPanel v-if="activeTab === 'export'" :project-id="projectId" />

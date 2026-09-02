@@ -26,9 +26,27 @@ const stats = computed(() => [
 
 // 快捷入口：跳转到各业务模块（tone 决定图标块的渐变配色）
 const shortcuts = computed(() => [
-  { icon: "workflow", tone: "workflow", title: "工作流", desc: "编排可复用的自动化流程", to: "/workflows" },
-  { icon: "agent", tone: "agent", title: "智能体", desc: "创建、配置并监控你的智能体", to: "/agents" },
-  { icon: "rag", tone: "rag", title: "RAG 系统", desc: "管理知识库与文档", to: "/rag/knowledge-base" },
+  {
+    icon: "workflow",
+    tone: "workflow",
+    title: "工作流",
+    desc: "编排可复用的自动化流程",
+    to: "/workflows",
+  },
+  {
+    icon: "agent",
+    tone: "agent",
+    title: "智能体",
+    desc: "创建、配置并监控你的智能体",
+    to: "/agents",
+  },
+  {
+    icon: "rag",
+    tone: "rag",
+    title: "RAG 系统",
+    desc: "管理知识库与文档",
+    to: "/rag/knowledge-base",
+  },
 ]);
 
 function go(path: string) {

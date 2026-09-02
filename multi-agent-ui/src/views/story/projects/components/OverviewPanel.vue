@@ -17,8 +17,12 @@ defineProps<{
       <el-descriptions-item label="状态">
         {{ project.status === "archived" ? "已归档" : "进行中" }}
       </el-descriptions-item>
-      <el-descriptions-item label="创建时间">{{ formatDateTime(project.created_at) }}</el-descriptions-item>
-      <el-descriptions-item label="更新时间">{{ formatDateTime(project.updated_at) }}</el-descriptions-item>
+      <el-descriptions-item label="创建时间">
+        {{ formatDateTime(project.created_at) }}
+      </el-descriptions-item>
+      <el-descriptions-item label="更新时间">
+        {{ formatDateTime(project.updated_at) }}
+      </el-descriptions-item>
       <el-descriptions-item label="当前剧本">
         <template v-if="project.current_script">
           v{{ project.current_script.version }}
@@ -27,7 +31,9 @@ defineProps<{
         </template>
         <span v-else class="muted">暂无，请到「剧本」子视图保存</span>
       </el-descriptions-item>
-      <el-descriptions-item label="最近生成">{{ formatDateTime(project.last_generated_at) }}</el-descriptions-item>
+      <el-descriptions-item label="最近生成">
+        {{ formatDateTime(project.last_generated_at) }}
+      </el-descriptions-item>
       <el-descriptions-item label="故事设定" :span="2">
         {{ project.description || "—" }}
       </el-descriptions-item>

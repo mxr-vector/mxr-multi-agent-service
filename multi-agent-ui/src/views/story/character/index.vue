@@ -4,7 +4,12 @@
  */
 import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { characterApi, storyFileUrl, type StoryCharacterVO, type StoryCharacterPayload } from "@/api/story";
+import {
+  characterApi,
+  storyFileUrl,
+  type StoryCharacterVO,
+  type StoryCharacterPayload,
+} from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import Pagination from "@/components/ui/Pagination.vue";
@@ -29,7 +34,11 @@ const total = ref(0);
 async function loadCharacters() {
   loading.value = true;
   try {
-    const res = await characterApi.list({ page: page.value, size: size.value, keyword: keyword.value || undefined });
+    const res = await characterApi.list({
+      page: page.value,
+      size: size.value,
+      keyword: keyword.value || undefined,
+    });
     list.value = res.data?.items ?? [];
     total.value = res.data?.total ?? 0;
   } finally {
@@ -88,7 +97,9 @@ function openDetail(character: StoryCharacterVO) {
 
 // —— 删除 ——
 async function handleDelete(character: StoryCharacterVO) {
-  const confirmed = await confirmDanger(`确定删除角色「${character.name}」吗？其全部立绘将一并删除。`);
+  const confirmed = await confirmDanger(
+    `确定删除角色「${character.name}」吗？其全部立绘将一并删除。`
+  );
   if (!confirmed) return;
   try {
     await characterApi.remove(character.id);
@@ -108,12 +119,7 @@ async function handleDelete(character: StoryCharacterVO) {
         <span class="page-desc">角色与立绘归属个人，可在多个项目间复用。</span>
       </div>
       <div class="toolbar-right">
-        <el-input
-          v-model="keyword"
-          placeholder="搜索角色名"
-          clearable
-          class="search-input"
-        />
+        <el-input v-model="keyword" placeholder="搜索角色名" clearable class="search-input" />
         <el-button type="primary" @click="openCreate">新建角色</el-button>
       </div>
     </div>
@@ -121,8 +127,17 @@ async function handleDelete(character: StoryCharacterVO) {
     <div class="list-panel">
       <div v-loading="loading" class="list-scroll">
         <div v-if="list.length" class="card-grid">
-          <div v-for="character in list" :key="character.id" class="character-card" @click="openDetail(character)">
-            <el-avatar :size="64" :src="storyFileUrl(character.avatar_file) || undefined" class="card-avatar">
+          <div
+            v-for="character in list"
+            :key="character.id"
+            class="character-card"
+            @click="openDetail(character)"
+          >
+            <el-avatar
+              :size="64"
+              :src="storyFileUrl(character.avatar_file) || undefined"
+              class="card-avatar"
+            >
               {{ character.name.slice(0, 1) }}
             </el-avatar>
             <div class="card-name">{{ character.name }}</div>
@@ -134,7 +149,9 @@ async function handleDelete(character: StoryCharacterVO) {
             </div>
             <div class="card-actions" @click.stop>
               <el-button size="small" link @click="openEdit(character)">编辑</el-button>
-              <el-button size="small" link type="danger" @click="handleDelete(character)">删除</el-button>
+              <el-button size="small" link type="danger" @click="handleDelete(character)">
+                删除
+              </el-button>
             </div>
           </div>
         </div>
@@ -212,7 +229,9 @@ async function handleDelete(character: StoryCharacterVO) {
   border-radius: 10px;
   background: #fff;
   cursor: pointer;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
 }
 .character-card:hover {
   border-color: #526ae2;

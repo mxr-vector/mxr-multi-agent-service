@@ -75,7 +75,8 @@ async function handleCopy(pkg: StoryExportPackageVO) {
   <div class="export-panel">
     <div class="panel-toolbar">
       <span class="panel-hint">
-        统一装配「当前剧本 + 出演角色 + 被选关键帧」，生成后可直接复制到外部视频生成网站；历史包为不可变快照。
+        统一装配「当前剧本 + 出演角色 +
+        被选关键帧」，生成后可直接复制到外部视频生成网站；历史包为不可变快照。
       </span>
       <el-button type="primary" @click="openCreate">生成导出包</el-button>
     </div>
@@ -119,9 +120,16 @@ async function handleCopy(pkg: StoryExportPackageVO) {
     </el-dialog>
 
     <!-- 查看 -->
-    <el-dialog v-model="viewVisible" :title="viewing?.name ?? '导出包'" width="760px" destroy-on-close>
+    <el-dialog
+      v-model="viewVisible"
+      :title="viewing?.name ?? '导出包'"
+      width="760px"
+      destroy-on-close
+    >
       <div class="view-actions">
-        <el-button type="primary" size="small" @click="viewing && handleCopy(viewing)">一键复制</el-button>
+        <el-button type="primary" size="small" @click="viewing && handleCopy(viewing)">
+          一键复制
+        </el-button>
       </div>
       <pre class="export-text">{{ viewing?.prompt_text ?? "" }}</pre>
     </el-dialog>

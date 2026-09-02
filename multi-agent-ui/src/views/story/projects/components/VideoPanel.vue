@@ -89,7 +89,13 @@ async function onVideoPicked(event: Event) {
       remark: uploadForm.remark.trim() || undefined,
     });
     ElMessage.success("视频已登记（封面默认抽取首帧）");
-    Object.assign(uploadForm, { title: "", episode_no: null, keyframe_id: "", target_platform: "", remark: "" });
+    Object.assign(uploadForm, {
+      title: "",
+      episode_no: null,
+      keyframe_id: "",
+      target_platform: "",
+      remark: "",
+    });
     await loadVideos();
     emit("changed");
   } finally {
@@ -186,13 +192,33 @@ function formatDuration(ms: number | null): string {
         @change="onVideoPicked"
       />
       <div class="upload-fields">
-        <el-input v-model="uploadForm.title" placeholder="片段标题，如：镜头03" class="field-title" />
-        <el-input-number v-model="uploadForm.episode_no" :min="0" controls-position="right" placeholder="分组号" />
-        <el-select v-model="uploadForm.keyframe_id" clearable placeholder="溯源关键帧（可选）" class="field-keyframe">
+        <el-input
+          v-model="uploadForm.title"
+          placeholder="片段标题，如：镜头03"
+          class="field-title"
+        />
+        <el-input-number
+          v-model="uploadForm.episode_no"
+          :min="0"
+          controls-position="right"
+          placeholder="分组号"
+        />
+        <el-select
+          v-model="uploadForm.keyframe_id"
+          clearable
+          placeholder="溯源关键帧（可选）"
+          class="field-keyframe"
+        >
           <el-option v-for="(name, id) in keyframeNames" :key="id" :label="name" :value="id" />
         </el-select>
-        <el-input v-model="uploadForm.target_platform" placeholder="生成平台备注" class="field-platform" />
-        <el-button type="primary" :loading="uploading" @click="openVideoPicker">上传视频片段</el-button>
+        <el-input
+          v-model="uploadForm.target_platform"
+          placeholder="生成平台备注"
+          class="field-platform"
+        />
+        <el-button type="primary" :loading="uploading" @click="openVideoPicker">
+          上传视频片段
+        </el-button>
       </div>
       <div class="upload-hint">外部平台生成后下载的视频，以单镜头片段粒度回收登记。</div>
     </div>
@@ -202,7 +228,12 @@ function formatDuration(ms: number | null): string {
       <div v-if="list.length" class="video-grid">
         <div v-for="video in list" :key="video.id" class="video-card">
           <div class="video-cover" @click="openPlay(video)">
-            <el-image v-if="video.cover_file" :src="storyFileUrl(video.cover_file)" fit="cover" class="cover-image" />
+            <el-image
+              v-if="video.cover_file"
+              :src="storyFileUrl(video.cover_file)"
+              fit="cover"
+              class="cover-image"
+            />
             <div v-else class="cover-placeholder">无封面</div>
             <div class="play-mask">播放</div>
           </div>
@@ -213,12 +244,18 @@ function formatDuration(ms: number | null): string {
                 {{ keyframeNames[video.keyframe_id] ?? "关键帧溯源" }}
               </el-tag>
               <span class="meta-text">{{ formatDuration(video.duration_ms) }}</span>
-              <span v-if="video.target_platform" class="meta-text">{{ video.target_platform }}</span>
+              <span v-if="video.target_platform" class="meta-text">
+                {{ video.target_platform }}
+              </span>
             </div>
             <div class="video-actions">
               <el-button size="small" link @click="openEdit(video)">编辑</el-button>
-              <el-button size="small" link @click="handleSetProjectCover(video)">设为项目封面</el-button>
-              <el-button size="small" link type="danger" @click="handleDelete(video)">删除</el-button>
+              <el-button size="small" link @click="handleSetProjectCover(video)">
+                设为项目封面
+              </el-button>
+              <el-button size="small" link type="danger" @click="handleDelete(video)">
+                删除
+              </el-button>
             </div>
           </div>
         </div>
@@ -227,8 +264,19 @@ function formatDuration(ms: number | null): string {
     </div>
 
     <!-- 播放 -->
-    <el-dialog v-model="playVisible" :title="playing?.title || '视频预览'" width="720px" destroy-on-close>
-      <video v-if="playing" :src="storyFileUrl(playing.video_file)" controls autoplay class="player" />
+    <el-dialog
+      v-model="playVisible"
+      :title="playing?.title || '视频预览'"
+      width="720px"
+      destroy-on-close
+    >
+      <video
+        v-if="playing"
+        :src="storyFileUrl(playing.video_file)"
+        controls
+        autoplay
+        class="player"
+      />
     </el-dialog>
 
     <!-- 编辑 -->

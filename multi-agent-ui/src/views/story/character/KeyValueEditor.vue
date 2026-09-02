@@ -96,13 +96,7 @@ function removeRow(index: number) {
         class="kv-value"
         @update:model-value="sync"
       />
-      <el-button
-        link
-        type="danger"
-        :icon="Delete"
-        class="kv-remove"
-        @click="removeRow(index)"
-      />
+      <el-button link type="danger" :icon="Delete" class="kv-remove" @click="removeRow(index)" />
     </div>
     <el-button size="small" :icon="Plus" @click="addRow">添加一项</el-button>
   </div>

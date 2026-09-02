@@ -81,10 +81,7 @@ export const projectApi = {
   },
   /** 创建项目 */
   create(payload: StoryProjectPayload) {
-    return request.post<StoryProjectVO, ApiResult<StoryProjectVO>>(
-      STORY_PROJECT_URL.root,
-      payload
-    );
+    return request.post<StoryProjectVO, ApiResult<StoryProjectVO>>(STORY_PROJECT_URL.root, payload);
   },
   /** 项目详情（含计数与当前剧本摘要） */
   detail(id: string) {
@@ -127,16 +124,14 @@ export const projectApi = {
   },
   /** 重排出演顺序 */
   sortCasting(projectId: string, characterIds: string[]) {
-    return request.put<null, ApiResult<null>>(
-      STORY_PROJECT_URL.characterSort(projectId),
-      { character_ids: characterIds }
-    );
+    return request.put<null, ApiResult<null>>(STORY_PROJECT_URL.characterSort(projectId), {
+      character_ids: characterIds,
+    });
   },
   /** 整体设置项目选中立绘（导出使用） */
   setArtSelection(projectId: string, artIds: string[]) {
-    return request.put<unknown, ApiResult<unknown>>(
-      STORY_PROJECT_URL.artSelection(projectId),
-      { art_ids: artIds }
-    );
+    return request.put<unknown, ApiResult<unknown>>(STORY_PROJECT_URL.artSelection(projectId), {
+      art_ids: artIds,
+    });
   },
 };
