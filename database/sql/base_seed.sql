@@ -115,11 +115,11 @@ values  ('01900000-0000-7000-8000-000000000002', '01900000-0000-7000-8000-000000
 --
 
 insert into sys.sys_model_config (id, role, name, model_name, api_url, api_key, provider, timeout, max_retries, extra, is_builtin, remark, created_at, updated_at, context_window)
-values  ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '95279527', null, 60, 2, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-07-31 02:08:56.096100 +00:00', 200000),
-        ('019fb5e7-d9ce-7c24-8853-c06e3c973c8e', 'rewrite', '改写压缩模型', 'step-3.7-flash', 'https://api.stepfun.com/step_plan/v1', '95279527', null, null, null, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-08-04 02:53:00.416500 +00:00', 200000),
+values  ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'glm-5.3-flash', 'https://opencode.ai/zen/go/v1', '95279527', null, 60, 2, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-07-31 02:08:56.096100 +00:00', 200000),
+        ('019fb5e7-d9ce-7c24-8853-c06e3c973c8e', 'rewrite', '改写压缩模型', 'glm-5.3-flash', 'https://opencode.ai/zen/go/v1', '95279527', null, null, null, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-08-04 02:53:00.416500 +00:00', 200000),
         ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-4B', 'http://192.168.245.213:9527', '95279527', 'cohere', null, null, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-08-09 10:23:47.546437 +00:00', 200000),
         ('019fb5e7-d9ce-76ec-ac2e-34c3c8a588b7', 'chat', '对话模型', 'deepseek-v4-flash', 'https://api.deepseek.com', '95279527', null, 60, 2, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-08-09 16:01:45.555195 +00:00', 200000),
-        ('019ff50f-47ad-767b-98fe-f3fa59f511f1', 'image', '图像模型', 'gpt-5.6-terra', 'https://api.openai.com/v1', '95279527', null, 60, 2, null, true, null, '2026-08-12 08:20:47.149101 +00:00', '2026-08-12 08:29:40.768145 +00:00', 200000);
+        ('019ff50f-47ad-767b-98fe-f3fa59f511f1', 'image', '图像模型', 'gpt-image-2', 'https://api.openai.com/v1', '95279527', null, 60, 2, null, true, null, '2026-08-12 08:20:47.149101 +00:00', '2026-08-12 08:29:40.768145 +00:00', 200000);
 
 --
 -- TOC entry 5160 (class 0 OID 24962)
