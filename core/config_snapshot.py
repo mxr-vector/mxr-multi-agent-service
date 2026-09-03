@@ -80,6 +80,11 @@ class ModelRoleConfig:
     timeout: int | None
     max_retries: int | None
     context_window: int
+    # 角色特有参数（sys_model_config.extra，JSONB）：快照只做原样透传，不感知
+    # 具体键义（取值域校验与缺省回落在各角色的 model/*/factory.py 内完成），
+    # 以保持“新增模型类型只维护字典与配置行、无需改本模块”的动态角色约定；
+    # 非对象 JSON（数组/标量）或 NULL 一律归一为空 dict，消费方免判空。
+    extra: dict
 
 
 @dataclass(frozen=True)
@@ -134,6 +139,8 @@ def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
             if row.context_window is not None
             else DEFAULT_CONTEXT_WINDOW
         ),
+        # extra 允许缺失/为空：仅在角色工厂需要特有参数时才配置
+        extra=dict(row.extra) if isinstance(getattr(row, "extra", None), dict) else {},
     )
 
 

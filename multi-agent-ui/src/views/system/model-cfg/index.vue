@@ -13,6 +13,10 @@ dictStore.ensureLoaded();
 const contextWindowOptions = computed(() => dictStore.getOptions("context_window"));
 // 嵌入模型协议档位（字典 embedding_provider，重排序模型 provider 复用该协议集）
 const providerOptions = computed(() => dictStore.getOptions("embedding_provider"));
+// 图像模型生图规格档位（字典 image_size / image_quality，值即 sys_model_config.extra 的
+// 存储值，上游换供应商时增删字典项即可）；输出格式后端写死 webp，不做配置项
+const imageSizeOptions = computed(() => dictStore.getOptions("image_size"));
+const imageQualityOptions = computed(() => dictStore.getOptions("image_quality"));
 
 const loading = ref(false);
 const list = ref<ModelConfig[]>([]);
@@ -42,6 +46,9 @@ const form = reactive({
   max_retries: null as number | null,
   // 字典下拉存储值为字符串（token 数），提交前转数字
   context_window: "" as string,
+  // 图像角色可调生图规格（落 extra）：字典下拉存储值为字符串
+  image_size: "",
+  image_quality: "",
   remark: "",
 });
 const rules: FormRules = {
@@ -50,13 +57,43 @@ const rules: FormRules = {
   api_url: [{ required: true, message: "请输入接口地址", trigger: "blur" }],
 };
 
-// chat/visual/image 显示超时/重试；仅 rerank 显示 provider；仅 chat 显示上下文窗口
+// chat/visual/image 显示超时/重试；仅 rerank 显示 provider；仅 chat 显示上下文窗口；
+// 仅 image 显示可调生图规格（size/quality，落 extra；输出侧后端写死，不入配置）
 const showTimeout = computed(() => ["chat", "visual", "image"].includes(editing.value?.role ?? ""));
 const showProvider = computed(() => editing.value?.role === "rerank");
 const showContextWindow = computed(() => editing.value?.role === "chat");
+const showImageSpec = computed(() => editing.value?.role === "image");
+
+/** 取 extra 中的字符串型规格值（非字符串/缺失视为未配置，下拉回落占位） */
+function extraText(extra: Record<string, unknown>, key: string): string {
+  const raw = extra[key];
+  return typeof raw === "string" ? raw : "";
+}
+
+/**
+ * 图像角色：把生图规格表单打包为 extra。
+ *
+ * 以原有 extra 为基底浅合并，保留本次表单未覆盖的未知键（extra 为角色特有参数
+ * 兜底位，整字段覆盖会连带丢掉其他键）；空值视为“未配置”直接删键，让后端回落
+ * 代码缺省而不是把空值写进配置。
+ */
+function buildImageExtra(): Record<string, unknown> {
+  const extra: Record<string, unknown> = { ...(editing.value?.extra ?? {}) };
+  const put = (key: string, value: string) => {
+    if (value) extra[key] = value;
+    else delete extra[key];
+  };
+  put("size", form.image_size);
+  put("quality", form.image_quality);
+  // 输出侧已改为后端写死（webp + 压缩率 80）：顺手清掉历史配置里可能残留的这两个键
+  delete extra["output_format"];
+  delete extra["output_compression"];
+  return extra;
+}
 
 function openEdit(config: ModelConfig) {
   editing.value = config;
+  const extra = (config.extra ?? {}) as Record<string, unknown>;
   Object.assign(form, {
     name: config.name,
     model_name: config.model_name,
@@ -67,6 +104,8 @@ function openEdit(config: ModelConfig) {
     timeout: config.timeout,
     max_retries: config.max_retries,
     context_window: config.context_window != null ? String(config.context_window) : "",
+    image_size: extraText(extra, "size"),
+    image_quality: extraText(extra, "quality"),
     remark: config.remark ?? "",
   });
   dialogVisible.value = true;
@@ -94,6 +133,8 @@ async function submit() {
           ? Number(form.context_window)
           : null
         : undefined,
+      // 生图规格仅 image 角色提交（合并进 extra，保留未知键）；其余角色不触碰 extra
+      extra: showImageSpec.value ? buildImageExtra() : undefined,
       remark: form.remark || null,
     });
     // 后端在保存成功后触发配置快照刷新，refreshed 透出是否热更新生效
@@ -186,6 +227,29 @@ onMounted(loadConfigs);
             />
           </el-select>
         </el-form-item>
+        <!-- 图像模型可调生图规格：落 extra，后端归一为 images/generations 入参 -->
+        <template v-if="showImageSpec">
+          <el-form-item label="生图尺寸">
+            <el-select v-model="form.image_size" placeholder="选择生图尺寸" clearable>
+              <el-option
+                v-for="item in imageSizeOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="图像质量">
+            <el-select v-model="form.image_quality" placeholder="选择图像质量" clearable>
+              <el-option
+                v-for="item in imageQualityOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+        </template>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" placeholder="选填" />
         </el-form-item>

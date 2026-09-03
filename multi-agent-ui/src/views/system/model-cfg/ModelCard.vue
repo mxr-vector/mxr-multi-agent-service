@@ -33,6 +33,27 @@ function tagType(role: string) {
 
 /** 角色展示名：命中字典 model_types 取中文 label，未命中回退英文 role */
 const roleLabel = computed(() => dictStore.getLabel("model_types", props.config.role));
+
+// ---------- 图像角色生图规格（存于 extra，由后端 model/image/factory.py 消费） ----------
+/** 是否为图像模型（仅该角色展示/可配生图规格参数） */
+const isImage = computed(() => props.config.role === "image");
+
+const imageExtra = computed(() => (props.config.extra ?? {}) as Record<string, unknown>);
+
+/** 取 extra 中的字符串型规格值，非字符串/空白视为未配置 */
+function extraText(key: string): string {
+  const raw = imageExtra.value[key];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : "";
+}
+
+/** 枚举型规格展示文案：命中字典取 label，未命中回退原始值，未配置显示占位 */
+function extraDictLabel(dictType: string, key: string): string {
+  const value = extraText(key);
+  return value ? dictStore.getLabel(dictType, value) : "—";
+}
+
+const imageSizeLabel = computed(() => extraDictLabel("image_size", "size"));
+const imageQualityLabel = computed(() => extraDictLabel("image_quality", "quality"));
 </script>
 
 <template>
@@ -69,6 +90,17 @@ const roleLabel = computed(() => dictStore.getLabel("model_types", props.config.
         <dt>上下文窗口</dt>
         <dd>{{ contextWindowLabel }}</dd>
       </div>
+      <!-- 图像模型：可调生图规格（extra）；输出侧后端写死 webp + 压缩率 80，不入配置也不展示 -->
+      <template v-if="isImage">
+        <div class="model-card__row">
+          <dt>生图尺寸</dt>
+          <dd>{{ imageSizeLabel }}</dd>
+        </div>
+        <div class="model-card__row">
+          <dt>图像质量</dt>
+          <dd>{{ imageQualityLabel }}</dd>
+        </div>
+      </template>
     </dl>
 
     <template #footer>
