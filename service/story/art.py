@@ -66,6 +66,7 @@ class ArtGenerationService:
         ctx,
         message_id: uuid.UUID,
         size: str | None = None,
+        quality: str | None = None,
     ) -> dict:
         """从角色卡消息发起立绘生成，返回生成任务记录（前端轮询详情）。"""
         if not ctx.user_id:
@@ -98,7 +99,12 @@ class ArtGenerationService:
                     provider="image",
                     model=CFG.image.model_name,
                     prompt=prompt,
-                    params={"card_message_id": message_id.hex, "card": card, "size": size},
+                    params={
+                        "card_message_id": message_id.hex,
+                        "card": card,
+                        "size": size,
+                        "quality": quality,
+                    },
                 )
                 await db.commit()
             except BaseException:
@@ -114,6 +120,7 @@ class ArtGenerationService:
                 card_name=str(card.get("name") or "角色"),
                 prompt=prompt,
                 size=size,
+                quality=quality,
             )
         )
         register_generation(session_hex, run_task)
@@ -145,6 +152,7 @@ class ArtGenerationService:
         card_name: str,
         prompt: str,
         size: str | None,
+        quality: str | None,
     ) -> None:
         """后台生成协程：生图 → 落盘 → art 消息回填 → 任务终态。"""
 
@@ -163,8 +171,11 @@ class ArtGenerationService:
                     "started_at": datetime.now(timezone.utc),
                 }
             )
-            # 同步 SDK 经线程池执行（对齐项目"同步 IO 包 to_thread"约定）
-            contents = await asyncio.to_thread(generate_image, prompt, size)
+            # 同步 SDK 经线程池执行（对齐项目"同步 IO 包 to_thread"约定）；
+            # size/quality 传 None 时工厂回落 image 角色配置，调用方仅按需覆盖
+            contents = await asyncio.to_thread(
+                generate_image, prompt, size, quality=quality
+            )
             if not contents or not contents[0]:
                 raise RuntimeError("图像模型返回空结果")
             data = await asyncio.to_thread(_decode_image_content, contents[0])

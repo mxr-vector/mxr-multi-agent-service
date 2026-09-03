@@ -320,11 +320,11 @@ export const storyAiApi = {
 
   // ---------- 立绘与沉淀 ----------
 
-  /** 从角色卡发起内部立绘生成（返回任务记录，前端轮询） */
-  generateArt(messageId: string, size?: string) {
+  /** 从角色卡发起内部立绘生成（返回任务记录，前端轮询）；size/quality 按次覆盖，缺省取模型配置 */
+  generateArt(messageId: string, size?: string, quality?: string) {
     return request.post<StoryGenerationTaskVO, ApiResult<StoryGenerationTaskVO>>(
       STORY_AI_URL.generateArt(messageId),
-      { size }
+      { size, quality }
     );
   },
 

@@ -12,6 +12,7 @@ import {
   type StoryMessageVO,
 } from "@/api/story";
 import { readCard } from "../../composables/useStoryAi";
+import { useDictStore } from "@/stores/dictStore";
 
 const props = defineProps<{
   message: StoryMessageVO;
@@ -121,14 +122,41 @@ const POLL_INTERVAL_MS = 2500;
 const POLL_MAX_ATTEMPTS = 40;
 let pollAttempts = 0;
 
-async function generateArt() {
+// 生图规格档位（字典 image_size / image_quality，与模型配置页同一取值域）
+const dictStore = useDictStore();
+dictStore.ensureLoaded();
+const imageSizeOptions = computed(() => dictStore.getOptions("image_size"));
+const imageQualityOptions = computed(() => dictStore.getOptions("image_quality"));
+
+/** 立绘规格弹窗：空值 = 跟随模型配置缺省，不预填 */
+const artSpecVisible = ref(false);
+const artSpecSaving = ref(false);
+const artSize = ref("");
+const artQuality = ref("");
+
+function openArtSpec() {
+  if (!card.value) return;
+  artSize.value = "";
+  artQuality.value = "";
+  artSpecVisible.value = true;
+}
+
+async function confirmGenerateArt() {
+  artSpecSaving.value = true;
   try {
-    const res = await storyAiApi.generateArt(props.message.id);
+    const res = await storyAiApi.generateArt(
+      props.message.id,
+      artSize.value || undefined,
+      artQuality.value || undefined
+    );
     artTask.value = res.data;
     pollAttempts = 0;
     pollTask();
+    artSpecVisible.value = false;
   } catch {
     // 后端错误已由响应拦截器统一提示
+  } finally {
+    artSpecSaving.value = false;
   }
 }
 
@@ -240,7 +268,7 @@ const ROLE_LABEL: Record<string, string> = {
     <div class="card-actions">
       <el-button size="small" link type="primary" @click="copyArtPrompt">复制出图提示词</el-button>
       <el-button size="small" link @click="openEdit">编辑</el-button>
-      <el-button size="small" link :loading="!!artTask && artTask.status === 'generating'" @click="generateArt">
+      <el-button size="small" link :loading="!!artTask && artTask.status === 'generating'" @click="openArtSpec">
         生成立绘
       </el-button>
       <el-button
@@ -279,6 +307,35 @@ const ROLE_LABEL: Record<string, string> = {
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="editSaving" @click="handleEditSave">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="artSpecVisible" title="生成立绘" width="360px" destroy-on-close>
+      <el-form label-width="72px">
+        <el-form-item label="尺寸">
+          <el-select v-model="artSize" clearable placeholder="跟随模型配置" style="width: 100%">
+            <el-option
+              v-for="item in imageSizeOptions"
+              :key="item.value"
+              :value="item.value"
+              :label="item.label"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="质量">
+          <el-select v-model="artQuality" clearable placeholder="跟随模型配置" style="width: 100%">
+            <el-option
+              v-for="item in imageQualityOptions"
+              :key="item.value"
+              :value="item.value"
+              :label="item.label"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="artSpecVisible = false">取消</el-button>
+        <el-button type="primary" :loading="artSpecSaving" @click="confirmGenerateArt">生成</el-button>
       </template>
     </el-dialog>
   </div>

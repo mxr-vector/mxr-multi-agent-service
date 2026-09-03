@@ -23,9 +23,10 @@ _sediment_service = SedimentService()
 
 
 class ArtGenerateRequest(BaseModel):
-    """立绘生成请求体：size 缺省取 image 角色配置。"""
+    """立绘生成请求体：size/quality 缺省取 image 角色配置。"""
 
     size: Optional[str] = None
+    quality: Optional[str] = None
 
 
 class CardEditRequest(BaseModel):
@@ -66,7 +67,9 @@ async def generate_art(
 ):
     """从角色卡发起内部立绘生成：返回生成任务记录（前端轮询任务详情）。"""
     return R.success(
-        data=await _art_service.start(ctx, message_id=message_id, size=payload.size)
+        data=await _art_service.start(
+            ctx, message_id=message_id, size=payload.size, quality=payload.quality
+        )
     )
 
 
