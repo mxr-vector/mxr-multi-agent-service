@@ -77,6 +77,10 @@ CREATE TABLE story.story_projects (
     description         TEXT,                           -- 故事设定/需求描述(剧本生成的输入), 可空
     cover_image         VARCHAR(500),                   -- 项目封面图存储相对路径(data/ 下), 可空
 
+    -- AI 创作参数(story-ai-workspace 增量, 业务层每次生成后回写, 再次生成时作默认值)
+    style_key           VARCHAR(50),                    -- 最近一次生成使用的视频风格 key(风格注册表), 可空
+    production_params   JSONB,                          -- 最近一次生成的制作参数(画幅/集数/基调等), 可空
+
     -- 冗余统计(业务层维护)
     script_count        INT NOT NULL DEFAULT 0,         -- 剧本版本数
     character_count     INT NOT NULL DEFAULT 0,         -- 出演角色数(编排表 asset_type='character')

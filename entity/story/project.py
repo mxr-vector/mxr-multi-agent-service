@@ -2,7 +2,8 @@
 剧本模块项目域 ORM 模型（映射 story schema 项目聚合相关表）。
 
 项目为聚合根：剧本多版本、关键帧、关键帧出场角色、资产编排（含出演登记）
-与导出包；会话/消息/生成任务表结构保留但本阶段未消费。
+与导出包；会话/消息/生成任务由 entity/story/session.py 承载，
+AI 创作工作台（story-ai-workspace）已消费。
 """
 
 import uuid
@@ -40,6 +41,10 @@ class StoryProject(Base):
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # AI 创作参数：最近一次生成的风格与制作参数（再次生成时作默认值）
+    style_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    production_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     script_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
@@ -83,6 +88,8 @@ class StoryProject(Base):
             "title": self.title,
             "description": self.description,
             "cover_image": self.cover_image,
+            "style_key": self.style_key,
+            "production_params": self.production_params,
             "script_count": self.script_count,
             "character_count": self.character_count,
             "art_count": self.art_count,

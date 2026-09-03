@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
- * 项目工作区：项目详情 + 子视图 tabs（概览/剧本/关键帧/出演角色/视频成品/导出包）。
+ * 项目工作区：项目详情 + 子视图 tabs（概览/剧本/关键帧/出演角色/视频成品/导出包）
+ * + 右栏常驻可收起的 AI 创作抽屉。
  * 子视图标识进 URL query（?tab=keyframe）支持深链接；项目不存在统一失败提示。
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowLeft } from "@element-plus/icons-vue";
+import { ArrowLeft, ChatDotRound } from "@element-plus/icons-vue";
 import {
   projectApi,
   storyFileUrl,
@@ -20,6 +21,7 @@ import KeyframePanel from "./components/KeyframePanel.vue";
 import CastingPanel from "./components/CastingPanel.vue";
 import VideoPanel from "./components/VideoPanel.vue";
 import ExportPanel from "./components/ExportPanel.vue";
+import AiDrawer from "./components/ai/AiDrawer.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -72,6 +74,9 @@ function goBack() {
   router.push("/story/projects/index");
 }
 
+// —— AI 创作抽屉（右栏常驻可收起；收起不销毁，生成不中断） ——
+const aiCollapsed = ref(false);
+
 // —— 编辑项目 ——
 const editVisible = ref(false);
 const editSubmitting = ref(false);
@@ -93,75 +98,93 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
   <div class="story-workspace list-page">
     <div v-loading="loading" class="workspace-body">
       <template v-if="project">
-        <div class="workspace-head">
-          <el-button :icon="ArrowLeft" text @click="goBack">返回</el-button>
-          <div class="head-cover">
-            <el-image
-              v-if="project.cover_image"
-              :src="storyFileUrl(project.cover_image)"
-              fit="cover"
-              class="cover-image"
-            />
-            <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
-          </div>
-          <div class="head-main">
-            <div class="head-title">
-              {{ project.title }}
-              <el-tag v-if="project.status === 'archived'" size="small">已归档</el-tag>
+        <div class="workspace-layout">
+          <div class="workspace-main">
+            <div class="workspace-head">
+              <el-button :icon="ArrowLeft" text @click="goBack">返回</el-button>
+              <div class="head-cover">
+                <el-image
+                  v-if="project.cover_image"
+                  :src="storyFileUrl(project.cover_image)"
+                  fit="cover"
+                  class="cover-image"
+                />
+                <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
+              </div>
+              <div class="head-main">
+                <div class="head-title">
+                  {{ project.title }}
+                  <el-tag v-if="project.status === 'archived'" size="small">已归档</el-tag>
+                </div>
+                <div class="head-desc">{{ project.description || "暂无故事设定" }}</div>
+                <div class="head-stats">
+                  <span>剧本 {{ project.script_count }}</span>
+                  <span>出演角色 {{ project.character_count }}</span>
+                  <span>选中立绘 {{ project.art_count }}</span>
+                  <span>关键帧 {{ project.keyframe_count }}</span>
+                  <span>视频 {{ project.video_count }}</span>
+                </div>
+              </div>
+              <div class="head-actions">
+                <el-button @click="editVisible = true">编辑项目</el-button>
+              </div>
             </div>
-            <div class="head-desc">{{ project.description || "暂无故事设定" }}</div>
-            <div class="head-stats">
-              <span>剧本 {{ project.script_count }}</span>
-              <span>出演角色 {{ project.character_count }}</span>
-              <span>选中立绘 {{ project.art_count }}</span>
-              <span>关键帧 {{ project.keyframe_count }}</span>
-              <span>视频 {{ project.video_count }}</span>
-            </div>
+
+            <el-tabs v-model="activeTab" class="workspace-tabs">
+              <el-tab-pane label="概览" name="overview">
+                <OverviewPanel v-if="activeTab === 'overview'" :project="project" />
+              </el-tab-pane>
+              <el-tab-pane label="剧本" name="script">
+                <ScriptPanel
+                  v-if="activeTab === 'script'"
+                  :project-id="projectId"
+                  @changed="loadProject"
+                />
+              </el-tab-pane>
+              <el-tab-pane label="关键帧" name="keyframe">
+                <KeyframePanel
+                  v-if="activeTab === 'keyframe'"
+                  :project-id="projectId"
+                  @changed="loadProject"
+                />
+              </el-tab-pane>
+              <el-tab-pane label="出演角色" name="casting">
+                <CastingPanel
+                  v-if="activeTab === 'casting'"
+                  :project-id="projectId"
+                  @changed="loadProject"
+                />
+              </el-tab-pane>
+              <el-tab-pane label="视频成品" name="video">
+                <VideoPanel
+                  v-if="activeTab === 'video'"
+                  :project-id="projectId"
+                  @changed="loadProject"
+                />
+              </el-tab-pane>
+              <el-tab-pane label="导出包" name="export">
+                <ExportPanel v-if="activeTab === 'export'" :project-id="projectId" />
+              </el-tab-pane>
+              <el-tab-pane label="生成会话" name="session">
+                <el-empty description="AI 生成历史请查看右侧创作抽屉" :image-size="100" />
+              </el-tab-pane>
+            </el-tabs>
           </div>
-          <div class="head-actions">
-            <el-button @click="editVisible = true">编辑项目</el-button>
+
+          <!-- 右栏 AI 创作抽屉：常驻可收起，收起缩为边缘浮标（不销毁，生成不中断） -->
+          <div class="workspace-ai" :class="{ collapsed: aiCollapsed }">
+            <div v-show="!aiCollapsed" class="ai-panel">
+              <AiDrawer :project-id="projectId" :project="project" @changed="loadProject" />
+            </div>
+            <button
+              class="ai-toggle"
+              :title="aiCollapsed ? '展开 AI 创作' : '收起 AI 创作'"
+              @click="aiCollapsed = !aiCollapsed"
+            >
+              <el-icon><ChatDotRound /></el-icon>
+            </button>
           </div>
         </div>
-
-        <el-tabs v-model="activeTab" class="workspace-tabs">
-          <el-tab-pane label="概览" name="overview">
-            <OverviewPanel v-if="activeTab === 'overview'" :project="project" />
-          </el-tab-pane>
-          <el-tab-pane label="剧本" name="script">
-            <ScriptPanel
-              v-if="activeTab === 'script'"
-              :project-id="projectId"
-              @changed="loadProject"
-            />
-          </el-tab-pane>
-          <el-tab-pane label="关键帧" name="keyframe">
-            <KeyframePanel
-              v-if="activeTab === 'keyframe'"
-              :project-id="projectId"
-              @changed="loadProject"
-            />
-          </el-tab-pane>
-          <el-tab-pane label="出演角色" name="casting">
-            <CastingPanel
-              v-if="activeTab === 'casting'"
-              :project-id="projectId"
-              @changed="loadProject"
-            />
-          </el-tab-pane>
-          <el-tab-pane label="视频成品" name="video">
-            <VideoPanel
-              v-if="activeTab === 'video'"
-              :project-id="projectId"
-              @changed="loadProject"
-            />
-          </el-tab-pane>
-          <el-tab-pane label="导出包" name="export">
-            <ExportPanel v-if="activeTab === 'export'" :project-id="projectId" />
-          </el-tab-pane>
-          <el-tab-pane label="生成会话" name="session">
-            <el-empty description="生成会话功能建设中" :image-size="100" />
-          </el-tab-pane>
-        </el-tabs>
 
         <ProjectFormDialog
           v-model:visible="editVisible"
@@ -183,6 +206,46 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
 }
 .workspace-body {
   min-height: 300px;
+}
+.workspace-layout {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+}
+.workspace-ai {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.ai-panel {
+  width: 400px;
+  height: calc(100vh - 120px);
+  position: sticky;
+  top: 16px;
+  border: 1px solid #e5e9f2;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.ai-toggle {
+  align-self: flex-start;
+  border: 1px solid #e5e9f2;
+  border-radius: 8px;
+  background: #fff;
+  color: #526ae2;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-toggle:hover {
+  border-color: #526ae2;
 }
 .workspace-head {
   display: flex;

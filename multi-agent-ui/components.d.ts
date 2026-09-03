@@ -18,6 +18,7 @@ declare module 'vue' {
     AiChatPanelHeader: typeof import('./src/components/AiChatPanel/components/AiChatPanelHeader.vue')['default']
     AiChatTrigger: typeof import('./src/components/AiChatPanel/components/AiChatTrigger.vue')['default']
     DeptTreePanel: typeof import('./src/components/shared/dept/DeptTreePanel.vue')['default']
+    ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAvatar: typeof import('element-plus/es')['ElAvatar']
     ElBadge: typeof import('element-plus/es')['ElBadge']
     ElButton: typeof import('element-plus/es')['ElButton']

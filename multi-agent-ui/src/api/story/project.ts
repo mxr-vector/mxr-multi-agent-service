@@ -25,6 +25,10 @@ export interface StoryProjectVO {
   title: string;
   description: string | null;
   cover_image: string | null;
+  /** 最近一次生成使用的视频风格 key（story-ai-workspace） */
+  style_key: string | null;
+  /** 最近一次生成的制作参数（画幅/集数/基调等） */
+  production_params: Record<string, unknown> | null;
   script_count: number;
   character_count: number;
   art_count: number;

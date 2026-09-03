@@ -126,3 +126,4 @@ export * from "./script";
 export * from "./keyframe";
 export * from "./video";
 export * from "./export";
+export * from "./ai";

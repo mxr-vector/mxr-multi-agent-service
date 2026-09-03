@@ -38,6 +38,9 @@ KEYFRAME_IMAGE_ROOT = "story/keyframes"
 # 角色立绘存储根子目录（user_id/角色名目录位于其下）
 CHARACTER_ART_ROOT = "story/characters"
 
+# 会话资产（AI 生成立绘预览图）存储根子目录：story/sessions/<session_id>/
+SESSION_ASSET_ROOT = "story/sessions"
+
 # 图片扩展名白名单（立绘/关键帧图片/视频封面共用，单处定义防分叉）
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 
