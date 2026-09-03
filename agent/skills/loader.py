@@ -61,7 +61,7 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             description="Seedance 分镜工作流，风格开放（写实/动画/水墨/科幻等），"
             "△剧本+人物小传+资产出图提示词",
             skill_dir="seedance-storyboard-generator",
-            aspect_ratios=("16:9", "9:16", "2.35:1"),
+            aspect_ratios=("16:9", "9:16", "4:3"),
             section_keywords=_STYLE_SECTIONS["generic"],
         ),
         StyleEntry(
@@ -70,7 +70,7 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             description="上美影复古手绘动画风格（水墨线条/矿物颜料平涂），"
             "剧组色盘声明，国风短剧专用",
             skill_dir="smy-seedance-storyboard-main",
-            aspect_ratios=("9:16", "16:9", "2.35:1"),
+            aspect_ratios=("9:16", "16:9", "4:3"),
             section_keywords=_STYLE_SECTIONS["shangmeiying"],
         ),
         StyleEntry(
