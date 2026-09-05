@@ -27,6 +27,7 @@ use_web_search, reasoning_effort}`。
 `{text, source, score, knowledge_base_id, chapter_title, document_id, chunk_id}`）。
 """
 
+import hashlib
 import uuid
 from typing import List, Tuple
 
@@ -63,6 +64,36 @@ from utils.token_count import count_messages_tokens, count_tokens
 _INPUT_BUDGET_SAFETY_MARGIN = 0.10
 # 历史文本行级固定开销（行分隔符/角色标记）
 _LINE_FIXED_TOKENS = 2
+
+# count_messages_tokens（tiktoken 同步 CPU 编码）的单消息结果缓存：
+# 预算守卫在循环里对同内容消息反复编码（_ensure_within_budget 每轮全量重估），
+# key 用 (模型名, 消息角色, role+content 哈希)，同内容重复编码直接命中；
+# 缓存有界——条数超上限整体清空，防止长会话下无界增长
+_MESSAGE_TOKEN_CACHE_MAX_ENTRIES = 4096
+_message_token_cache: dict[tuple, int] = {}
+
+
+def _message_token_cost(model_name: str, message: BaseMessage) -> int:
+    """单条消息 token 估算（进程内缓存）：等价于 count_messages_tokens(model, [m])。"""
+    digest = hashlib.md5(
+        (
+            f"{type(message).__name__}:{getattr(message, 'content', None)!r}"
+        ).encode("utf-8")
+    ).hexdigest()
+    key = (model_name, digest)
+    cached = _message_token_cache.get(key)
+    if cached is not None:
+        return cached
+    cost = count_messages_tokens(model_name, [message])
+    if len(_message_token_cache) >= _MESSAGE_TOKEN_CACHE_MAX_ENTRIES:
+        _message_token_cache.clear()
+    _message_token_cache[key] = cost
+    return cost
+
+
+def _messages_tokens_cached(model_name: str, messages: List[BaseMessage]) -> int:
+    """消息列表 token 估算：按缓存的单消息成本求和（与全量估算口径一致）。"""
+    return sum(_message_token_cost(model_name, message) for message in messages)
 
 
 class ChatState(MessagesState):
@@ -164,6 +195,12 @@ class ChatGraph:
         response: AIMessage | None = None
         async for chunk in model.astream(msgs):
             response = chunk if response is None else response + chunk
+        if response is None:
+            # 模型流式返回为空（上游异常/空响应等）：兜底为一条提示消息，
+            # 保证调用方的 tool_calls 判定、_answer_text 与状态回写不因
+            # response=None 触发 AttributeError 而整轮 FAILED
+            logger.warning("[CHAT] 模型流式返回为空，使用兜底提示文本")
+            response = AIMessage(content="模型未返回内容，请重试。")
         usage = getattr(response, "usage_metadata", None) or {}
         return response, usage
 
@@ -225,7 +262,7 @@ class ChatGraph:
         """
         if budget <= 0:
             return [], [m.id for m in messages if getattr(m, "id", None)]
-        costs = [count_messages_tokens(model_name, [m]) for m in messages]
+        costs = [_message_token_cost(model_name, m) for m in messages]
         acc = 0
         keep_count = 0
         for cost in reversed(costs):
@@ -277,7 +314,7 @@ class ChatGraph:
         仅剩系统提示与本轮问题仍超预算（配置异常）时告警并尽力发送。
         """
         for _ in range(50):  # 渐进截断上限，防御异常输入下的死循环
-            if count_messages_tokens(model_name, msgs) <= budget:
+            if _messages_tokens_cached(model_name, msgs) <= budget:
                 return
             trimmed = False
             for idx, msg in enumerate(msgs):
@@ -437,6 +474,7 @@ class ChatGraph:
         delta = {
             "reflect_rounds": outcome.metrics.get("reflect_rounds", 0),
             "retrieved_count": outcome.metrics.get("retrieved_count", 0),
+            "reranked_count": outcome.metrics.get("reranked_count", 0),
             "wiki_hits": outcome.metrics.get("wiki_hits", 0),
         }
         if outcome.navigation:
@@ -526,7 +564,12 @@ class ChatGraph:
 
         all_docs: List[dict] = []
         tool_rounds = 0
-        counters = {"reflect_rounds": 0, "retrieved_count": 0, "wiki_hits": 0}
+        counters = {
+            "reflect_rounds": 0,
+            "retrieved_count": 0,
+            "reranked_count": 0,
+            "wiki_hits": 0,
+        }
         tool_call_names: List[str] = []
         navigation_context: List[dict] = []
         usage_total: dict = {}
@@ -584,7 +627,10 @@ class ChatGraph:
         metrics = {
             "tool_rounds": tool_rounds,
             **counters,
-            "reranked_count": len(all_docs),
+            # 真实重排结果数：各次检索工具调用 rerank 裁剪后的返回条数之和
+            # （此前误用 len(all_docs)——那是跨轮去重后的累计候选数，与
+            # 重排输出不是同一口径；sources 仍按 all_docs 构建，不受影响）
+            "reranked_count": counters["reranked_count"],
             "tool_call_names": tool_call_names,
             **usage_total,
             "model": CFG.chat.model_name,

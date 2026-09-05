@@ -59,7 +59,14 @@ class ENV_CONFIG:
 
     @staticmethod
     def get_int(key: str, default: int = 0) -> int:
-        return int(os.getenv(key, default))
+        """整型配置读取；坏值在启动期即失败，报错必须带上键名便于定位"""
+        val = os.getenv(key)
+        if val is None:
+            return default
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            raise ValueError(f"环境变量 {key} 不是合法整数: {val!r}") from None
 
     @staticmethod
     def get_bool(key: str, default: bool = False) -> bool:
@@ -207,23 +214,25 @@ class ENV_CONFIG:
 
     @property
     def postgres_host(self) -> str:
-        return self.require("POSTGRES_HOST") or "localhost"
+        """真默认值：缺配置时回落 localhost，而非 require 抛错（旧写法 require(...) or "x"
+        的 or 分支是死代码——require 缺失即抛错，仅在空串时才生效）"""
+        return self.get("POSTGRES_HOST", "localhost")
 
     @property
     def postgres_port(self) -> int:
-        return int(self.require("POSTGRES_PORT")) or 5432
+        return self.get_int("POSTGRES_PORT", 5432)
 
     @property
     def postgres_db(self) -> str:
-        return self.require("POSTGRES_DB") or "multi_agent_db"
+        return self.get("POSTGRES_DB", "multi_agent_db")
 
     @property
     def postgres_user(self) -> str:
-        return self.require("POSTGRES_USER") or "postgres"
+        return self.get("POSTGRES_USER", "postgres")
 
     @property
     def postgres_password(self) -> str:
-        return self.require("POSTGRES_PASSWORD") or "postgres"
+        return self.get("POSTGRES_PASSWORD", "postgres")
 
     """
     向量数据库(Qdrant)相关配置
@@ -231,15 +240,18 @@ class ENV_CONFIG:
 
     @property
     def qdrant_host(self) -> str:
-        return self.require("QDRANT_HOST") or "127.0.0.1"
+        return self.get("QDRANT_HOST", "127.0.0.1")
 
     @property
     def qdrant_port(self) -> int:
-        return int(self.require("QDRANT_PORT")) or 6333
+        return self.get_int("QDRANT_PORT", 6333)
 
     @property
-    def qdrant_api_key(self) -> str:
-        return self.require("QDRANT_API_KEY")
+    def qdrant_api_key(self) -> Optional[str]:
+        """可缺省：本地无鉴权 Qdrant 部署不强制配 key。空串归一为 None——
+        qdrant-client 以 `api_key is not None` 判定（会默认切 https 并携带
+        api-key 请求头），传空串会以 https+空 key 打本地 http 服务导致建连失败"""
+        return self.get("QDRANT_API_KEY", "") or None
 
     @property
     def qdrant_https(self) -> bool:

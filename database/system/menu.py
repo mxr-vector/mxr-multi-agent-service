@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.system.menu import Menu
 
+from utils.keyword import ilike_pattern
+
 
 class MenuRepository:
     """
@@ -62,7 +64,7 @@ class MenuRepository:
         """扁平列表（keyword 对 label 做 ILIKE、status 精确过滤），sort_order 升序，供前端组树。"""
         stmt = select(Menu)
         if keyword:
-            stmt = stmt.where(Menu.label.ilike(f"%{keyword}%"))
+            stmt = stmt.where(Menu.label.ilike(ilike_pattern(keyword)))
         if status:
             stmt = stmt.where(Menu.status == status)
         stmt = stmt.order_by(Menu.sort_order)

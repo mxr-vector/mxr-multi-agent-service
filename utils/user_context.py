@@ -18,7 +18,7 @@ user_context.py - 请求级用户上下文与数据权限（data_scope）解析�
 import uuid
 from dataclasses import dataclass
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -105,10 +105,17 @@ async def get_user_context(request: Request) -> UserContext:
     if payload is None:
         return MACHINE_CONTEXT
 
-    user_id = uuid.UUID(payload["user_id"])
+    # payload.user_id 来自客户端可篡改的 JWT：缺键/非法 UUID 等形状异常按
+    # 无效凭据以 401 拒绝，而非穿透成 KeyError/ValueError 变 500
+    try:
+        user_id = uuid.UUID(payload["user_id"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise HTTPException(status_code=401, detail="无效的认证凭据")
     async with get_session() as session:
         user = await UserRepository(session).get(user_id)
-        if user is None:
+        # 已删除与已禁用（status != 'active'）同文案拒绝：不向调用方暴露
+        # 账号是否存在，防用户名枚举（与 /auth/me 语义一致）
+        if user is None or user.status != "active":
             bad_except("用户不存在或已被删除")
         data_scope = await aggregate_data_scope(session, user_id)
         return UserContext(

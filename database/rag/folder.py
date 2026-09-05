@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from entity.rag.document import Document
 from entity.rag.folder import Folder
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class FolderRepository:
@@ -57,7 +58,7 @@ class FolderRepository:
         if parent_id is not None:
             stmt = stmt.where(Folder.parent_id == parent_id)
         if keyword:
-            stmt = stmt.where(Folder.name.ilike(f"%{keyword}%"))
+            stmt = stmt.where(Folder.name.ilike(ilike_pattern(keyword)))
         stmt = stmt.order_by(Folder.sort_order)
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total

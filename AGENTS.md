@@ -45,7 +45,7 @@ This repo is indexed by CodeGraph (`.codegraph/` exists at the repo root). Befor
 
 **Auto router registration** (`core/auto_import.py`): recursively scans the `routers` package for any module exposing a module-level `router: APIRouter` and mounts it under a parent prefixed with `ENV.base_url`. To add an endpoint group, create `routers/<name>.py` with `router = APIRouter(prefix=...)` — no manual registration. The codebase uses namespace packages with **no `__init__.py`** files.
 
-**Middleware chain** (outer→inner): `RequestIDMiddleware` (UUID into `request_id_ctx` ContextVar, returned as `X-Request-ID`) → `TokenAuthMiddleware` (requires `Authorization: Bearer <API_SECRET_KEY>` except `EXCLUDE_PATHS` and any `/public*` path) → `AccessLogMiddleware`.
+**Middleware chain** (outer→inner): `CORSMiddleware` → `RequestIDMiddleware` (UUID into `request_id_ctx` ContextVar, returned as `X-Request-ID`) → `AccessLogMiddleware` (outside auth so 401s are logged) → `TokenAuthMiddleware` (requires `Authorization: Bearer <API_SECRET_KEY>` or a JWT, except `EXCLUDE_PATHS` and `/public*` / `/static*` path segments). Note `add_middleware` uses `insert(0)`: the last-added middleware is outermost, so the add order in `create_app` is reversed relative to this chain.
 
 **Unified response + errors**: handlers return via `utils/response.py::R` (`R.success(data=...)` / `R.fail(msg=..., code=...)`), producing `{code, msg, data}`. `exception/gobal_exception.py::register_exception` converts `HTTPException`, `RequestValidationError`, `AssertionError`, and unhandled exceptions into that shape — raising these is the intended error path.
 

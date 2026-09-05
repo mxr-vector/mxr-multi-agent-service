@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from entity.system.dept import Dept
 from entity.system.user import User
 
+from utils.keyword import ilike_pattern
+
 
 class DeptRepository:
     """
@@ -51,7 +53,7 @@ class DeptRepository:
         """扁平列表（keyword 对 name 做 ILIKE、status 精确过滤），sort_order 升序，供前端组树。"""
         stmt = select(Dept)
         if keyword:
-            stmt = stmt.where(Dept.name.ilike(f"%{keyword}%"))
+            stmt = stmt.where(Dept.name.ilike(ilike_pattern(keyword)))
         if status:
             stmt = stmt.where(Dept.status == status)
         stmt = stmt.order_by(Dept.sort_order)

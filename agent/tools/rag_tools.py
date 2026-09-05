@@ -45,6 +45,20 @@ TOOL_WEB_SEARCH = "web_search"
 TOOL_ENTITY_RELATION_LOOKUP = "entity_relation_lookup"
 TOOL_CHUNK_READ = "chunk_read"
 
+# ---------- 工具侧限额常量 ----------
+# 检索/导航类工具允许模型传入的 top_k 上限；chat_graph._execute_tool 在分派前
+# 做同值收敛（max(1, min(top_k, 20))），两处对应，调整需同步
+TOOL_TOP_K_MAX = 20
+# 实体关系查询返回条数的缺省值（top_k 未传时生效）
+ENTITY_RELATION_DEFAULT_TOP_K = 8
+# 实体关系 SQL 单次扫描的行数上限（防御大库把无关行整表拉进内存）
+ENTITY_RELATION_SQL_ROW_LIMIT = 2000
+# chunk_read 单次调用最多读取的 id 数（防单次读取把上下文窗口撑爆）
+CHUNK_READ_MAX_IDS = 5
+# chunk_read 单块返回字符的缺省上限 / 硬上限
+CHUNK_READ_DEFAULT_MAX_CHARS = 4000
+CHUNK_READ_MAX_CHARS = 8000
+
 
 class SufficiencyGrade(BaseModel):
     """用二值分数标记累积检索上下文是否足以回答问题。"""
@@ -94,20 +108,24 @@ def _join_context(docs: List[dict]) -> str:
 
 
 # ---------- 反思自纠错（自 rag_graph reflect/rewrite 节点迁移） ----------
-async def _context_sufficient(question: str, context: str) -> bool:
-    """判断累积检索上下文是否足以回答问题（结构化输出走 function_calling）。"""
+async def _context_sufficient(question: str, context: str, compressor) -> bool:
+    """判断累积检索上下文是否足以回答问题（结构化输出走 function_calling）。
+
+    compressor 为调用方复用的 rewrite/compression 模型实例（同一次工具调用内
+    只构造一次，避免反思循环每轮重造）。
+    """
     prompt = REFLECT_PROMPT.format(question=question, context=context)
     verdict = (
-        await build_compression_model()
-        .with_structured_output(SufficiencyGrade, method="function_calling")
-        .ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
+        await compressor.with_structured_output(
+            SufficiencyGrade, method="function_calling"
+        ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
     )
     return verdict.binary_score == GradeScore.YES.value
 
 
-async def _rewrite_query(question: str) -> str:
-    """把原问题改写/扩展为检索效果更好的查询。"""
-    response = await build_compression_model().ainvoke(
+async def _rewrite_query(question: str, compressor) -> str:
+    """把原问题改写/扩展为检索效果更好的查询（compressor 由调用方复用传入）。"""
+    response = await compressor.ainvoke(
         [
             {
                 "role": MessageRole.USER.value,
@@ -266,7 +284,9 @@ async def _run_multihop(
             if label in merge_meta["hop_coverage"]:
                 merge_meta["hop_coverage"][label]["in_final"] = True
     metrics = {
-        "reflect_rounds": 1,
+        # multihop 为确定性逐跳下钻（无在线反思/改写轮），故记 0 而非 1，
+        # 避免 metrics 把多跳路径误标成发生过反思
+        "reflect_rounds": 0,
         "retrieved_count": sum(len(r.docs) for r in hop_results),
         "reranked_count": len(merged),
         "merge_pool_count": len(pool),
@@ -357,6 +377,9 @@ async def knowledge_base_search_impl(
     navigation_guided = bool(navigation) or legacy_navigation
     retrieved: List[dict] = []
     reflect_rounds = 0
+    # 同一次工具调用内复用同一 rewrite/compression 模型实例，
+    # 避免反思循环每轮重造 client（配置快照仍按次请求读取，热更新不受影响）
+    compressor = build_compression_model()
     while True:
         reflect_rounds += 1
         new_docs = await asyncio.to_thread(hybrid_retrieve_multi, current_query, kb_ids)
@@ -366,10 +389,10 @@ async def knowledge_base_search_impl(
         # 上下文充分或已达到最大检索轮数上限：跳出反思循环进入重排序
         if navigation_guided or reflect_rounds >= CFG.rag_reflect_round_cap:
             break
-        if await _context_sufficient(evidence_query, _join_context(retrieved)):
+        if await _context_sufficient(evidence_query, _join_context(retrieved), compressor):
             break
         # 上下文不足且仍在轮数内：扩展/改写查询后回到检索
-        current_query = await _rewrite_query(evidence_query)
+        current_query = await _rewrite_query(evidence_query, compressor)
         logger.info(f"[RAG-TOOL] 上下文不充分，改写查询重检（第 {reflect_rounds} 轮）")
 
     reranked = await _rerank(evidence_query, retrieved, top_n)
@@ -443,7 +466,7 @@ async def kb_wiki_lookup_impl(
             metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
             navigation_only=True,
         )
-    limit = max(1, min(int(top_k or 5), 20))
+    limit = max(1, min(int(top_k or 5), TOOL_TOP_K_MAX))
     try:
         from wiki.storage import search_topic_pages
 
@@ -556,7 +579,7 @@ async def entity_relation_lookup_impl(
     from sqlalchemy import text as sql
     from database.postgre_client import get_async_engine
 
-    top_n = max(1, min(top_k or 8, 20))
+    top_n = max(1, min(top_k or ENTITY_RELATION_DEFAULT_TOP_K, TOOL_TOP_K_MAX))
     entity_norm = (entity or "").strip().casefold()
     if not entity_norm:
         return ToolOutcome(
@@ -580,7 +603,7 @@ async def entity_relation_lookup_impl(
                             "SELECT head_entity, tail_entity, relation, fact_text, "
                             "chunk_id, document_id FROM rag.entity_index_relations "
                             "WHERE kb_id = ANY(:kbs) AND (head_entity=:e OR tail_entity=:e) "
-                            "LIMIT 2000"
+                            f"LIMIT {ENTITY_RELATION_SQL_ROW_LIMIT}"
                         ),
                         {"kbs": kb_uuids, "e": entity_norm},
                     )
@@ -649,8 +672,11 @@ async def chunk_read_impl(
     from sqlalchemy import text as sql
     from database.postgre_client import get_async_engine
 
-    per_chars = max(200, min(max_chars or 4000, 8000))
-    clean = [str(i).strip() for i in (ids or []) if str(i).strip()][:5]
+    per_chars = max(
+        200,
+        min(max_chars or CHUNK_READ_DEFAULT_MAX_CHARS, CHUNK_READ_MAX_CHARS),
+    )
+    clean = [str(i).strip() for i in (ids or []) if str(i).strip()][:CHUNK_READ_MAX_IDS]
     if not clean:
         return ToolOutcome(
             text="块读取：未提供有效 id。", docs=[], metrics={"chunks": 0}

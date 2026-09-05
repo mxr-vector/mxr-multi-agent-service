@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ class KnowledgeBaseCreate(BaseModel):
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
     embedding_dim: Optional[int] = None
-    visibility: str = "private"
+    visibility: Literal["private", "department", "public"] = "private"
     owner: Optional[str] = None
     dept_id: Optional[str] = None
 
@@ -40,9 +40,9 @@ class KnowledgeBaseUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
-    visibility: Optional[str] = None
+    visibility: Optional[Literal["private", "department", "public"]] = None
     owner: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[Literal["active", "archived"]] = None
 
 
 @router.post("")

@@ -40,8 +40,9 @@ def register_exception(app):
 
     @app.exception_handler(AssertionError)
     async def assertion_exception_handler(request: Request, exc: AssertionError):
-        logger.warning("参数校验失败: %s", exc)
-        return JSONResponse(content=R.fail(msg=str(exc)).model_dump())
+        # 断言消息可能携带内部细节（变量值/调用路径等），只入日志不回传客户端
+        logger.warning(f"断言校验失败（响应统一通用文案）: {exc}")
+        return JSONResponse(content=R.fail(msg="参数校验失败").model_dump())
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):

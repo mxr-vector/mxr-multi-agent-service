@@ -14,8 +14,9 @@ from dataclasses import dataclass
 
 from sqlalchemy import text
 
-# 进程内缓存的 KB 数上限（评测/单库对话场景够用；索引重建时主动失效）
-_BUNDLE_LRU_MAX = 2
+# 进程内缓存的 KB 数上限：16 覆盖跨多库会话/评测脚本轮流访问多库的场景，
+# 原值 2 会在多库间来回切换时反复淘汰、缓存抖动失效；索引重建时仍主动失效
+_BUNDLE_LRU_MAX = 16
 _bundles: "OrderedDict[str, EntityBundle]" = OrderedDict()
 # 并发首查同一 KB 时的装载互斥锁
 _load_lock = asyncio.Lock()

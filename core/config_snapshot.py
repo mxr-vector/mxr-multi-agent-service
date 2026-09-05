@@ -47,6 +47,11 @@ DRAWIO_EMBED_URL_KEY = "DRAWIO_EMBED_URL"
 # 标量运行参数白名单键全集（/system/configs/scalars 的返回范围）
 SCALAR_KEYS = INT_SCALAR_KEYS + (DRAWIO_EMBED_URL_KEY,)
 
+# 刷新串行锁：refresh 的快照构建含多次 await（读库），与末尾整体赋值两段之间
+# 非原子；并发写配置（多请求同时改不同项）可能交错提交陈旧快照（后完成者覆盖
+# 先完成者）。加锁保证「构建→替换」临界区串行，先完成的刷新结果不被回退
+_refresh_lock = asyncio.Lock()
+
 
 def scalar_value_type(key: str) -> str:
     """标量参数的值类型（供前端数据驱动校验；类型权威随消费契约定义在此）。
@@ -275,24 +280,28 @@ class _ConfigManager:
         """
         写时刷新：重新加载并校验，通过则原子替换快照并清空 rerank client 缓存；
         失败保留旧快照、记 error 日志、返回 False（不抛给调用方）。
-        """
-        try:
-            new_snapshot = await _build_snapshot()
-        except Exception as exc:
-            logger.error(
-                f"[CFG] 配置刷新校验失败，沿用旧快照（last-known-good）：{exc}"
-            )
-            return False
-        self._snapshot = new_snapshot
-        # rerank client 在构造时固化了模型名/凭证，刷新后需清缓存以令新配置生效
-        try:
-            from model.rerank.factory import RerankFactory
 
-            RerankFactory._build_client.cache_clear()
-        except Exception as exc:  # 清缓存失败不应阻断刷新
-            logger.warning(f"[CFG] rerank client 缓存清理失败：{exc}")
-        logger.info("[CFG] 配置快照已刷新")
-        return True
+        全程持有 _refresh_lock：构建（多次 await）与赋值必须处于同一临界区，
+        否则并发刷新交错提交会让快照回退到先完成者的陈旧状态。
+        """
+        async with _refresh_lock:
+            try:
+                new_snapshot = await _build_snapshot()
+            except Exception as exc:
+                logger.error(
+                    f"[CFG] 配置刷新校验失败，沿用旧快照（last-known-good）：{exc}"
+                )
+                return False
+            self._snapshot = new_snapshot
+            # rerank client 在构造时固化了模型名/凭证，刷新后需清缓存以令新配置生效
+            try:
+                from model.rerank.factory import RerankFactory
+
+                RerankFactory._build_client.cache_clear()
+            except Exception as exc:  # 清缓存失败不应阻断刷新
+                logger.warning(f"[CFG] rerank client 缓存清理失败：{exc}")
+            logger.info("[CFG] 配置快照已刷新")
+            return True
 
     @property
     def _current(self) -> ConfigSnapshot:

@@ -29,7 +29,14 @@ def _collect_routers(package: str, parent_router: APIRouter) -> None:
                 # 子目录视为子包（命名空间包无需 __init__.py），递归扫描
                 _collect_routers(f"{package}.{entry}", parent_router)
             elif entry.endswith(".py"):
-                module = importlib.import_module(f"{package}.{entry[:-3]}")
+                module_name = f"{package}.{entry[:-3]}"
+                try:
+                    module = importlib.import_module(module_name)
+                except Exception:
+                    # 保留 fail-fast（re-raise 拒绝启动），仅补充可定位的模块名，
+                    # 避免裸 traceback 缺上下文找不到是哪个路由模块炸的
+                    logger.exception(f"路由模块导入失败: {module_name}")
+                    raise
                 if hasattr(module, "router") and isinstance(module.router, APIRouter):
                     parent_router.include_router(module.router)
 

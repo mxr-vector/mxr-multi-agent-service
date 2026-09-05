@@ -8,6 +8,7 @@ from typing import Any, Iterable, Sequence
 from uuid import NAMESPACE_URL, uuid5
 
 from wiki.models import TopicPage
+from utils.logger import logger
 
 WIKI_COLLECTION_PREFIX = "wiki_topics"
 WIKI_COLLECTION_VERSION = "v1"
@@ -134,7 +135,8 @@ class TopicPageStore:
                     with_payload=True,
                 )
                 points = response.points
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[WIKI] 主题页检索失败，返回空降级: {exc}")
             return []
         return [
             WikiSearchHit(
@@ -146,7 +148,12 @@ class TopicPageStore:
             for point in points
         ]
 
-    def list_pages(self, *, dirty_only: bool = False) -> list[TopicPage]:
+    def _scroll_pages(self, scroll_filter=None) -> list[TopicPage]:
+        """分页 scroll 集合并还原为 TopicPage 列表（统一空集守卫与终止条件）。
+
+        scroll_filter 可传入 Qdrant payload Filter，把过滤下推到服务端，
+        避免按需查询时的全量拉取。
+        """
         if self.is_empty():
             return []
         records = []
@@ -154,6 +161,7 @@ class TopicPageStore:
         while True:
             batch, offset = self.manager.client.scroll(
                 collection_name=self.collection,
+                scroll_filter=scroll_filter,
                 limit=1000,
                 offset=offset,
                 with_payload=True,
@@ -162,16 +170,36 @@ class TopicPageStore:
             records.extend(batch)
             if offset is None or not batch:
                 break
-        pages = [
+        return [
             TopicPage.from_payload(record.payload or {}, topic_id=str(record.id))
             for record in records
         ]
+
+    def list_pages(self, *, dirty_only: bool = False) -> list[TopicPage]:
+        pages = self._scroll_pages()
         return [page for page in pages if page.dirty] if dirty_only else pages
 
     def find_by_document_ids(self, document_ids: Iterable[str]) -> list[TopicPage]:
         wanted = {str(value) for value in document_ids}
+        if not wanted:
+            return []
+        # payload["documents"] 是平铺字符串数组（见 TopicPage.to_payload），
+        # MatchAny 对数组字段的语义是"任一元素命中即匹配"，与此前全量 scroll
+        # 后内存交集过滤等价，但过滤下推到 Qdrant，主题页多时不再整集拉取
+        from qdrant_client import models
+
+        scroll_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="documents", match=models.MatchAny(any=sorted(wanted))
+                )
+            ]
+        )
+        # 内存交集兜底复检：与过滤条件同语义，保证结果与旧实现严格一致
         return [
-            page for page in self.list_pages() if wanted.intersection(page.documents)
+            page
+            for page in self._scroll_pages(scroll_filter)
+            if wanted.intersection(page.documents)
         ]
 
     def mark_dirty(

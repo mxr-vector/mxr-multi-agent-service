@@ -51,12 +51,15 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        # 通道二：JWT（用户登录态）
-        if auth and auth.startswith("Bearer "):
-            payload = verify_token(auth[7:])
-            if payload is not None:
-                request.state.user = payload
-                return await call_next(request)
+        # 通道二：JWT（用户登录态）；RFC 7235 规定 auth-scheme 大小写不敏感，
+        # "bearer <jwt>" 与 "Bearer <jwt>" 等价（静态 key 通道仍整串精确比对不放宽）
+        if auth:
+            scheme, _, token = auth.partition(" ")
+            if scheme.lower() == "bearer" and token:
+                payload = verify_token(token)
+                if payload is not None:
+                    request.state.user = payload
+                    return await call_next(request)
 
         return JSONResponse(
             status_code=401,

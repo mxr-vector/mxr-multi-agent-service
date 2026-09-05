@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.system.user import User
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class UserRepository:
@@ -64,7 +65,7 @@ class UserRepository:
         """
         stmt = select(User)
         if keyword:
-            pattern = f"%{keyword}%"
+            pattern = ilike_pattern(keyword)
             stmt = stmt.where(
                 User.username.ilike(pattern) | User.nickname.ilike(pattern)
             )

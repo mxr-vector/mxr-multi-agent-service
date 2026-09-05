@@ -45,11 +45,29 @@ class QdrantManager:
         distance: Distance = Distance.COSINE,
         recreate: bool = False,
     ) -> None:
-        """
-        幂等地确保集合存在。
+        """幂等地确保「匿名稠密向量」集合存在（旧名兼容入口）。
 
-        - recreate=True 时先删除同名集合再重建（用于维度变更 / 重置）。
-        - 已存在且无需重建时直接返回，不做任何修改。
+        实现已由 ensure_dense_collection 承接，语义完全一致，保留旧名
+        以兼容既有外部调用（评测脚本等）。
+        """
+        self.ensure_dense_collection(vector_size, distance, recreate)
+
+    def ensure_dense_collection(
+        self,
+        vector_size: int,
+        distance: Distance = Distance.COSINE,
+        recreate: bool = False,
+    ) -> None:
+        """
+        幂等地确保「匿名稠密向量」集合存在（upsert_points ensure=True 的语义）。
+
+        - 创建的是普通（非命名向量）集合，仅承载匿名 dense 向量写入与 search()；
+          与 ensure_hybrid_collection（命名向量 dense+sparse）互斥，同一集合
+          不得混用两种 schema；
+        - recreate=True 时先删除同名集合再重建（用于维度变更 / 重置）；
+        - 已存在时校验 schema：若已是命名向量（hybrid）集合则告警——这是
+          历史 footgun 的反向场景（先 ensure 建普通集合、再走 upsert_hybrid
+          会因集合已存在而 schema 不匹配写入失败），提前暴露而非静默失败。
         """
         exists = self.client.collection_exists(self.collection)
         if exists and recreate:
@@ -57,14 +75,28 @@ class QdrantManager:
             logger.info(f"[Qdrant] 已删除旧集合: {self.collection}")
             exists = False
 
-        if not exists:
-            self.client.create_collection(
-                collection_name=self.collection,
-                vectors_config=VectorParams(size=vector_size, distance=distance),
+        if exists:
+            # 命名向量时 params.vectors 是 dict，匿名稠密时是 VectorParams
+            vectors = getattr(
+                self.client.get_collection(self.collection).config.params,
+                "vectors",
+                None,
             )
-            logger.info(
-                f"[Qdrant] 已创建集合: {self.collection} (dim={vector_size}, distance={distance})"
-            )
+            if isinstance(vectors, dict):
+                logger.warning(
+                    f"[Qdrant] 集合 {self.collection} 已是命名向量（hybrid）schema，"
+                    "与匿名 dense 写入（upsert_points ensure=True）不匹配，"
+                    "后续写入可能失败，请确认集合用途"
+                )
+            return
+
+        self.client.create_collection(
+            collection_name=self.collection,
+            vectors_config=VectorParams(size=vector_size, distance=distance),
+        )
+        logger.info(
+            f"[Qdrant] 已创建集合: {self.collection} (dim={vector_size}, distance={distance})"
+        )
 
     def ensure_hybrid_collection(
         self,
@@ -78,7 +110,7 @@ class QdrantManager:
         - dense：语义稠密向量，按 dense_size 维、指定 distance 创建；
         - sparse：BM25 关键词稀疏向量，以 Modifier.IDF 创建，IDF 由服务端计算；
         - recreate=True 时先删除同名集合再重建（用于 schema 变更 / 重置）。
-        已存在且无需重建时直接返回。
+        已存在且无需重建时直接返回，不做任何修改。
         """
         exists = self.client.collection_exists(self.collection)
         if exists and recreate:
@@ -86,22 +118,38 @@ class QdrantManager:
             logger.info(f"[Qdrant] 已删除旧集合: {self.collection}")
             exists = False
 
-        if not exists:
-            self.client.create_collection(
-                collection_name=self.collection,
-                vectors_config={
-                    DENSE_VECTOR_NAME: VectorParams(size=dense_size, distance=distance),
-                },
-                sparse_vectors_config={
-                    SPARSE_VECTOR_NAME: models.SparseVectorParams(
-                        modifier=models.Modifier.IDF,
-                    ),
-                },
+        if exists:
+            # 命名向量时 params.vectors 是 dict，匿名稠密时是 VectorParams；
+            # 集合已存在但为匿名稠密 schema 时，命名向量写入必然失败
+            # （历史 footgun：ensure 建普通集合后此处因已存在而跳过创建），
+            # 提前告警暴露 schema 冲突而非在 upsert 时报错
+            vectors = getattr(
+                self.client.get_collection(self.collection).config.params,
+                "vectors",
+                None,
             )
-            logger.info(
-                f"[Qdrant] 已创建混合集合: {self.collection} "
-                f"(dense_dim={dense_size}, distance={distance}, sparse=BM25/IDF)"
-            )
+            if not isinstance(vectors, dict):
+                logger.warning(
+                    f"[Qdrant] 集合 {self.collection} 已存在但为匿名稠密向量 schema，"
+                    "与混合写入（upsert_hybrid 命名向量 dense+sparse）不匹配，"
+                    "后续混合写入可能失败，请重建集合或改用 ensure_dense_collection"
+                )
+            return
+        self.client.create_collection(
+            collection_name=self.collection,
+            vectors_config={
+                DENSE_VECTOR_NAME: VectorParams(size=dense_size, distance=distance),
+            },
+            sparse_vectors_config={
+                SPARSE_VECTOR_NAME: models.SparseVectorParams(
+                    modifier=models.Modifier.IDF,
+                ),
+            },
+        )
+        logger.info(
+            f"[Qdrant] 已创建混合集合: {self.collection} "
+            f"(dense_dim={dense_size}, distance={distance}, sparse=BM25/IDF)"
+        )
 
     def delete_collection(self) -> None:
         """删除当前集合（若存在）"""
@@ -135,14 +183,16 @@ class QdrantManager:
         低层写入：直接写入已算好的向量。
 
         - ids 缺省时自动生成 uuid4；payloads 缺省时为空字典。
-        - ensure=True 时按首个向量维度自动确保集合存在。
+        - ensure=True 时按首个向量维度自动确保「匿名稠密向量」集合存在
+          （见 ensure_dense_collection；当前唯一调用方 wiki 主题页为 dense-only），
+          不做命名向量 schema，避免与 upsert_hybrid 的混合 schema 混用。
         返回实际写入使用的 id 列表。
         """
         if not vectors:
             return []
 
         if ensure:
-            self.ensure_collection(len(vectors[0]))
+            self.ensure_dense_collection(len(vectors[0]))
 
         point_ids = list(ids) if ids is not None else [uuid4().hex for _ in vectors]
         point_payloads = (
@@ -271,7 +321,7 @@ class QdrantManager:
         - dense 向量由 embedding 工厂生成，sparse 向量由 BM25 词法编码器生成；
           两者均可由调用方预先算好传入（如多集合扇出复用同一查询向量），
           缺省时在本方法内按 query 生成；
-        - prefetch_limit 控制单通道召回广度，缺省与 limit 一致；
+        - prefetch_limit 控制单通道召回广度，缺省取 limit*4（上限 clamp 100）；
         - limit 为融合后保留的候选上限。
         返回去重后的 ScoredPoint 列表（含 id / score / payload）。
         """
@@ -283,7 +333,11 @@ class QdrantManager:
             from model.sparse.bm25 import embed_query as sparse_embed_query
 
             sparse_vector = sparse_embed_query(query)
-        prefetch_limit = prefetch_limit if prefetch_limit is not None else limit
+        if prefetch_limit is None:
+            # 缺省取 limit*4 并 clamp 到 100：RRF 融合前单通道召回宽度应显著
+            # 大于最终保留数（缺省与 limit 相等会压低两路候选交集，融合退化为
+            # 通道内排序拼接）；上限 100 防止过大的 prefetch 值被 Qdrant 拒绝
+            prefetch_limit = min(limit * 4, 100)
 
         response = self.client.query_points(
             collection_name=self.collection,

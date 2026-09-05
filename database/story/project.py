@@ -21,6 +21,7 @@ from entity.story.project import (
     StoryScript,
 )
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class ProjectRepository:
@@ -81,7 +82,7 @@ class ProjectRepository:
         else:
             stmt = stmt.where(StoryProject.status != "deleted")
         if keyword:
-            stmt = stmt.where(StoryProject.title.ilike(f"%{keyword}%"))
+            stmt = stmt.where(StoryProject.title.ilike(ilike_pattern(keyword)))
         stmt = stmt.order_by(StoryProject.updated_at.desc())
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total

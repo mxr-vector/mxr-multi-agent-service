@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
@@ -22,7 +22,7 @@ class RoleCreate(BaseModel):
 
     name: str
     role_key: str
-    data_scope: str = "all"
+    data_scope: Literal["all", "dept_and_child", "dept", "self"] = "all"
     sort_order: int = 0
     status: str = "active"
     remark: Optional[str] = None
@@ -33,7 +33,7 @@ class RoleUpdate(BaseModel):
 
     name: Optional[str] = None
     role_key: Optional[str] = None
-    data_scope: Optional[str] = None
+    data_scope: Optional[Literal["all", "dept_and_child", "dept", "self"]] = None
     sort_order: Optional[int] = None
     status: Optional[str] = None
     remark: Optional[str] = None

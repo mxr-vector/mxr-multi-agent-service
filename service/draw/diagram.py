@@ -11,7 +11,6 @@
 
 import asyncio
 import base64
-import json
 import re
 import time
 import uuid
@@ -24,7 +23,6 @@ from agent.constants.enums.chat import (
     ChatMessageStatus,
     ChatRole,
     SseEvent,
-    get_sse_event_names,
 )
 from agent.constants.enums.draw import DrawSourceType
 from agent.prompts.draw import (
@@ -43,6 +41,7 @@ from model.visual.factory import build_visual_model
 from utils.env import ENV
 from core.config_snapshot import CFG
 from utils.logger import logger
+from utils.stream_runtime import GenerationTaskRegistry, sse_frame, spawn_side_task
 
 # 上传图片后缀白名单 -> data URI 的 MIME 类型（仅图片，多模态 image_url 消费）
 IMAGE_EXTENSION_MIME = {
@@ -51,6 +50,9 @@ IMAGE_EXTENSION_MIME = {
     "jpeg": "image/jpeg",
     "webp": "image/webp",
 }
+
+# 绘图上传图片子目录（upload 端点写入与 _image_to_data_uri 读取的同一范围）
+_IMAGE_UPLOAD_SUBDIR = "draw/upload"
 
 # drawio XML 入库长度上限（字符）：正常图表远小于该值，超限视为异常输入
 DRAWIO_XML_MAX_CHARS = 2_000_000
@@ -67,17 +69,15 @@ _THINK_HEARTBEAT_SECONDS = 3
 # Mermaid 代码块提取（```mermaid ... ```，容忍前后杂散文本）
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
-# 会话级在途生成任务表：同会话互斥 + 停止生成按会话取消
-_generation_tasks: dict[str, asyncio.Task] = {}
+# 会话级在途生成任务注册表（占位式互斥，公共实现见 utils/stream_runtime.py）
+_generation_registry = GenerationTaskRegistry(
+    "上一张图尚未生成完成，请稍候或先停止生成"
+)
 
 
 def cancel_generation(session_hex: str) -> bool:
     """取消指定会话的在途生成任务；无在途任务返回 False（幂等）。"""
-    task = _generation_tasks.get(session_hex)
-    if task is None or task.done():
-        return False
-    task.cancel()
-    return True
+    return _generation_registry.cancel(session_hex)
 
 
 async def reset_stale_generating() -> int:
@@ -109,25 +109,17 @@ def extract_mermaid(text: str) -> str | None:
     return source
 
 
-def _sse_frame(event_id: int, event: SseEvent, data) -> str:
-    """构造标准 SSE 帧：id / event / data 三字段，data 为 JSON 序列化内容。
-
-    事件名以系统字典 sse_event 为准（lifespan 启动同步缓存），
-    缓存未就绪时回落枚举默认值。
-    """
-    payload = json.dumps(data, ensure_ascii=False)
-    event_name = get_sse_event_names().get(event, event.value)
-    return f"id: {event_id}\nevent: {event_name}\ndata: {payload}\n\n"
-
-
 def _image_to_data_uri(relative_path: str) -> str:
     """读取绘图上传子目录下的图片文件，转为 base64 data URI。
 
-    relative_path 为 upload 端点返回的 data/ 下相对路径（如 draw/xxx.png）；
-    路径归一化后必须仍位于上传根目录内，防止目录穿越。
+    relative_path 为 upload 端点返回的 data/ 下相对路径（如 draw/upload/xxx.png）；
+    路径归一化后必须仍位于 draw/upload 子目录内：目录穿越封死，
+    也不允许借路径引用上传根目录下的其他文件（如他人头像）。
     """
-    path = (ENV.upload_dir / relative_path).resolve()
-    if not path.is_relative_to(ENV.upload_dir.resolve()):
+    upload_root = ENV.upload_dir.resolve()
+    image_root = (upload_root / _IMAGE_UPLOAD_SUBDIR).resolve()
+    path = (upload_root / relative_path).resolve()
+    if not path.is_relative_to(image_root):
         bad_except("非法的图片路径")
     if not path.is_file():
         bad_except("图片文件不存在或已被清理，请重新上传")
@@ -198,10 +190,10 @@ class DrawSessionService:
             return version.to_dict(with_xml=True)
 
     async def delete(self, ctx, session_id: uuid.UUID) -> None:
-        """删除会话：同事务物理删除消息与版本记录（预览/图片文件不追删）。"""
-        in_flight = _generation_tasks.get(session_id.hex)
-        if in_flight is not None and not in_flight.done():
+        """删除会话：先取消在途任务，同事务物理删除消息与版本记录（预览/图片文件不追删）。"""
+        if _generation_registry.in_flight(session_id.hex):
             bad_except("该会话正在生成中，请先停止生成")
+        _generation_registry.cancel(session_id.hex)
         async with get_session() as session:
             repo = DrawSessionRepository(session)
             draw_session = await self._assert_owned(repo, session_id, ctx)
@@ -314,35 +306,40 @@ class DrawCompletionService:
 
         session_hex = resolved_session_id.hex
 
-        # 同会话生成互斥：在途任务未结束时拒绝新提问
-        existing = _generation_tasks.get(session_hex)
-        if existing is not None and not existing.done():
-            bad_except("上一张图尚未生成完成，请稍候或先停止生成")
+        # 同会话生成互斥：原子占位（检查与注册之间隔着多次 await，占位防并发穿透）
+        _generation_registry.acquire(session_hex)
 
         # 写库时序：user 消息（含图片引用）→ assistant 占位（generating）
-        now = datetime.now(timezone.utc)
-        async with get_session() as session:
-            session_repo = DrawSessionRepository(session)
-            message_repo = DrawMessageRepository(session)
-            draw_session = await session_repo.get(resolved_session_id)
-            user_seq = await message_repo.next_sequence(resolved_session_id)
-            await message_repo.append(
-                session_id=resolved_session_id,
-                role=ChatRole.USER.value,
-                sequence=user_seq,
-                content=question,
-                image_file=image_file,
-                status=ChatMessageStatus.DONE.value,
-            )
-            assistant_message = await message_repo.append(
-                session_id=resolved_session_id,
-                role=ChatRole.ASSISTANT.value,
-                sequence=user_seq + 1,
-                status=ChatMessageStatus.GENERATING.value,
-            )
-            assistant_message_id = assistant_message.id
-            await session_repo.touch(draw_session, message_delta=1, last_message_at=now)
-            await session.commit()
+        try:
+            now = datetime.now(timezone.utc)
+            async with get_session() as session:
+                session_repo = DrawSessionRepository(session)
+                message_repo = DrawMessageRepository(session)
+                draw_session = await session_repo.get(resolved_session_id)
+                user_seq = await message_repo.next_sequence(resolved_session_id)
+                await message_repo.append(
+                    session_id=resolved_session_id,
+                    role=ChatRole.USER.value,
+                    sequence=user_seq,
+                    content=question,
+                    image_file=image_file,
+                    status=ChatMessageStatus.DONE.value,
+                )
+                assistant_message = await message_repo.append(
+                    session_id=resolved_session_id,
+                    role=ChatRole.ASSISTANT.value,
+                    sequence=user_seq + 1,
+                    status=ChatMessageStatus.GENERATING.value,
+                )
+                assistant_message_id = assistant_message.id
+                await session_repo.touch(
+                    draw_session, message_delta=1, last_message_at=now
+                )
+                await session.commit()
+        except BaseException:
+            # 进流前失败：归还占位，避免会话被永久锁死
+            _generation_registry.release(session_hex)
+            raise
 
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         task = asyncio.create_task(
@@ -356,10 +353,7 @@ class DrawCompletionService:
                 base_version_id=base_version_id,
             )
         )
-        _generation_tasks[session_hex] = task
-        task.add_done_callback(
-            lambda done_task: _generation_tasks.pop(session_hex, None)
-        )
+        _generation_registry.register(session_hex, task)
 
         async def _frames():
             try:
@@ -425,7 +419,7 @@ class DrawCompletionService:
         def _put(event: SseEvent, data) -> None:
             nonlocal event_id
             event_id += 1
-            queue.put_nowait(_sse_frame(event_id, event, data))
+            queue.put_nowait(sse_frame(event_id, event, data))
 
         try:
             model = build_visual_model()
@@ -480,7 +474,7 @@ class DrawCompletionService:
             )
         except asyncio.CancelledError:
             # 用户停止：半截内容落库 stopped（不提取/不建版本），done 帧正常收尾
-            _spawn_side_task(
+            spawn_side_task(
                 self._finalize(
                     assistant_message_id,
                     session_id,
@@ -562,13 +556,3 @@ class DrawCompletionService:
             await session.commit()
             return version_id
 
-
-# 旁路后台任务强引用集合（对齐 service/rag/chat.py 的模式）
-_side_tasks: set[asyncio.Task] = set()
-
-
-def _spawn_side_task(coro) -> None:
-    """挂旁路后台任务并持强引用，防止 GC 提前回收。"""
-    task = asyncio.create_task(coro)
-    _side_tasks.add(task)
-    task.add_done_callback(_side_tasks.discard)

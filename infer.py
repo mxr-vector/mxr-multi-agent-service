@@ -35,10 +35,16 @@ async def lifespan(app: FastAPI):
     await DocumentService().reset_stale_reindexing()
     # 问答持久化装配：打开 psycopg 池 + AsyncPostgresSaver.setup（checkpoint 表自建）
     await open_checkpointer()
-    # 问答启动清扫：残留 generating 消息统一置为 failed（崩溃恢复路径）
-    await reset_stale_generating()
-    # 绘图启动清扫：同上，残留 generating 绘图消息置为 failed
-    await reset_stale_draw_generating()
+    # 问答/绘图启动清扫：残留 generating 消息统一置为 failed（崩溃恢复路径）；
+    # 会话域表可能尚未在存量库建齐，清扫失败仅告警不阻断服务启动（与 story 同模式）
+    try:
+        await reset_stale_generating()
+    except Exception as exc:
+        logger.warning(f"[CHAT] 启动清扫失败，已跳过（表建齐后重启恢复）: {exc}")
+    try:
+        await reset_stale_draw_generating()
+    except Exception as exc:
+        logger.warning(f"[DRAW] 启动清扫失败，已跳过（表建齐后重启恢复）: {exc}")
     # 剧本启动清扫：残留 generating 生成消息与残留在途任务置为 failed
     # （会话域表可能尚未在存量库建齐，清扫失败仅告警不阻断服务启动）
     try:
@@ -86,7 +92,15 @@ def create_app() -> FastAPI:
         name="uploads",
     )
     # app.mount("/audio_db", StaticFiles(directory="audio_db"), name="audio_db")
-    # 注册中间件
+    # 注册中间件（顺序见下方洋葱链说明）
+    # Starlette 的 add_middleware 是 user_middleware.insert(0)：后 add 的在洋葱
+    # 外层。add 顺序须与期望生效链相反，实际洋葱链（外→内）为：
+    #   CORS → RequestID → AccessLog → TokenAuth
+    # 即 AccessLog 在 TokenAuth 之外，认证失败的 401 短路同样留下访问日志
+    # （认证攻击可观测）；RequestID 在最外层保证所有日志可按 request_id 关联。
+    app.add_middleware(TokenAuthMiddleware)  # 认证（最内层）
+    app.add_middleware(AccessLogMiddleware)  # 访问日志
+    app.add_middleware(RequestIDMiddleware)  # 请求ID
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,  # 允许的域名列表
@@ -94,9 +108,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],  # 允许的请求方法，* 表示全部
         allow_headers=["*"],  # 允许的请求头
     )
-    app.add_middleware(RequestIDMiddleware)  # 请求ID
-    app.add_middleware(TokenAuthMiddleware)  # 认证
-    app.add_middleware(AccessLogMiddleware)  # 访问日志
 
     # 注册全局异常处理
     register_exception(app)
@@ -124,9 +135,9 @@ async def favicon():
 if __name__ == "__main__":
     import uvicorn
 
+    # reload 模式依赖多进程监控文件变更，生产误用会导致配置/内存状态漂移
     if ENV.is_prod:
-        logger.warning("生产环境，谨慎操作！")
+        raise RuntimeError("生产环境禁止以热重载模式启动，请用 uvicorn 直接启动")
     uvicorn.run(
         "infer:app", host=ENV.server_host, port=ENV.server_port, reload=True, workers=1
     )
-    logger.info("multi-agent-process Web服务器启动....")

@@ -55,6 +55,12 @@ def _result_dict(result: TopicIndexBuildResult) -> dict:
     }
 
 
+# 进程内任务记录保留上限：jobs 字典只增不删会随提交次数无界增长（内存泄漏），
+# 插入新任务后超限按最早插入淘汰（dict 保持插入序），仅保留最近 N=50 条记录；
+# 任务状态对外查询窗口随之收窄到最近 50 次，属可接受的进程内观测语义
+_JOB_HISTORY_MAX = 50
+
+
 class WikiIndexJobRunner:
     """Process-local runner matching the document vectorize job lifecycle."""
 
@@ -82,6 +88,9 @@ class WikiIndexJobRunner:
     def _submit(self, kind: str, scope_id: str, documents: Any, **kwargs) -> WikiJob:
         job = WikiJob(job_id=uuid.uuid4().hex, scope_id=str(scope_id), kind=kind)
         self.jobs[job.job_id] = job
+        # 有界保留：插入后超限按最早插入淘汰，jobs 字典不再无界增长
+        while len(self.jobs) > _JOB_HISTORY_MAX:
+            self.jobs.pop(next(iter(self.jobs)))
         task = asyncio.create_task(self._run(job, documents, **kwargs))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)

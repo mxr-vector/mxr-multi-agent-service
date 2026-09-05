@@ -21,6 +21,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.4",
     "loguru>=0.7.3",
     "numpy>=2.5.1",
+    "openai>=1.100.0",
     "openpyxl>=3.1.5",
     "pandas>=3.0.5",
     "psycopg[binary,pool]>=3.2.4",

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.system.config import Config
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class ConfigRepository:
@@ -54,7 +55,7 @@ class ConfigRepository:
         """
         stmt = select(Config)
         if keyword:
-            pattern = f"%{keyword}%"
+            pattern = ilike_pattern(keyword)
             stmt = stmt.where(Config.name.ilike(pattern) | Config.key.ilike(pattern))
         stmt = stmt.order_by(Config.created_at.desc())
         items, total = await paginate(self.session, stmt, page, size)

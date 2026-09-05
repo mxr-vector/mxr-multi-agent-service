@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.system.role import Role
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class RoleRepository:
@@ -58,7 +59,7 @@ class RoleRepository:
         """
         stmt = select(Role)
         if keyword:
-            pattern = f"%{keyword}%"
+            pattern = ilike_pattern(keyword)
             stmt = stmt.where(Role.name.ilike(pattern) | Role.role_key.ilike(pattern))
         if status:
             stmt = stmt.where(Role.status == status)

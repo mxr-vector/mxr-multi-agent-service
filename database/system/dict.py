@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.system.dict import DictData, DictType
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class DictTypeRepository:
@@ -54,7 +55,7 @@ class DictTypeRepository:
         """
         stmt = select(DictType)
         if keyword:
-            pattern = f"%{keyword}%"
+            pattern = ilike_pattern(keyword)
             stmt = stmt.where(
                 DictType.name.ilike(pattern) | DictType.type.ilike(pattern)
             )
@@ -153,7 +154,7 @@ class DictDataRepository:
         if dict_type:
             stmt = stmt.where(DictData.dict_type == dict_type)
         if keyword:
-            stmt = stmt.where(DictData.label.ilike(f"%{keyword}%"))
+            stmt = stmt.where(DictData.label.ilike(ilike_pattern(keyword)))
         if status:
             stmt = stmt.where(DictData.status == status)
         stmt = stmt.order_by(DictData.sort_order)

@@ -4,8 +4,8 @@
 - 属主判定经项目收敛：会话本身不落 user_id，访问权 = 所属项目归属当前用户，
   他人项目下的会话一律按"不存在"处理（不泄露存在性）；
 - 会话/消息（story_sessions/story_messages）是展示与回放的事实源；
-- 在途生成注册表（{session_id_hex: asyncio.Task}）与取消语义对齐
-  service/rag/chat.py：stop 即 cancel（推理侧即刻中止），半截内容由
+- 在途生成注册表收敛在 utils/stream_runtime.GenerationTaskRegistry（chat /
+  draw / story 共用），stop 即 cancel（推理侧即刻中止），半截内容由
   生成协程的取消分支落库 stopped，收尾帧仍正常下发；
 - 删除会话即丢弃未沉淀结果：同事务物理删除消息与会话行，正式资产
   （剧本版本/角色库/立绘）不受影响。
@@ -28,60 +28,39 @@ from exception.bad_except import bad_except
 from service.story.storage import SESSION_ASSET_ROOT, rmdir_if_empty, unlink_quietly
 from utils.logger import logger
 from utils.page import build_page_result
+from utils.stream_runtime import GenerationTaskRegistry
 from utils.user_context import UserContext
 
-# 在途生成任务注册表（强引用 + done 回调条件清除；key 为 session_id hex）。
-# 值为 None 表示"已占位未注册"的互斥 sentinel：占位到注册真实任务之间存在
-# await 窗口（DB 属主校验/落库），先原子占位防止并发请求同时穿透互斥检查。
-_generation_tasks: dict[str, asyncio.Task | None] = {}
-
-
-def _unregister(session_id_hex: str, done_task: asyncio.Task) -> None:
-    """条件注销：仅当注册表当前条目就是本任务时才清除（防误删后注册的新条目）。"""
-    if _generation_tasks.get(session_id_hex) is done_task:
-        _generation_tasks.pop(session_id_hex, None)
+# 会话级在途生成任务注册表（占位式互斥的原始出处，现收敛到
+# utils/stream_runtime.GenerationTaskRegistry；本模块保留同名函数出口，
+# 供 generation / art 两侧按既有签名调用）
+_generation_registry = GenerationTaskRegistry("上一条生成尚未完成，请稍候或先停止生成")
 
 
 def reserve_session(session_id_hex: str) -> None:
     """会话级生成互斥原子占位：已占用（sentinel 或在途任务）则拒绝。"""
-    existing = _generation_tasks.get(session_id_hex)
-    if existing is None or existing.done():
-        _generation_tasks[session_id_hex] = None
-    else:
-        bad_except("上一条生成尚未完成，请稍候或先停止生成")
+    _generation_registry.acquire(session_id_hex)
 
 
 def release_session(session_id_hex: str) -> None:
     """归还互斥占位（仅在条目仍为 sentinel 时清除，不影响真实任务）。"""
-    if _generation_tasks.get(session_id_hex) is None:
-        _generation_tasks.pop(session_id_hex, None)
+    _generation_registry.release(session_id_hex)
 
 
 def register_generation(session_id_hex: str, task: asyncio.Task) -> None:
     """注册会话在途生成任务（done 后条件清除），替换占位 sentinel。"""
-    _generation_tasks[session_id_hex] = task
-    task.add_done_callback(
-        lambda done_task: _unregister(session_id_hex, done_task)
-    )
+    _generation_registry.register(session_id_hex, task)
 
 
 def cancel_generation(session_id_hex: str) -> bool:
     """取消会话在途生成任务（幂等）：有在途任务返回 True，否则 False。"""
-    task = _generation_tasks.get(session_id_hex)
-    if task is None or task.done():
-        return False
-    task.cancel()
-    return True
+    return _generation_registry.cancel(session_id_hex)
 
 
 def assert_session_free(session_id_hex: str) -> None:
     """同会话生成互斥：在途任务或占位 sentinel 未结束时拒绝新请求。"""
-    existing = _generation_tasks.get(session_id_hex)
-    if existing is None:
-        return
-    if isinstance(existing, asyncio.Task) and existing.done():
-        return
-    bad_except("上一条生成尚未完成，请稍候或先停止生成")
+    if _generation_registry.in_flight(session_id_hex):
+        bad_except("上一条生成尚未完成，请稍候或先停止生成")
 
 
 async def reset_stale_generating_messages() -> int:

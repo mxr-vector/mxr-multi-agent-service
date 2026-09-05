@@ -13,7 +13,6 @@
 """
 
 import asyncio
-import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -24,7 +23,6 @@ from agent.constants.enums.chat import (
     ChatMessageStatus,
     ChatRole,
     SseEvent,
-    get_sse_event_names,
 )
 from agent.constants.enums.story import StoryMessageKind, StoryTaskStatus, StoryTaskType
 from agent.prompts.story import CARD_DATA_KEY, HISTORY_EMPTY, SCRIPT_SYSTEM_PROMPT
@@ -48,10 +46,8 @@ from service.story.session import (
 )
 from utils.logger import logger
 from utils.page import build_page_result
+from utils.stream_runtime import sse_frame, spawn_side_task
 from utils.token_count import count_tokens
-
-# 旁路后台任务强引用（防 create_task 产物被 GC 提前回收，对齐 rag/chat.py）
-_side_tasks: set[asyncio.Task] = set()
 
 # 输入预算安全边际（覆盖估算偏差，对齐 chat_graph）
 _INPUT_BUDGET_SAFETY_MARGIN = 0.10
@@ -61,30 +57,6 @@ _HISTORY_MAX_MESSAGES = 8
 _HISTORY_ITEM_MAX_CHARS = 4000
 # 历史文本行级固定开销（行分隔/角色标记）
 _LINE_FIXED_TOKENS = 2
-
-
-def _sse_frame(event_id: int, event: SseEvent, data) -> str:
-    """构造标准 SSE 帧：id/event/data 三字段（事件名走系统字典缓存兑底枚举）。"""
-    payload = json.dumps(data, ensure_ascii=False)
-    event_name = get_sse_event_names().get(event, event.value)
-    return f"id: {event_id}\nevent: {event_name}\ndata: {payload}\n\n"
-
-
-def _on_side_task_done(task: asyncio.Task) -> None:
-    """旁路任务收尾：释放强引用并记录未处理异常（终态写失败不可静默）。"""
-    _side_tasks.discard(task)
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error(f"[STORY] 旁路收尾任务失败: {exc!r}", exc_info=exc)
-
-
-def _spawn_side_task(coro) -> None:
-    """挂旁路后台任务并持强引用（done 时记录异常，防止终态写失败无痕）。"""
-    task = asyncio.create_task(coro)
-    _side_tasks.add(task)
-    task.add_done_callback(_on_side_task_done)
 
 
 def _trim_history_lines(lines: list[str], budget: int, model_name: str) -> str:
@@ -252,7 +224,7 @@ class StoryGenerationService:
         def _put(event: SseEvent, data) -> None:
             nonlocal event_id
             event_id += 1
-            queue.put_nowait(_sse_frame(event_id, event, data))
+            queue.put_nowait(sse_frame(event_id, event, data))
 
         async def _update_task(fields: dict) -> None:
             async with get_session() as db:
@@ -350,7 +322,7 @@ class StoryGenerationService:
             # 用户停止：半截内容落库 stopped（保留可查），收尾帧正常下发
             partial = "".join(answer_parts)
             duration_ms = round((time.monotonic() - started_at) * 1000)
-            _spawn_side_task(
+            spawn_side_task(
                 self._finalize_terminal(
                     assistant_message_id,
                     session_id,
@@ -359,7 +331,7 @@ class StoryGenerationService:
                     params={"cards_note": "生成被停止，角色卡未产出"},
                 )
             )
-            _spawn_side_task(
+            spawn_side_task(
                 _update_task(
                     {
                         "status": StoryTaskStatus.CANCELLED.value,
@@ -381,7 +353,7 @@ class StoryGenerationService:
         except Exception as exc:
             logger.exception(f"[STORY] 剧本生成失败 session={session_hex}: {exc}")
             partial = "".join(answer_parts)
-            _spawn_side_task(
+            spawn_side_task(
                 self._finalize_terminal(
                     assistant_message_id,
                     session_id,
@@ -390,7 +362,7 @@ class StoryGenerationService:
                     error=str(exc),
                 )
             )
-            _spawn_side_task(
+            spawn_side_task(
                 _update_task(
                     {
                         "status": StoryTaskStatus.FAILED.value,

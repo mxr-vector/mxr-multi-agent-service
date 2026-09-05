@@ -33,6 +33,12 @@ def verify_token(token: str) -> Optional[dict]:
     验证 JWT，返回 payload dict；过期 / 签名无效 / 结构非法均返回 None。
     """
     try:
-        return jwt.decode(token, ENV.jwt_secret_key, algorithms=[_ALGORITHM])
+        return jwt.decode(
+            token,
+            ENV.jwt_secret_key,
+            algorithms=[_ALGORITHM],
+            # 强制要求 exp：缺失过期时间的 token 一律拒绝（算法钉死 HS256 不变）
+            options={"require": ["exp"]},
+        )
     except jwt.InvalidTokenError:
         return None

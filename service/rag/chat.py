@@ -15,7 +15,6 @@ AI 问答服务层：会话管理（ChatSessionService）与流式问答（ChatC
 """
 
 import asyncio
-import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -27,7 +26,6 @@ from agent.constants.enums.chat import (
     ChatMessageStatus,
     ChatRole,
     SseEvent,
-    get_sse_event_names,
 )
 from agent.prompts.chat import TITLE_PROMPT
 from database.postgre_client import get_session
@@ -40,13 +38,13 @@ from service.rag.knowledge_base import KnowledgeBaseService
 from utils.env import ENV
 from utils.logger import logger
 from utils.page import PageResult, build_page_result
+from utils.stream_runtime import GenerationTaskRegistry, sse_frame, spawn_side_task
 from utils.user_context import UserContext
 
-# 在途生成任务注册表（强引用 + done 回调清除；key 为 session_id hex）
-_generation_tasks: dict[str, asyncio.Task] = {}
-
-# 标题摘要等旁路后台任务的强引用集合（防 create_task 产物被 GC 提前回收）
-_side_tasks: set[asyncio.Task] = set()
+# 会话级在途生成任务注册表（占位式互斥，公共实现见 utils/stream_runtime.py）
+_generation_registry = GenerationTaskRegistry(
+    "上一条回答尚未完成，请稍候或先停止生成"
+)
 
 # 标题摘要生成超时（秒），超时回落首问截断
 _TITLE_TIMEOUT_SECONDS = 15
@@ -102,24 +100,6 @@ async def _enrich_sources(sources: list[dict]) -> list[dict]:
             }
         )
     return enriched
-
-
-def _sse_frame(event_id: int, event: SseEvent, data) -> str:
-    """构造标准 SSE 帧：id / event / data 三字段，data 为 JSON 序列化内容。
-
-    事件名以系统字典 sse_event 为准（lifespan 启动同步缓存），
-    缓存未就绪时回落枚举默认值。
-    """
-    payload = json.dumps(data, ensure_ascii=False)
-    event_name = get_sse_event_names().get(event, event.value)
-    return f"id: {event_id}\nevent: {event_name}\ndata: {payload}\n\n"
-
-
-def _spawn_side_task(coro) -> None:
-    """挂旁路后台任务并持强引用（对齐 routers/rag/document.py 的模式）。"""
-    task = asyncio.create_task(coro)
-    _side_tasks.add(task)
-    task.add_done_callback(_side_tasks.discard)
 
 
 class ChatSessionService:
@@ -231,11 +211,7 @@ class ChatSessionService:
 
 def cancel_generation(session_id_hex: str) -> bool:
     """取消会话在途生成任务（幂等）：有在途任务返回 True，否则 False。"""
-    task = _generation_tasks.get(session_id_hex)
-    if task is None or task.done():
-        return False
-    task.cancel()
-    return True
+    return _generation_registry.cancel(session_id_hex)
 
 
 async def reset_stale_generating() -> int:
@@ -296,46 +272,51 @@ class ChatCompletionService:
 
         session_hex = resolved_session_id.hex
 
-        # 同会话生成互斥：在途任务未结束时拒绝新提问
-        existing = _generation_tasks.get(session_hex)
-        if existing is not None and not existing.done():
-            bad_except("上一条回答尚未完成，请稍候或先停止生成")
+        # 同会话生成互斥：原子占位（检查与注册之间隔着多次 await，占位防并发穿透）
+        _generation_registry.acquire(session_hex)
 
         # kb 检索范围解析（消息级）：显式传入须经服务端可见性/状态过滤（交集），
         # 不可见与不存在同语义；否则解析缺省可见范围
-        if kb_ids:
-            resolved_kb_ids = await self._kb_service.filter_retrievable_ids(
-                ctx, kb_ids
-            )
-            if not resolved_kb_ids:
-                bad_except(f"知识库不存在: {','.join(kb_ids)}")
-        else:
-            resolved_kb_ids = await self._kb_service.list_visible_ids(ctx)
+        try:
+            if kb_ids:
+                resolved_kb_ids = await self._kb_service.filter_retrievable_ids(
+                    ctx, kb_ids
+                )
+                if not resolved_kb_ids:
+                    bad_except(f"知识库不存在: {','.join(kb_ids)}")
+            else:
+                resolved_kb_ids = await self._kb_service.list_visible_ids(ctx)
 
-        # 写库时序：user 消息（kb_ids 快照）→ assistant 占位（generating）
-        now = datetime.now(timezone.utc)
-        async with get_session() as session:
-            session_repo = ChatSessionRepository(session)
-            message_repo = ChatMessageRepository(session)
-            chat_session = await session_repo.get(resolved_session_id)
-            user_seq = await message_repo.next_sequence(resolved_session_id)
-            await message_repo.append(
-                session_id=resolved_session_id,
-                role=ChatRole.USER.value,
-                sequence=user_seq,
-                content=question,
-                kb_ids=resolved_kb_ids,
-                status=ChatMessageStatus.DONE.value,
-            )
-            assistant_message = await message_repo.append(
-                session_id=resolved_session_id,
-                role=ChatRole.ASSISTANT.value,
-                sequence=user_seq + 1,
-                status=ChatMessageStatus.GENERATING.value,
-            )
-            assistant_message_id = assistant_message.id
-            await session_repo.touch(chat_session, message_delta=1, last_message_at=now)
-            await session.commit()
+            # 写库时序：user 消息（kb_ids 快照）→ assistant 占位（generating）
+            now = datetime.now(timezone.utc)
+            async with get_session() as session:
+                session_repo = ChatSessionRepository(session)
+                message_repo = ChatMessageRepository(session)
+                chat_session = await session_repo.get(resolved_session_id)
+                user_seq = await message_repo.next_sequence(resolved_session_id)
+                await message_repo.append(
+                    session_id=resolved_session_id,
+                    role=ChatRole.USER.value,
+                    sequence=user_seq,
+                    content=question,
+                    kb_ids=resolved_kb_ids,
+                    status=ChatMessageStatus.DONE.value,
+                )
+                assistant_message = await message_repo.append(
+                    session_id=resolved_session_id,
+                    role=ChatRole.ASSISTANT.value,
+                    sequence=user_seq + 1,
+                    status=ChatMessageStatus.GENERATING.value,
+                )
+                assistant_message_id = assistant_message.id
+                await session_repo.touch(
+                    chat_session, message_delta=1, last_message_at=now
+                )
+                await session.commit()
+        except BaseException:
+            # 进流前失败：归还占位，避免会话被永久锁死
+            _generation_registry.release(session_hex)
+            raise
 
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         task = asyncio.create_task(
@@ -350,10 +331,7 @@ class ChatCompletionService:
                 is_first_turn=is_first_turn,
             )
         )
-        _generation_tasks[session_hex] = task
-        task.add_done_callback(
-            lambda done_task: _generation_tasks.pop(session_hex, None)
-        )
+        _generation_registry.register(session_hex, task)
 
         async def _frames():
             try:
@@ -396,7 +374,7 @@ class ChatCompletionService:
         def _put(event: SseEvent, data) -> None:
             nonlocal event_id
             event_id += 1
-            queue.put_nowait(_sse_frame(event_id, event, data))
+            queue.put_nowait(sse_frame(event_id, event, data))
 
         try:
             graph = chat_graph.get()
@@ -470,14 +448,14 @@ class ChatCompletionService:
                 },
             )
             if is_first_turn:
-                _spawn_side_task(self._generate_title(session_id, question))
+                spawn_side_task(self._generate_title(session_id, question), tag="CHAT")
         except asyncio.CancelledError:
             # 用户停止：半截内容落库 stopped（保留已采集的部分指标），done 帧正常收尾
             partial_metrics = {
                 **metrics,
                 "duration_ms": round((time.monotonic() - started_at) * 1000),
             }
-            _spawn_side_task(
+            spawn_side_task(
                 self._finalize(
                     assistant_message_id,
                     session_id,

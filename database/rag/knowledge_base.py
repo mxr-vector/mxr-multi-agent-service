@@ -9,6 +9,7 @@ from uuid_utils.compat import uuid7
 from database.qdrant_client import build_kb_collection_name
 from entity.rag.knowledge_base import KnowledgeBase
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 # 建库后不可变、不允许通过更新修改的字段
 _IMMUTABLE_FIELDS = frozenset(
@@ -89,7 +90,7 @@ class KnowledgeBaseRepository:
         """
         stmt = select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
         if keyword:
-            pattern = f"%{keyword}%"
+            pattern = ilike_pattern(keyword)
             stmt = stmt.where(
                 or_(
                     KnowledgeBase.name.ilike(pattern),

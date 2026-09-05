@@ -20,6 +20,7 @@ from service.draw.diagram import (
     IMAGE_EXTENSION_MIME,
     DrawCompletionService,
     DrawSessionService,
+    _IMAGE_UPLOAD_SUBDIR,
 )
 from utils.env import ENV
 from utils.page import build_page_result
@@ -34,7 +35,7 @@ _completion_service = DrawCompletionService()
 _session_service = DrawSessionService()
 
 # 上传图片大小上限：沿用全局上传守卫配置
-_IMAGE_SUBDIR = "draw/upload"
+_IMAGE_SUBDIR = _IMAGE_UPLOAD_SUBDIR
 _PREVIEW_SUBDIR = "draw/preview"
 
 
@@ -176,10 +177,13 @@ async def save_version(
     """drawio 编辑保存：append-only 新增 user 来源版本，基线版本保持不变。"""
     preview_file: str | None = None
     if preview is not None:
-        data = await preview.read()
-        max_bytes = ENV.upload_max_size_mb * 1024 * 1024
-        if len(data) > max_bytes:
-            bad_except(f"预览图超过大小上限（{ENV.upload_max_size_mb}MB）")
+        # 与全局上传约定同口径：分块读+超限即断，防超大 multipart 在读取阶段打爆内存；
+        # 内容校验为真实 PNG（编辑器导出的 xmlpng），与 .png 落盘名实相符
+        data = await read_upload_capped(
+            preview, ENV.upload_max_size_mb * 1024 * 1024
+        )
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            bad_except("预览图必须为 PNG 格式")
         preview_file = f"{_PREVIEW_SUBDIR}/{uuid7().hex}.png"
         target = ENV.upload_dir / preview_file
 

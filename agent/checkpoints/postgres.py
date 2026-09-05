@@ -36,6 +36,9 @@ _ttl_task: asyncio.Task | None = None
 
 # TTL 清理循环间隔：每日一次
 _TTL_LOOP_INTERVAL_SECONDS = 24 * 60 * 60
+# 单轮清理失败后的重试间隔：缩短到 1 小时（失败仍等满 24h 会让过期 checkpoint
+# 长期滞留），成功后恢复每日周期
+_TTL_RETRY_INTERVAL_SECONDS = 60 * 60
 
 
 async def open_checkpointer() -> AsyncPostgresSaver:
@@ -129,15 +132,24 @@ async def cleanup_expired_checkpoints() -> int:
 
 
 async def _ttl_loop() -> None:
-    """每日执行一次 TTL 清理；单轮失败仅告警，不中断循环。"""
+    """每日执行一次 TTL 清理；单轮失败以 1 小时为间隔重试，成功恢复每日周期。
+
+    - 先休眠再执行：lifespan 启动序列已同步清扫过一次（见 open_checkpointer
+      调用方），循环启动即执行会与那次清扫重复；
+    - 主体包 try/except：异常记录完整堆栈（logger.exception）后以较短间隔
+      重试，而非等待满 24 小时。
+    """
+    interval = _TTL_LOOP_INTERVAL_SECONDS
     while True:
+        await asyncio.sleep(interval)
         try:
             await cleanup_expired_checkpoints()
+            interval = _TTL_LOOP_INTERVAL_SECONDS
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
-            logger.warning(f"[CHAT] checkpoint TTL 清理失败，等待下一轮: {exc}")
-        await asyncio.sleep(_TTL_LOOP_INTERVAL_SECONDS)
+        except Exception:
+            logger.exception("[CHAT] checkpoint TTL 清理失败，1 小时后重试")
+            interval = _TTL_RETRY_INTERVAL_SECONDS
 
 
 def start_ttl_task() -> None:

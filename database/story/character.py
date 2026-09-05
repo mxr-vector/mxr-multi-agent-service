@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.story.character import StoryCharacter, StoryCharacterArt
 from utils.page import paginate
+from utils.keyword import ilike_pattern
 
 
 class CharacterRepository:
@@ -98,7 +99,7 @@ class CharacterRepository:
         """按属主分页列出角色（名称模糊检索），创建时间倒序。"""
         stmt = select(StoryCharacter).where(StoryCharacter.user_id == user_id)
         if keyword:
-            stmt = stmt.where(StoryCharacter.name.ilike(f"%{keyword}%"))
+            stmt = stmt.where(StoryCharacter.name.ilike(ilike_pattern(keyword)))
         stmt = stmt.order_by(StoryCharacter.created_at.desc())
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total

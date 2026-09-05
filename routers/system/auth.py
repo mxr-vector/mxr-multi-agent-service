@@ -14,9 +14,10 @@ from typing import Optional
 from fastapi import APIRouter, Body, File, Request, UploadFile
 from pydantic import BaseModel
 
-from exception.bad_except import bad_except
+from exception.bad_except import BadException, bad_except
 from service.system.auth import AuthService
 from utils.env import ENV
+from utils.rate_limit import check_locked, record_failure, reset as reset_rate_limit
 from utils.response import R
 from utils.file_ingest import read_upload_capped
 
@@ -63,9 +64,21 @@ def _current_user_id(request: Request) -> uuid.UUID:
 
 
 @router.post("/public/auth/login")
-async def login(payload: LoginRequest = Body(...)):
-    """用户名/密码登录，成功返回 JWT token 与用户基础信息（不含 password）。"""
-    data = await _service.login(payload.username, payload.password)
+async def login(payload: LoginRequest = Body(...), request: Request = None):
+    """用户名/密码登录，成功返回 JWT token 与用户基础信息（不含 password）。
+
+    按（客户端 IP + 用户名）做失败限速：业务认证失败计数、达上限临时锁定，
+    成功即清零（防爆破；限速器为进程内实现，见 utils/rate_limit.py）。
+    """
+    client_ip = request.client.host if request is not None and request.client else "unknown"
+    rate_key = f"{client_ip}:{payload.username}"
+    check_locked(rate_key)
+    try:
+        data = await _service.login(payload.username, payload.password)
+    except BadException:
+        record_failure(rate_key)
+        raise
+    reset_rate_limit(rate_key)
     return R.success(data=data)
 
 
