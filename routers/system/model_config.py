@@ -1,15 +1,19 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Path
+from fastapi import APIRouter, Depends, Body, Path
 from pydantic import BaseModel
 
 from core.config_snapshot import CFG
 from service.system.model_config import ModelConfigService
 from utils.response import R
+from utils.user_context import require_admin
 
 # 创建路由（模型配置卡片页专用；角色集合由代码消费方固定，不提供创建入口）
-router = APIRouter(prefix="/system/model-configs", tags=["OpenAPI - 系统模型配置"])
+router = APIRouter(
+    prefix="/system/model-configs", tags=["OpenAPI - 系统模型配置"],
+    dependencies=[Depends(require_admin)],
+)
 
 _service = ModelConfigService()
 

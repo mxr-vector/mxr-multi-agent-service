@@ -409,8 +409,9 @@ class ChatCompletionService:
             ):
                 if mode == "messages":
                     chunk, metadata = payload
-                    # 仅放行 respond 节点（含其内部工具循环/子调用）的 token；
-                    # 工具内反思模型的 token 不外流。
+                    # 仅放行 respond 节点的 token；工具内反思/重写模型已显式
+                    # disable_streaming（model/compression/factory.py），token
+                    # 事件根本不会进入本通道，双保险不依赖节点过滤。
                     # 工具调用轮次模型的 content 通常为空（纯 tool_calls），
                     # 空增量不产生 answer 帧；个别模型输出的调用前文字会一并外流，
                     # 属可接受展示（Qwen/vLLM 系实测为空）。

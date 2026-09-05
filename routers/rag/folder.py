@@ -73,7 +73,7 @@ async def list_folders(
 @router.get("/{folder_id}")
 async def get_folder(folder_id: uuid.UUID = Path(...)):
     """按 id 获取文件夹。"""
-    folder = await _service.get(folder_id)
+    folder = await _service.get(ctx, folder_id)
     return R.success(data=folder)
 
 
@@ -81,10 +81,12 @@ async def get_folder(folder_id: uuid.UUID = Path(...)):
 async def update_folder(
     folder_id: uuid.UUID = Path(...),
     payload: FolderUpdate = Body(...),
+    ctx: UserContext = Depends(get_user_context),
 ):
     """更新文件夹的 name/sort_order/parent_id（knowledge_base_id 不可变）。"""
     fields_set = payload.model_fields_set
     folder = await _service.update(
+        ctx,
         folder_id,
         name=payload.name,
         sort_order=payload.sort_order,
@@ -95,7 +97,10 @@ async def update_folder(
 
 
 @router.delete("/{folder_id}")
-async def delete_folder(folder_id: uuid.UUID = Path(...)):
+async def delete_folder(
+    folder_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
     """带守卫的物理删除：仅空文件夹（无子文件夹、无文档）可删除。"""
-    await _service.delete(folder_id)
+    await _service.delete(ctx, folder_id)
     return R.success(msg="删除成功")

@@ -48,11 +48,11 @@ async def build_entity_index(
     content_chars: int = DEFAULT_CONTENT_CHARS,
 ) -> BuildStats:
     """Rebuild the entity index for one knowledge base (idempotent)."""
-    from core.source.postgres import PostgresConfig
-    from sqlalchemy.ext.asyncio import create_async_engine
+    from database.postgre_client import get_async_engine
 
     extractor = get_extractor(extractor_name)
-    engine = create_async_engine(PostgresConfig.from_env().async_connection)
+    # 复用进程级共享引擎（连接池）；共享单例不可 dispose，由进程退出统一回收
+    engine = get_async_engine()
 
     # 实体 -> 文档集合（内存累积；评测库规模 10 万级文档可承载）
     entity_docs: dict[str, set[uuid.UUID]] = defaultdict(set)
@@ -142,7 +142,6 @@ async def build_entity_index(
             postings=len(posting_rows),
         )
     finally:
-        await engine.dispose()
         # 重建后立即失效进程内缓存，避免在线路径读到旧索引
         try:
             from entity_index.store import invalidate_entity_bundle
@@ -257,6 +256,8 @@ async def build_relations(
     from model.chat.factory import build_chat_model
     from sqlalchemy.ext.asyncio import create_async_engine
 
+    # 离线重建任务（长事务 + 高并发槽），独立引擎独立连接池，结束时 dispose；
+    # 在线查询路径（rag_tools / store）才复用共享引擎
     engine = create_async_engine(PostgresConfig.from_env().async_connection)
     model = build_chat_model(temperature=0, reasoning_effort="off")
     # 思考型模型（qwen3 系）需关思考防思维链膨胀；部分网关拒绝未知字段，

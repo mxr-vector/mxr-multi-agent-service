@@ -86,9 +86,12 @@ async def list_knowledge_bases(
 
 
 @router.get("/{kb_id}")
-async def get_knowledge_base(kb_id: uuid.UUID = Path(...)):
+async def get_knowledge_base(
+    kb_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
     """按 id 获取知识库。"""
-    kb = await _service.get(kb_id)
+    kb = await _service.get(ctx, kb_id)
     return R.success(data=kb)
 
 
@@ -96,16 +99,20 @@ async def get_knowledge_base(kb_id: uuid.UUID = Path(...)):
 async def update_knowledge_base(
     kb_id: uuid.UUID = Path(...),
     payload: KnowledgeBaseUpdate = Body(...),
+    ctx: UserContext = Depends(get_user_context),
 ):
     """仅元数据更新（含 status active↔archived）；不可变字段不受影响。"""
     changes = payload.model_dump(exclude_unset=True)
-    kb = await _service.update(kb_id, changes)
+    kb = await _service.update(ctx, kb_id, changes)
     return R.success(data=kb)
 
 
 @router.delete("/{kb_id}")
-async def delete_knowledge_base(kb_id: uuid.UUID = Path(...)):
+async def delete_knowledge_base(
+    kb_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
     """带守卫的软删除：库内仍有文档或文件夹时拒绝；通过后置 status='deleted'，
     随后不再出现在列表中。"""
-    await _service.delete(kb_id)
+    await _service.delete(ctx, kb_id)
     return R.success(msg="删除成功")

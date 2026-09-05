@@ -203,13 +203,32 @@ class DocumentRepository:
         await self.session.flush()
         return doc
 
-    async def fetch_status(self, ids: list[uuid.UUID]) -> list[tuple[uuid.UUID, str]]:
-        """批量查状态：单条 id = ANY(:ids) 查询返回 (id, status) 对，供前端轮询。"""
+    async def set_status_if_not_reindexing(
+        self, doc_id: uuid.UUID, status: str
+    ) -> bool:
+        """
+        条件状态流转：仅当文档当前不处于 reindexing 时置为 status，返回是否成功。
+        单条 UPDATE 原子完成判定与写入，消除「读-判-写」窗口的并发触发竞态。
+        """
+        stmt = (
+            update(Document)
+            .where(Document.id == doc_id, Document.status != "reindexing")
+            .values(status=status, updated_at=datetime.now(timezone.utc))
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount > 0
+
+    async def fetch_status(
+        self, ids: list[uuid.UUID]
+    ) -> list[tuple[uuid.UUID, uuid.UUID, str]]:
+        """批量查状态：单条 id IN 查询返回 (id, knowledge_base_id, status) 三元组，供前端轮询（含可见性过滤所需归属）。"""
         if not ids:
             return []
-        stmt = select(Document.id, Document.status).where(Document.id.in_(ids))
+        stmt = select(
+            Document.id, Document.knowledge_base_id, Document.status
+        ).where(Document.id.in_(ids))
         result = await self.session.execute(stmt)
-        return [(row.id, row.status) for row in result]
+        return [(row.id, row.knowledge_base_id, row.status) for row in result]
 
     async def reset_stale_reindexing(self) -> int:
         """启动清扫：把残留的 reindexing 文档置为 failed，返回影响行数。"""

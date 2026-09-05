@@ -1,3 +1,5 @@
+import hmac
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
@@ -30,8 +32,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         auth = request.headers.get("Authorization")
 
-        # 通道一：静态 API key（机器调用）
-        if auth == f"Bearer {ENV.api_secret_key}":
+        # 通道一：静态 API key（机器调用），常数时间比对防时序侧信道
+        if auth is not None and hmac.compare_digest(
+            auth, f"Bearer {ENV.api_secret_key}"
+        ):
             return await call_next(request)
 
         # 通道二：JWT（用户登录态）

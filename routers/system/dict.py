@@ -1,14 +1,18 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Path, Query
+from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
 from service.system.dict import DictDataService, DictTypeService
 from utils.response import R
+from utils.user_context import require_admin
 
 # 创建路由（dict-types 与 dict-data 两组端点共用一个模块级 router）
-router = APIRouter(prefix="/system", tags=["OpenAPI - 系统字典管理"])
+router = APIRouter(
+    prefix="/system", tags=["OpenAPI - 系统字典管理"],
+    dependencies=[Depends(require_admin)],
+)
 
 _type_service = DictTypeService()
 _data_service = DictDataService()

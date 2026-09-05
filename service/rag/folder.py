@@ -78,17 +78,19 @@ class FolderService:
             )
             return build_page_result([f.to_dict() for f in folders], total, page, size)
 
-    async def get(self, folder_id: uuid.UUID) -> dict:
-        """按 id 获取文件夹，不存在时抛出业务异常。"""
+    async def get(self, ctx: UserContext, folder_id: uuid.UUID) -> dict:
+        """按 id 获取文件夹（须落在可见知识库下），不存在时抛出业务异常。"""
         async with get_session() as session:
             repo = FolderRepository(session)
             folder = await repo.get(folder_id)
             if folder is None:
                 bad_except(f"文件夹不存在: {folder_id}")
+            await self._assert_kb(ctx, session, folder.knowledge_base_id)
             return folder.to_dict()
 
     async def update(
         self,
+        ctx: UserContext,
         folder_id: uuid.UUID,
         name: str | None = None,
         sort_order: int | None = None,
@@ -104,6 +106,7 @@ class FolderService:
             folder = await repo.get(folder_id)
             if folder is None:
                 bad_except(f"文件夹不存在: {folder_id}")
+            await self._assert_kb(ctx, session, folder.knowledge_base_id)
             if parent_id_set and parent_id is not None:
                 if parent_id == folder_id:
                     bad_except("父文件夹不能是自身")
@@ -120,7 +123,7 @@ class FolderService:
             await session.commit()
             return folder.to_dict()
 
-    async def delete(self, folder_id: uuid.UUID) -> None:
+    async def delete(self, ctx: UserContext, folder_id: uuid.UUID) -> None:
         """
         带守卫的物理删除：文件夹不存在抛业务异常；
         存在子文件夹或包含文档时拒绝删除，仅空文件夹才被删除。
@@ -130,6 +133,7 @@ class FolderService:
             folder = await repo.get(folder_id)
             if folder is None:
                 bad_except(f"文件夹不存在: {folder_id}")
+            await self._assert_kb(ctx, session, folder.knowledge_base_id)
             if await repo.has_children(folder_id):
                 bad_except("文件夹下存在子文件夹，无法删除")
             if await repo.has_referencing_document(folder_id):
@@ -149,3 +153,9 @@ class FolderService:
             bad_except(f"父文件夹不存在: {parent_id}")
         if parent.knowledge_base_id != knowledge_base_id:
             bad_except("父文件夹与当前知识库不一致")
+
+    @staticmethod
+    async def _assert_kb(ctx, session, knowledge_base_id: uuid.UUID) -> None:
+        """按 id 操作文件夹前校验其归属知识库对当前上下文可见（收口同 delete 链路）。"""
+        kb = await KnowledgeBaseRepository(session).get(knowledge_base_id)
+        await assert_kb_visible(kb, ctx, knowledge_base_id)

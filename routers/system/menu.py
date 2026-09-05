@@ -1,14 +1,18 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Path, Query
+from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
 from service.system.menu import MenuService
 from utils.response import R
+from utils.user_context import require_admin
 
 # 创建路由
-router = APIRouter(prefix="/system/menus", tags=["OpenAPI - 系统菜单管理"])
+router = APIRouter(
+    prefix="/system/menus", tags=["OpenAPI - 系统菜单管理"],
+    dependencies=[Depends(require_admin)],
+)
 
 _service = MenuService()
 

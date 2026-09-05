@@ -113,6 +113,15 @@ class ENV_CONFIG:
         return int(self.require("UPLOAD_MAX_SIZE_MB"))
 
     @property
+    def cors_origins(self) -> list[str]:
+        """允许跨域的来源列表（逗号分隔）。缺省 '*' 仅适用于纯 Bearer 鉴权场景，
+        此时不允许携带 Cookie；生产建议显式列出前端域名。"""
+        raw = self.get("CORS_ORIGINS", "*").strip()
+        if raw == "*":
+            return ["*"]
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+    @property
     def video_upload_max_size_mb(self) -> int:
         """视频成品上传大小上限（MB），与图片/文档上传上限分离；超限在落盘前拒绝。"""
         return int(self.require("VIDEO_UPLOAD_MAX_SIZE_MB"))

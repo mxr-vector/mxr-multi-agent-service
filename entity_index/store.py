@@ -7,6 +7,7 @@ silently when the index is missing.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from sqlalchemy import text
 # 进程内缓存的 KB 数上限（评测/单库对话场景够用；索引重建时主动失效）
 _BUNDLE_LRU_MAX = 2
 _bundles: "OrderedDict[str, EntityBundle]" = OrderedDict()
+# 并发首查同一 KB 时的装载互斥锁
+_load_lock = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -39,8 +42,7 @@ async def load_entity_bundle(kb_id: uuid.UUID | str) -> EntityBundle | None:
     Returns None when the index tables hold no rows for the KB (index not
     built) — callers degrade gracefully.
     """
-    from core.source.postgres import PostgresConfig
-    from sqlalchemy.ext.asyncio import create_async_engine
+    from database.postgre_client import get_async_engine
 
     key = str(kb_id)
     cached = _bundles.get(key)
@@ -49,8 +51,14 @@ async def load_entity_bundle(kb_id: uuid.UUID | str) -> EntityBundle | None:
         return cached
 
     kb_uuid = uuid.UUID(key) if isinstance(key, str) else kb_id
-    engine = create_async_engine(PostgresConfig.from_env().async_connection)
-    try:
+    # 进程级共享引擎（连接池），避免每次加载重建引擎/dispose 的开销
+    engine = get_async_engine()
+    # 同一 KB 并发首查只构建一次（消除 check-then-set 竞态下的重复建载）
+    async with _load_lock:
+        cached = _bundles.get(key)
+        if cached is not None:
+            _bundles.move_to_end(key)
+            return cached
         async with engine.connect() as conn:
             entity_rows = (
                 await conn.execute(
@@ -72,8 +80,6 @@ async def load_entity_bundle(kb_id: uuid.UUID | str) -> EntityBundle | None:
                     {"kb": kb_uuid},
                 )
             ).all()
-    finally:
-        await engine.dispose()
 
     generic = frozenset(row.entity for row in entity_rows if row.is_generic)
     postings: dict[str, list[str]] = {}

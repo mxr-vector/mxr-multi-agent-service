@@ -156,29 +156,30 @@ class KnowledgeBaseService:
             )
             return [format_id(kb_id) for kb_id in ids]
 
-    async def get(self, kb_id: uuid.UUID) -> dict:
-        """按 id 获取知识库，不存在时抛出业务异常。"""
+    async def get(self, ctx: UserContext, kb_id: uuid.UUID) -> dict:
+        """按 id 获取知识库（须对当前上下文可见），不存在时抛出业务异常。"""
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.get(kb_id)
-            if kb is None:
-                bad_except(f"知识库不存在: {kb_id}")
+            await assert_kb_visible(kb, ctx, kb_id)
             return kb.to_dict()
 
-    async def update(self, kb_id: uuid.UUID, changes: dict[str, Any]) -> dict:
+    async def update(self, ctx: UserContext, kb_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
         仅元数据更新（name/description/icon/visibility/owner/status）；
         dept_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常。
         """
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
+            kb = await repo.get(kb_id)
+            await assert_kb_visible(kb, ctx, kb_id)
             kb = await repo.update_metadata(kb_id, changes)
             if kb is None:
                 bad_except(f"知识库不存在: {kb_id}")
             await session.commit()
             return kb.to_dict()
 
-    async def delete(self, kb_id: uuid.UUID) -> None:
+    async def delete(self, ctx: UserContext, kb_id: uuid.UUID) -> None:
         """
         带守卫的软删除：置 status='deleted'。知识库不存在 / 已删除抛出业务异常；
         库内仍存在有效文档或文件夹时拒绝删除（非空禁删，与文件夹删除守卫同模式），
@@ -187,8 +188,7 @@ class KnowledgeBaseService:
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.get(kb_id)
-            if kb is None or kb.status == "deleted":
-                bad_except(f"知识库不存在: {kb_id}")
+            await assert_kb_visible(kb, ctx, kb_id)
             if await DocumentRepository(session).has_by_kb(
                 kb_id
             ) or await FolderRepository(session).has_by_kb(kb_id):

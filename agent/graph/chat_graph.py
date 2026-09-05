@@ -388,12 +388,21 @@ class ChatGraph:
             # 导航保持结构化上下文：主题摘要/关键词不序列化进证据 query，
             # 避免置换用户的词汇/语义信号。
             args["navigation"] = list(navigation_context)
-        if (
-            name in ("entity_relation_lookup", "chunk_read")
-            and kb_ids
-            and not args.get("knowledge_base_ids")
-        ):
-            args["knowledge_base_ids"] = list(kb_ids)
+        if kb_ids:
+            if name in ("entity_relation_lookup", "chunk_read") and not args.get(
+                "knowledge_base_ids"
+            ):
+                args["knowledge_base_ids"] = list(kb_ids)
+        if name in ("knowledge_base_search", "kb_wiki_lookup"):
+            # 检索类工具强制以请求解析出的库范围快照覆盖模型入参（含空集），
+            # 防止幻觉/注入的 kb id 越权跨库检索。
+            args["knowledge_base_ids"] = list(kb_ids or [])
+        if args.get("top_k") is not None:
+            # 收敛模型可传入的 top_k，防止异常取值放大重排负载
+            try:
+                args["top_k"] = max(1, min(int(args["top_k"]), 20))
+            except (TypeError, ValueError):
+                args.pop("top_k", None)
         if writer is not None:
             writer(
                 {"type": "think", "text": f"正在检索知识库（第 {tool_rounds} 轮）..."}
@@ -504,7 +513,9 @@ class ChatGraph:
             if not getattr(response, "tool_calls", None):
                 break
             if tool_rounds >= CFG.rag_reflect_round_cap:
-                # 达到工具循环上限：切无工具模型强制收尾
+                # 达到工具循环上限：先把带未应答 tool_calls 的响应回填（部分
+                # 提供方对悬空 tool_calls 的续写请求会拒绝），再切无工具模型强制收尾
+                msgs.append(response)
                 msgs.append(
                     SystemMessage(
                         content="已达到检索轮数上限，请直接基于已有检索结果组织回答。"
@@ -553,10 +564,28 @@ class ChatGraph:
         removals = [RemoveMessage(id=msg_id) for msg_id in remove_ids]
         return {
             "messages": [response, *removals],
-            "answer": response.content,
+            "answer": self._answer_text(response),
             "sources": self._build_sources(all_docs),
             "metrics": metrics,
         }
+
+    @staticmethod
+    def _answer_text(response: AIMessage) -> str:
+        """答案文本归一化：content 恒为字符串。
+
+        推理/多模态系模型可能返回内容块列表（text 块 + reasoning 等非文本块），
+        仅拼接 text 块，避免 list 直落 state/SSE/持久层。
+        """
+        content = response.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        return str(content) if content else ""
 
     # ---------- 组装图 ----------
     def build(self, checkpointer):

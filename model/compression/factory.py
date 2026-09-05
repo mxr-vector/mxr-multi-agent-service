@@ -21,4 +21,8 @@ def build_compression_model(temperature: float = 0) -> ChatOpenAI:
         base_url=CFG.rewrite.api_url,
         api_key=CFG.rewrite.api_key,
         temperature=temperature,
+        # 反思/重写是检索链路内部调用，只取完整结果：显式禁流式，
+        # 保证 token 事件永不进入 langgraph messages 通道外泄进答案帧
+        # （此前仅靠 ainvoke 默认非流式这一隐式行为，配置漂移即漏）
+        disable_streaming=True,
     )

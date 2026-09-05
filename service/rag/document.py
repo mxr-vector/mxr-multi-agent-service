@@ -246,7 +246,7 @@ class DocumentService:
                 )
         await chunk_repo.bulk_insert(leaf_chunks)
 
-    async def vectorize(self, doc_id: uuid.UUID) -> dict:
+    async def vectorize(self, ctx: UserContext, doc_id: uuid.UUID) -> dict:
         """
         请求域触发向量化：校验文档/知识库/叶块后置 reindexing 并提交，立即返回；
         真正的 embed/写 Qdrant 由 vectorize_job 在后台任务中完成。
@@ -261,19 +261,17 @@ class DocumentService:
             if doc is None or doc.status == "deleted":
                 bad_except(f"文档不存在: {doc_id}")
 
-            # 并发拦截：已在同步中的文档拒绝重复触发（快速返回后的双提交窗口）
-            if doc.status == "reindexing":
-                bad_except("文档正在同步中，请稍后再试")
-
             kb = await kb_repo.get(doc.knowledge_base_id)
-            if kb is None or kb.status == "deleted":
-                bad_except(f"知识库不存在: {doc.knowledge_base_id}")
+            await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
 
             leaf_chunks = await chunk_repo.fetch_level0(doc.id, doc.version)
             if not leaf_chunks:
                 bad_except(f"文档没有可向量化的分块: {doc_id}")
 
-            await doc_repo.set_status(doc, "reindexing")
+            # 并发拦截：条件 UPDATE 原子判定 + 置 reindexing，
+            # 消除「读-判-写」窗口内的双触发竞态
+            if not await doc_repo.set_status_if_not_reindexing(doc.id, "reindexing"):
+                bad_except("文档正在同步中，请稍后再试")
             await session.commit()
             return doc.to_dict()
 
@@ -356,14 +354,46 @@ class DocumentService:
             except Exception as inner:
                 logger.error(f"[RAG] 回写 failed 状态失败: {doc_id}: {inner}")
 
-    async def statuses(self, ids: list[uuid.UUID]) -> list[dict]:
-        """批量查询文档状态，返回 [{id, status}, ...]，未知 id 缺席（供前端轮询）。"""
+    async def statuses(self, ctx: UserContext, ids: list[uuid.UUID]) -> list[dict]:
+        """
+        批量查询文档状态，返回 [{id, status}, ...]，供前端轮询。
+        未知 id 与落在不可见知识库下的文档一律缺席（与不存在同语义，不泄露存在性）。
+        """
+        flt = await resolve_dept_filter(ctx)
+        if flt.is_empty_boundary:
+            return []
         async with get_session() as session:
             repo = DocumentRepository(session)
             rows = await repo.fetch_status(ids)
-            return [
-                {"id": format_id(doc_id), "status": status} for doc_id, status in rows
-            ]
+            if not rows:
+                return []
+            kb_repo = KnowledgeBaseRepository(session)
+            kb_cache: dict[uuid.UUID, bool] = {}
+            items = []
+            for doc_id, kb_id, status in rows:
+                if status == "deleted":
+                    continue
+                visible = kb_cache.get(kb_id)
+                if visible is None:
+                    kb = await kb_repo.get(kb_id)
+                    visible = (
+                        kb is not None
+                        and kb.status != "deleted"
+                        and await self._kb_visible(kb, flt, ctx)
+                    )
+                    kb_cache[kb_id] = visible
+                if visible:
+                    items.append({"id": format_id(doc_id), "status": status})
+            return items
+
+    @staticmethod
+    async def _kb_visible(kb, flt, ctx: UserContext) -> bool:
+        """statuses 批量链路的非抛出版可见性判定，语义与 assert_kb_visible 一致。"""
+        if flt.owner is not None:
+            return kb.owner == ctx.username
+        if flt.dept_ids is None:
+            return True
+        return kb.dept_id in flt.dept_ids
 
     async def reset_stale_reindexing(self) -> None:
         """启动清扫：把重启前残留的 reindexing 文档置为 failed（后台作业已丢失）。"""
@@ -423,7 +453,7 @@ class DocumentService:
                 f"集合: {kb.qdrant_collection}）"
             )
 
-    async def update(self, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
+    async def update(self, ctx: UserContext, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
         仅元数据更新（title/folder_id/metadata/source_*/valid_*/last_verified_at/doc_type）；
         不触碰 content/content_hash/version/knowledge_base_id/status，不再切块/向量化。
@@ -431,21 +461,23 @@ class DocumentService:
         """
         async with get_session() as session:
             repo = DocumentRepository(session)
+            doc = await repo.get(doc_id)
+            if doc is None or doc.status == "deleted":
+                bad_except(f"文档不存在: {doc_id}")
+            kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id)
+            await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
             if changes.get("folder_id") is not None:
-                doc = await repo.get(doc_id)
-                if doc is None or doc.status == "deleted":
-                    bad_except(f"文档不存在: {doc_id}")
                 await self._require_folder_in_kb(
                     FolderRepository(session),
                     changes["folder_id"],
                     doc.knowledge_base_id,
                 )
-            doc = await repo.update_metadata(doc_id, changes)
-            if doc is None:
+            updated = await repo.update_metadata(doc_id, changes)
+            if updated is None:
                 bad_except(f"文档不存在: {doc_id}")
             await session.commit()
-            self._enqueue_wiki_dirty(doc.id, doc.knowledge_base_id)
-            return doc.to_dict()
+            self._enqueue_wiki_dirty(updated.id, updated.knowledge_base_id)
+            return updated.to_dict()
 
     async def list(
         self,
@@ -477,11 +509,13 @@ class DocumentService:
             )
             return build_page_result([doc.to_dict() for doc in docs], total, page, size)
 
-    async def get(self, doc_id: uuid.UUID) -> dict:
-        """按 id 获取文档，不存在时抛业务异常。"""
+    async def get(self, ctx: UserContext, doc_id: uuid.UUID) -> dict:
+        """按 id 获取文档（须落在可见知识库下），不存在时抛业务异常。"""
         async with get_session() as session:
             repo = DocumentRepository(session)
             doc = await repo.get(doc_id)
             if doc is None or doc.status == "deleted":
                 bad_except(f"文档不存在: {doc_id}")
+            kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id)
+            await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
             return doc.to_dict()

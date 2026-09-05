@@ -18,7 +18,7 @@ user_context.py - 请求级用户上下文与数据权限（data_scope）解析�
 import uuid
 from dataclasses import dataclass
 
-from fastapi import Request
+from fastapi import Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,6 +118,36 @@ async def get_user_context(request: Request) -> UserContext:
             data_scope=data_scope,
             is_machine=False,
         )
+
+
+# 管理端依赖要求用户持有的角色权限键（sys_role.role_key）
+_ADMIN_ROLE_KEY = "admin"
+
+
+async def require_admin(ctx: UserContext = Depends(get_user_context)) -> UserContext:
+    """
+    FastAPI 依赖：管理端接口守卫（/system 管理面等）。
+
+    - 机器通道（静态 API key）放行；
+    - 用户须持有 status='active' 且 role_key='admin' 的角色，否则业务失败拒绝。
+    """
+    if ctx.is_machine:
+        return ctx
+    async with get_session() as session:
+        stmt = (
+            select(Role.id)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(
+                UserRole.user_id == uuid.UUID(ctx.user_id),
+                Role.status == "active",
+                Role.role_key == _ADMIN_ROLE_KEY,
+            )
+            .limit(1)
+        )
+        row = (await session.execute(stmt)).first()
+    if row is None:
+        bad_except("无管理员权限，禁止访问管理接口")
+    return ctx
 
 
 async def resolve_dept_filter(

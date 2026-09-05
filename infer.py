@@ -71,8 +71,8 @@ def create_app() -> FastAPI:
     :return: FastAPI 对象
     :rtype: FastAPI
     """
-    # 配置允许跨域的域名
-    origins = ["*"]
+    # 配置允许跨域的域名（CORS_ORIGINS 逗号分隔，缺省 '*'；通配时禁用 Cookie 凭证）
+    origins = ENV.cors_origins
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     # 挂载静态文件
@@ -90,7 +90,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,  # 允许的域名列表
-        allow_credentials=True,  # 是否允许发送 Cookie
+        allow_credentials="*" not in origins,  # 通配来源时不允许携带 Cookie
         allow_methods=["*"],  # 允许的请求方法，* 表示全部
         allow_headers=["*"],  # 允许的请求头
     )

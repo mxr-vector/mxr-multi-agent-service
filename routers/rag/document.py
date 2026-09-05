@@ -9,7 +9,11 @@ from pydantic import BaseModel
 from exception.bad_except import bad_except
 from service.rag.document import DocumentService
 from utils.env import ENV
-from utils.file_ingest import CHUNK_STRATEGIES, DEFAULT_CHUNK_STRATEGY
+from utils.file_ingest import (
+    CHUNK_STRATEGIES,
+    DEFAULT_CHUNK_STRATEGY,
+    read_upload_capped,
+)
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
 
@@ -77,11 +81,8 @@ async def upload_document(
     # 策略取值在入口即校验，非法值不进入文件读取/解析流程
     if chunk_strategy not in CHUNK_STRATEGIES:
         bad_except(f"不支持的分块策略: {chunk_strategy}（可选 auto/char/structure）")
-    data = await file.read()
-    # 以实际读到的字节数校验（Content-Length 可伪造），超限在解析前即拒绝
-    max_bytes = ENV.upload_max_size_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        bad_except(f"文件超过大小上限（{ENV.upload_max_size_mb}MB）: {file.filename}")
+    # 分块读取并即时校验（Content-Length 可伪造），超限在载入全量内存前即拒绝
+    data = await read_upload_capped(file, ENV.upload_max_size_mb * 1024 * 1024)
     metadata = {"remark": remark} if remark else None
     doc = await _service.upload(
         ctx,
@@ -105,6 +106,7 @@ async def upload_document(
 @router.get("/status")
 async def batch_document_status(
     ids: str = Query(..., description="逗号分隔的文档 id 列表，上限 200"),
+    ctx: UserContext = Depends(get_user_context),
 ):
     """批量查询文档向量化状态，返回 [{id, status}, ...]，供前端轮询。"""
     raw = [part.strip() for part in ids.split(",") if part.strip()]
@@ -114,14 +116,17 @@ async def batch_document_status(
         parsed = [uuid.UUID(part) for part in raw]
     except ValueError:
         return R.fail(msg="ids 包含非法的 UUID")
-    items = await _service.statuses(parsed)
+    items = await _service.statuses(ctx, parsed)
     return R.success(data=items)
 
 
 @router.post("/{doc_id}/vectorize")
-async def vectorize_document(doc_id: uuid.UUID = Path(...)):
+async def vectorize_document(
+    doc_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
     """异步触发向量化：置 reindexing 后立即返回，embed/写 Qdrant 在后台任务中完成。"""
-    doc = await _service.vectorize(doc_id)
+    doc = await _service.vectorize(ctx, doc_id)
     # 仅在触发校验通过后才排入后台作业，被拒绝的触发不会入队；
     # 用 create_task 而非 BackgroundTasks：作业与响应生命周期完全解耦，
     # 确保响应先刷给客户端，不受中间件链路的响应体中继影响
@@ -151,9 +156,12 @@ async def list_documents(
 
 
 @router.get("/{doc_id}")
-async def get_document(doc_id: uuid.UUID = Path(...)):
+async def get_document(
+    doc_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
     """按 id 获取文档。"""
-    doc = await _service.get(doc_id)
+    doc = await _service.get(ctx, doc_id)
     return R.success(data=doc)
 
 
@@ -161,10 +169,11 @@ async def get_document(doc_id: uuid.UUID = Path(...)):
 async def update_document(
     doc_id: uuid.UUID = Path(...),
     payload: DocumentUpdate = Body(...),
+    ctx: UserContext = Depends(get_user_context),
 ):
     """仅元数据更新；不触碰内容/哈希/版本/归属/状态，不再切块或向量化。"""
     changes = payload.model_dump(exclude_unset=True)
-    doc = await _service.update(doc_id, changes)
+    doc = await _service.update(ctx, doc_id, changes)
     return R.success(data=doc)
 
 

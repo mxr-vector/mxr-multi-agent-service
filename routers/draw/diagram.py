@@ -26,6 +26,7 @@ from utils.env import ENV
 from utils.page import build_page_result
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
+from utils.file_ingest import read_upload_capped
 
 # 创建路由
 router = APIRouter(prefix="/draw", tags=["OpenAPI - AI 绘图"])
@@ -107,11 +108,8 @@ async def upload_image(
         bad_except(
             f"不支持的图片类型: {file.filename or '(无扩展名)'}（仅 png/jpg/jpeg/webp）"
         )
-    data = await file.read()
-    # 以实际读到的字节数校验（Content-Length 可伪造）
-    max_bytes = ENV.upload_max_size_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        bad_except(f"图片超过大小上限（{ENV.upload_max_size_mb}MB）")
+    # 分块读取并即时校验（Content-Length 可伪造），超限在载入全量内存前即拒绝
+    data = await read_upload_capped(file, ENV.upload_max_size_mb * 1024 * 1024)
 
     relative = f"{_IMAGE_SUBDIR}/{uuid7().hex}.{ext}"
     target = ENV.upload_dir / relative

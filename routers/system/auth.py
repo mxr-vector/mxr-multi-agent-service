@@ -18,6 +18,7 @@ from exception.bad_except import bad_except
 from service.system.auth import AuthService
 from utils.env import ENV
 from utils.response import R
+from utils.file_ingest import read_upload_capped
 
 # 创建路由（登录在 /public 下、其余在 /auth 下，故不设统一 prefix）
 router = APIRouter(tags=["OpenAPI - 认证"])
@@ -119,10 +120,8 @@ async def upload_avatar(
             f"不支持的图片类型: {filename or '(无扩展名)'}"
             "（可选 png/jpg/jpeg/gif/webp）"
         )
-    data = await file.read()
-    # 以实际读到的字节数校验（Content-Length 可伪造）
-    if len(data) > _AVATAR_MAX_BYTES:
-        bad_except("头像图片超过大小上限（2MB）")
+    # 分块读取并即时校验（Content-Length 可伪造），超限在载入全量内存前即拒绝
+    data = await read_upload_capped(file, _AVATAR_MAX_BYTES)
 
     # 以 user_id 为文件名幂等覆盖；先清理同名异后缀历史头像，避免残留孤儿文件
     avatar_dir = ENV.upload_dir / "avatar"

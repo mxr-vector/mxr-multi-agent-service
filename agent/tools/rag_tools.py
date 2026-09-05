@@ -554,8 +554,7 @@ async def entity_relation_lookup_impl(
     关系表缺失/实体无记录时返回空结果提示，不报错不阻断。
     """
     from sqlalchemy import text as sql
-    from core.source.postgres import PostgresConfig
-    from sqlalchemy.ext.asyncio import create_async_engine
+    from database.postgre_client import get_async_engine
 
     top_n = max(1, min(top_k or 8, 20))
     entity_norm = (entity or "").strip().casefold()
@@ -571,7 +570,8 @@ async def entity_relation_lookup_impl(
             continue
     rows: list = []
     if kb_uuids:
-        engine = create_async_engine(PostgresConfig.from_env().async_connection)
+        # 复用进程级共享引擎（连接池），避免每次工具调用重建引擎/dispose 的开销
+        engine = get_async_engine()
         try:
             async with engine.connect() as conn:
                 rows = (
@@ -588,8 +588,6 @@ async def entity_relation_lookup_impl(
         except Exception as exc:  # 表缺失/连接异常：静默降级为空结果（调用方继续对话）
             logger.warning(f"[RAG-TOOL] 关系索引查询降级: {exc}")
             rows = []
-        finally:
-            await engine.dispose()
     # 按（对端实体, 关系）聚合：频次 + 首条事实句 + 来源指针（id 统一无连字符 hex，
     # 与 chunk_read 入参约定一致）
     agg: dict[tuple, dict] = {}
@@ -649,8 +647,7 @@ async def chunk_read_impl(
     提供 knowledge_base_ids 时按库作用域过滤（防跨库读取）。
     """
     from sqlalchemy import text as sql
-    from core.source.postgres import PostgresConfig
-    from sqlalchemy.ext.asyncio import create_async_engine
+    from database.postgre_client import get_async_engine
 
     per_chars = max(200, min(max_chars or 4000, 8000))
     clean = [str(i).strip() for i in (ids or []) if str(i).strip()][:5]
@@ -682,7 +679,8 @@ async def chunk_read_impl(
         if kb_uuids
         else ""
     )
-    engine = create_async_engine(PostgresConfig.from_env().async_connection)
+    # 复用进程级共享引擎（连接池），避免每次工具调用重建引擎/dispose 的开销
+    engine = get_async_engine()
     found: dict[str, dict] = {}
     try:
         async with engine.connect() as conn:
@@ -727,8 +725,6 @@ async def chunk_read_impl(
                     }
     except Exception as exc:
         logger.warning(f"[RAG-TOOL] 块读取降级: {exc}")
-    finally:
-        await engine.dispose()
     lines = []
     docs_out: List[dict] = []
     for item in clean:

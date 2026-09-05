@@ -1,14 +1,18 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Path, Query
+from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
 from service.system.dept import DeptService
 from utils.response import R
+from utils.user_context import require_admin
 
 # 创建路由
-router = APIRouter(prefix="/system/depts", tags=["OpenAPI - 系统部门管理"])
+router = APIRouter(
+    prefix="/system/depts", tags=["OpenAPI - 系统部门管理"],
+    dependencies=[Depends(require_admin)],
+)
 
 _service = DeptService()
 

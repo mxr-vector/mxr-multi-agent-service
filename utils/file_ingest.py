@@ -554,3 +554,21 @@ def ingest_file(
         "effective_strategy": effective_strategy,
         "parents": parents,
     }
+
+
+async def read_upload_capped(file, max_bytes: int) -> bytes:
+    """
+    分块读取上传文件并施加大小上限：最多读入 max_bytes 字节，
+    超限即抛业务异常，避免先全量载入内存再校验被超大请求体打爆内存。
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            bad_except(f"文件超过大小上限（{max_bytes // (1024 * 1024)}MB）: {file.filename}")
+        chunks.append(chunk)
+    return b"".join(chunks)
