@@ -29,7 +29,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from exception.bad_except import BadException, bad_except
 from model.embeddings.factory import EmbeddingFactory
-from model.embeddings.similarity_utils import SimilarityUtils
 from utils.logger import logger
 
 # 两级切分窗口：level 1 父块给回写上下文，level 0 叶块作检索单元
@@ -286,12 +285,12 @@ def _semantic_parent_texts(full_text: str) -> list[str]:
 
     client = EmbeddingFactory.get_client()
     embeddings = client.embed_documents([s for s, _ in sentences])
-    similarities = [
-        SimilarityUtils.cosine_similarity(
-            np.asarray(embeddings[i]), np.asarray(embeddings[i + 1])
-        )
-        for i in range(len(sentences) - 1)
-    ]
+    # 矩阵化一次算全部相邻句相似度（逐对 np.asarray + norm 在数千句时纯 CPU 浪费）
+    matrix = np.asarray(embeddings)
+    norms = np.linalg.norm(matrix, axis=1)
+    norms[norms == 0] = 1e-12  # 防零向量除零（与 SimilarityUtils 归零语义等价）
+    dot_products = np.sum(matrix[:-1] * matrix[1:], axis=1)
+    similarities = (dot_products / (norms[:-1] * norms[1:])).tolist()
 
     groups: list[list[tuple[str, int]]] = []
     current: list[tuple[str, int]] = []

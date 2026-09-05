@@ -19,9 +19,17 @@ def get_async_engine() -> AsyncEngine:
     进程内固定不变，引擎内部维护连接池可复用，因此用 lru_cache 缓存单例，
     避免重复建连与重复读取配置（对齐 get_qdrant_client 的单例约定）。
     业务代码统一通过 session 工厂获取会话，勿直接实例化引擎。
+    池参数：默认 pool_size=5/max_overflow=10 对高并发问答偏紧，放大一档；
+    pre_ping + recycle 兜底被防火墙/PG 掐掉的空闲连接，避免偶发首查报错重连。
     """
     config = PostgresConfig.from_env()
-    return create_async_engine(config.async_connection)
+    return create_async_engine(
+        config.async_connection,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
 
 
 @lru_cache(maxsize=1)

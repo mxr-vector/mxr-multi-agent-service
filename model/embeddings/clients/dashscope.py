@@ -25,11 +25,19 @@ class DashScopeEmbeddingClient(BaseEmbeddingClient):
         self._client = dashscope
         self._dimension = _DEFAULT_DIMENSION
 
+    # 单次请求批量上限：DashScope TextEmbedding 单请求限制 25 条文本，
+    # 大文档整批直传会被上游拒单，按批切分后按 text_index 还原顺序
+    _MAX_BATCH_SIZE = 25
+
     def embed_documents(self, docs: Union[str, List[str]]) -> List[List[float]]:
         if isinstance(docs, str):
             docs = [docs]
-        output = self._call_text_embedding(docs, text_type="document")
-        return self._to_vectors(output)
+        vectors: List[List[float]] = []
+        for start in range(0, len(docs), self._MAX_BATCH_SIZE):
+            batch = docs[start : start + self._MAX_BATCH_SIZE]
+            output = self._call_text_embedding(batch, text_type="document")
+            vectors.extend(self._to_vectors(output))
+        return vectors
 
     def embed_query(self, query: str) -> List[float]:
         output = self._call_text_embedding([query], text_type="query")

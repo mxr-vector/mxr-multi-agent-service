@@ -32,8 +32,12 @@ from core.config_snapshot import CFG
 from utils.id import normalize_point_id
 from utils.logger import logger
 
-# 跨集合扇出检索的最大并发数（查询向量已预生成，单任务仅一次 Qdrant IO）
+# 跨集合扇出检索的最大并发数（查询向量已预生成，单任务仅一次 Qdrant IO）。
+# 进程级常驻线程池：避免每请求新建/销毁线程池的固定开销
 _FANOUT_MAX_WORKERS = 8
+_FANOUT_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_FANOUT_MAX_WORKERS, thread_name_prefix="rag-fanout"
+)
 
 
 def web_search_retrieve(query: str, pool_size: Optional[int] = None) -> List[dict]:
@@ -102,18 +106,9 @@ def hybrid_retrieve_multi(
         logger.info("[RAG] 可检索知识库为空，返回空候选")
         return []
     limit = pool_size if pool_size is not None else CFG.rag_candidate_pool_size
-    if len(kb_ids) == 1:
-        # 单库同样走 _retrieve_one 的失败降级包装：单库检索失败仅告警返回空，
-        # 与多库路径及上方"单库失败不中断整体检索"的语义保持一致
-        return _retrieve_one_single(kb_ids[0], limit)
 
-    # 预生成查询向量，避免扇出时每库重复调用 embedding / BM25 编码
-    from model.embeddings.factory import get_embedding_client
-    from model.sparse.bm25 import embed_query as sparse_embed_query
-
-    dense_vector = get_embedding_client().embed_query(query)
-    sparse_vector = sparse_embed_query(query)
-
+    # 嵌套函数必须先于下方调用点定义：原实现在 if 分支之后才 def，
+    # 单库路径执行到调用点时抛 UnboundLocalError，导致单库检索静默失败
     def _retrieve_one(kb_id: uuid.UUID) -> List[dict]:
         try:
             return hybrid_retrieve(
@@ -134,9 +129,19 @@ def hybrid_retrieve_multi(
             logger.warning(f"[RAG] 知识库 {kb_id.hex} 检索失败，返回空候选: {exc}")
             return []
 
-    workers = min(_FANOUT_MAX_WORKERS, len(kb_ids))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(_retrieve_one, kb_ids))
+    if len(kb_ids) == 1:
+        # 单库同样走 _retrieve_one_single 的失败降级包装：单库检索失败仅告警返回空，
+        # 与多库路径及上方"单库失败不中断整体检索"的语义保持一致
+        return _retrieve_one_single(kb_ids[0], limit)
+
+    # 预生成查询向量，避免扇出时每库重复调用 embedding / BM25 编码
+    from model.embeddings.factory import get_embedding_client
+    from model.sparse.bm25 import embed_query as sparse_embed_query
+
+    dense_vector = get_embedding_client().embed_query(query)
+    sparse_vector = sparse_embed_query(query)
+
+    results = list(_FANOUT_EXECUTOR.map(_retrieve_one, kb_ids))
 
     merged = [candidate for batch in results for candidate in batch]
     merged.sort(key=lambda candidate: candidate["score"] or 0, reverse=True)

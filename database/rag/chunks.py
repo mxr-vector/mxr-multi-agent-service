@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from entity.rag.chunks import Chunk
@@ -100,10 +100,14 @@ class ChunkRepository:
         )
         await self.session.execute(stmt)
 
-    async def fetch_level0_all(self, document_id: uuid.UUID) -> list[Chunk]:
-        """取某文档全部版本的 level 0 叶块（供删除文档时收集 Qdrant point id）。"""
+    async def fetch_level0_ids(self, document_id: uuid.UUID) -> list[uuid.UUID]:
+        """取某文档全部版本 level 0 叶块的 id（供删除文档时收集 Qdrant point id）。
+
+        只取 id 列不拉 content 全文：大文档数千叶块时避免把数 MB 文本
+        载入内存反序列化为实体，仅为收集 point id。
+        """
         stmt = (
-            select(Chunk)
+            select(Chunk.id)
             .where(Chunk.document_id == document_id)
             .where(Chunk.level == 0)
         )
@@ -116,9 +120,19 @@ class ChunkRepository:
         await self.session.execute(stmt)
 
     async def count_level0(self, document_id: uuid.UUID, document_version: int) -> int:
-        """统计某文档指定版本的 level 0 叶块数量（用于计数同步）。"""
-        chunks = await self.fetch_level0(document_id, document_version)
-        return len(chunks)
+        """统计某文档指定版本的 level 0 叶块数量（用于计数同步）。
+
+        服务端 COUNT 聚合而非拉全行取 len：避免为计数把含 content 全文的
+        数千叶块从 PG 传回应用内存。
+        """
+        stmt = (
+            select(func.count())
+            .select_from(Chunk)
+            .where(Chunk.document_id == document_id)
+            .where(Chunk.document_version == document_version)
+            .where(Chunk.level == 0)
+        )
+        return int(await self.session.scalar(stmt))
 
     @staticmethod
     def build_chunk(

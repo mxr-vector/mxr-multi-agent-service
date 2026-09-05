@@ -81,6 +81,18 @@ class ConfigRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_keys(self, keys: tuple[str, ...] | list[str]) -> dict[str, Config]:
+        """按 key 批量精确查询，返回 {key: Config}（缺失的 key 不在结果中）。
+
+        供配置快照等一次性取回多个标量参数的场景：单条 IN 查询替代逐 key
+        串行往返。
+        """
+        if not keys:
+            return {}
+        stmt = select(Config).where(Config.key.in_(keys))
+        result = await self.session.execute(stmt)
+        return {row.key: row for row in result.scalars().all()}
+
     async def update(
         self,
         config_id: uuid.UUID,

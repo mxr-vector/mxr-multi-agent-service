@@ -526,12 +526,12 @@ class DocumentService:
             # 计数只回冲当前版本叶块数（与 upload 的增量口径对称），
             # 而 Qdrant 清理覆盖全部版本，兼顾未被 vectorize 清掉的旧版本点
             current_leaf_count = await chunk_repo.count_level0(doc.id, doc.version)
-            all_leaves = await chunk_repo.fetch_level0_all(doc.id)
-            if all_leaves:
+            leaf_ids = await chunk_repo.fetch_level0_ids(doc.id)
+            if leaf_ids:
                 manager = QdrantManager(kb.qdrant_collection)
                 # 同步阻塞调用，丢进线程池避免卡死事件循环（与 vectorize_job 同模式）
                 await asyncio.to_thread(
-                    manager.delete_points, [format_id(c.id) for c in all_leaves]
+                    manager.delete_points, [format_id(i) for i in leaf_ids]
                 )
 
             await chunk_repo.delete_by_document(doc.id)
@@ -542,7 +542,7 @@ class DocumentService:
             await session.commit()
             self._enqueue_wiki_dirty(doc.id, doc.knowledge_base_id)
             logger.info(
-                f"[RAG] 已删除文档 {doc_id}（清理 {len(all_leaves)} 个向量点，"
+                f"[RAG] 已删除文档 {doc_id}（清理 {len(leaf_ids)} 个向量点，"
                 f"集合: {kb.qdrant_collection}）"
             )
 

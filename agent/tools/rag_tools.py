@@ -176,12 +176,12 @@ async def _load_entity_bundles(kb_ids: List[uuid.UUID]) -> list:
     try:
         from entity_index.store import load_entity_bundle
 
-        bundles = []
-        for kb_id in kb_ids:
-            bundle = await load_entity_bundle(kb_id)
-            if bundle is not None:
-                bundles.append(bundle)
-        return bundles
+        # 各库加载相互独立且底层已做 per-KB 锁：并发加载，避免多库扇出时
+        # 2N 条全量查询串行往返（缓存命中时 gather 开销可忽略）
+        bundles = await asyncio.gather(
+            *(load_entity_bundle(kb_id) for kb_id in kb_ids)
+        )
+        return [bundle for bundle in bundles if bundle is not None]
     except Exception as exc:
         logger.warning(f"[RAG-TOOL] 实体索引加载失败，静默降级: {exc}")
         return []
@@ -212,10 +212,16 @@ async def _run_multihop(
     max_hops = max(1, CFG.rag_max_hops)
     merge_pool_size = max(top_n, CFG.rag_multihop_merge_pool)
 
-    # Hop 0：原问题安全底座（失败即整体降级为空，由调用方兼容处理）
-    hop0_pool_ids, hop0_docs = await _retrieve_hop(
-        evidence_query, kb_ids, CFG.rag_candidate_pool_size, merge_pool_size
+    # Hop 0：原问题安全底座（失败即整体降级为空，由调用方兼容处理）。
+    # 实体索引加载与其相互独立，并发执行（_load_entity_bundles 内部吞异常，
+    # hop0 失败时的语义不变）
+    hop0_result, entity_bundles = await asyncio.gather(
+        _retrieve_hop(
+            evidence_query, kb_ids, CFG.rag_candidate_pool_size, merge_pool_size
+        ),
+        _load_entity_bundles(kb_ids),
     )
+    hop0_pool_ids, hop0_docs = hop0_result
     hop_results: List[HopResult] = [
         HopResult(hop=0, query=evidence_query, docs=hop0_docs)
     ]
@@ -240,9 +246,24 @@ async def _run_multihop(
     ]
     if max_hops > 1:
         queries = build_hop_queries(evidence_query, hop0_docs, effective_pages)
+        # 各跳查询仅由 hop0 结果确定性构建、彼此独立：并发执行
+        # （每跳各自含 embedding + Qdrant + rerank 的网络往返，串行时延迟直接相加）
+        hop_tasks: list[tuple[int, object, object]] = []
         for index, hop_query in enumerate(queries, start=1):
             if index > max_hops - 1:
                 break
+            hop_tasks.append(
+                (
+                    index,
+                    hop_query,
+                    _retrieve_hop(hop_query.query, kb_ids, hop_pool_size, merge_pool_size),
+                )
+            )
+        # return_exceptions=True：单跳失败降级记录，不阻断其余跳与 hop0 候选
+        outcomes = await asyncio.gather(
+            *(task for _, _, task in hop_tasks), return_exceptions=True
+        )
+        for (index, hop_query, _), outcome in zip(hop_tasks, outcomes):
             hop_queries.append(
                 {
                     "hop": index,
@@ -252,15 +273,7 @@ async def _run_multihop(
                     "member_hint": hop_query.member_hint,
                 }
             )
-            try:
-                pool_ids, docs = await _retrieve_hop(
-                    hop_query.query, kb_ids, hop_pool_size, merge_pool_size
-                )
-                hop_pools[index] = pool_ids
-                hop_results.append(
-                    HopResult(hop=index, query=hop_query.query, docs=docs)
-                )
-            except Exception as exc:
+            if isinstance(outcome, BaseException):
                 # 后续跳异常不阻断：保留已完成跳的候选并记录降级
                 degraded = True
                 hop_results.append(
@@ -269,10 +282,16 @@ async def _run_multihop(
                         query=hop_query.query,
                         docs=[],
                         ok=False,
-                        error=f"{type(exc).__name__}: {exc}"[:200],
+                        error=f"{type(outcome).__name__}: {outcome}"[:200],
                     )
                 )
-                logger.warning(f"[RAG-TOOL] 多跳第 {index} 跳失败降级: {exc}")
+                logger.warning(f"[RAG-TOOL] 多跳第 {index} 跳失败降级: {outcome}")
+                continue
+            pool_ids, docs = outcome
+            hop_pools[index] = pool_ids
+            hop_results.append(
+                HopResult(hop=index, query=hop_query.query, docs=docs)
+            )
 
     pool, merge_meta = collect_hop_pool(hop_results, merge_pool_size)
     # 终排：合并池对原问题统一重排（各跳 rerank 分数跨跳不可比，

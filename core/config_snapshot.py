@@ -202,8 +202,9 @@ async def _build_snapshot() -> ConfigSnapshot:
     errors: list[str] = []
     async with get_session() as session:
         model_rows = await ModelConfigRepository(session).list()
-        config_repo = ConfigRepository(session)
-        scalar_raw = {key: (await config_repo.get_by_key(key)) for key in SCALAR_KEYS}
+        # 一次 IN 查询取回全部标量参数（逐 key 串行查询在刷新临界区内的
+        # 11+ 次往返会拉长配置写接口响应）
+        scalar_raw = await ConfigRepository(session).get_by_keys(SCALAR_KEYS)
     # 字典数据经 DictDataService 查询（service 内部自管会话）
     model_roles = await _load_model_roles()
 
@@ -213,11 +214,11 @@ async def _build_snapshot() -> ConfigSnapshot:
     }
     scalars = {
         key: _coerce_positive_int(
-            key, scalar_raw[key].value if scalar_raw[key] else None, errors
+            key, scalar_raw[key].value if key in scalar_raw else None, errors
         )
         for key in INT_SCALAR_KEYS
     }
-    drawio_row = scalar_raw[DRAWIO_EMBED_URL_KEY]
+    drawio_row = scalar_raw.get(DRAWIO_EMBED_URL_KEY)
     drawio_embed_url = _coerce_http_url(
         DRAWIO_EMBED_URL_KEY, drawio_row.value if drawio_row else None, errors
     )

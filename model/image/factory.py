@@ -18,6 +18,8 @@ output_compression 固定 80（上游默认通常为 100 即几乎不压缩；st
 关键帧与角色立绘，体积敏感，80 在肉眼几乎无损的前提下明显省体积）。
 """
 
+from functools import cache
+
 from openai import OpenAI
 
 from core.config_snapshot import CFG
@@ -32,14 +34,27 @@ OUTPUT_FORMAT = "webp"
 OUTPUT_COMPRESSION = 80
 
 
+@cache
+def _build_image_client(
+    api_url: str, api_key: str, timeout: int | None, max_retries: int | None
+) -> OpenAI:
+    """按配置指纹构造 OpenAI client 单例（指纹相同即复用，跨请求 keep-alive）。"""
+    return OpenAI(
+        base_url=api_url,
+        api_key=api_key,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+
+
 def build_image_client() -> OpenAI:
     """按配置快照构造指向图像生成端点的 OpenAI client。
 
     端点/凭证由 image 角色自身配置；timeout 为 NULL 时透传 None（回落 SDK
     默认 600s）——图像生成耗时普遍长于对话，不套用 chat 的 60s 缺省。
     """
-    return OpenAI(
-        base_url=CFG.image.api_url,
+    return _build_image_client(
+        api_url=CFG.image.api_url,
         api_key=CFG.image.api_key,
         timeout=CFG.image.timeout,
         max_retries=CFG.image.max_retries,

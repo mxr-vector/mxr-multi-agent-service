@@ -42,12 +42,14 @@ LOG_FORMAT = (
     "{extra[request_id]} | "
     "{message}"
 )
-# 控制台
+# 控制台（enqueue=True：异步队列写 stdout，避免容器下 stdout 管道被采集端
+# 拖慢时同步写日志阻塞事件循环、拖累全部请求；与下方文件 handler 口径一致）
 logger.add(
     sys.stdout,
     format=LOG_FORMAT,
     level="INFO",
     filter=inject_request_id,
+    enqueue=True,
 )
 
 # 所有日志

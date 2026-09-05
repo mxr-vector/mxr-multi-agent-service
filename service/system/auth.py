@@ -5,6 +5,7 @@
 status='disabled' 的用户拒绝登录并明确提示。均走 bad_except 统一失败响应。
 """
 
+import asyncio
 import uuid
 
 from database.postgre_client import get_session
@@ -28,7 +29,12 @@ class AuthService:
         """
         async with get_session() as session:
             user = await UserRepository(session).get_by_username(username)
-            if user is None or not verify_password(password, user.password):
+            # bcrypt（cost 12）单次数百毫秒纯 CPU，丢线程池执行避免并发登录时
+            # 串行阻塞事件循环（期间所有请求含 SSE 流均被卡住）
+            password_ok = user is not None and await asyncio.to_thread(
+                verify_password, password, user.password
+            )
+            if not password_ok:
                 bad_except(_LOGIN_FAILED_MSG)
             if user.status == "disabled":
                 bad_except("账号已停用，请联系管理员")
@@ -82,10 +88,10 @@ class AuthService:
             user = await repo.get(user_id)
             if user is None:
                 bad_except("用户不存在或已被删除")
-            if not verify_password(old_password, user.password):
+            if not await asyncio.to_thread(verify_password, old_password, user.password):
                 bad_except("原密码错误")
             try:
-                hashed = hash_password(new_password)
+                hashed = await asyncio.to_thread(hash_password, new_password)
             except ValueError as e:
                 bad_except(str(e))
             await repo.update_password(user_id, hashed)

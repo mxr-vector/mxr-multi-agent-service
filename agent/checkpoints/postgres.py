@@ -71,7 +71,9 @@ async def open_checkpointer() -> AsyncPostgresSaver:
     _pool = AsyncConnectionPool(
         conninfo=config.psycopg_async_connection,
         min_size=1,
-        max_size=4,
+        # 每轮问答约 2 次 checkpoint 写：max_size=4 时并发问答数超过 4 即在
+        # 池上排队，叠加到 SSE 首 token/收尾延迟（池惰性建连，放大不浪费）
+        max_size=8,
         open=False,
         kwargs={
             "autocommit": True,

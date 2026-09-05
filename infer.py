@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 
+import asyncio
+
 from fastapi import FastAPI
 from exception.gobal_exception import register_exception
 from core.auto_import import load_routers
@@ -31,31 +33,41 @@ async def lifespan(app: FastAPI):
     # 配置快照加载（fail-fast）：模型配置与运行参数的运行期事实源，
     # 必须先于图节点/工厂的首次使用；缺配置或校验失败即抛异常拒绝启动
     await CFG.load()
-    # 启动清扫：重启丢失所有在途后台作业，残留 reindexing 文档统一置为 failed
-    await DocumentService().reset_stale_reindexing()
-    # 问答持久化装配：打开 psycopg 池 + AsyncPostgresSaver.setup（checkpoint 表自建）
-    await open_checkpointer()
-    # 问答/绘图启动清扫：残留 generating 消息统一置为 failed（崩溃恢复路径）；
-    # 会话域表可能尚未在存量库建齐，清扫失败仅告警不阻断服务启动（与 story 同模式）
-    try:
-        await reset_stale_generating()
-    except Exception as exc:
-        logger.warning(f"[CHAT] 启动清扫失败，已跳过（表建齐后重启恢复）: {exc}")
-    try:
-        await reset_stale_draw_generating()
-    except Exception as exc:
-        logger.warning(f"[DRAW] 启动清扫失败，已跳过（表建齐后重启恢复）: {exc}")
-    # 剧本启动清扫：残留 generating 生成消息与残留在途任务置为 failed
-    # （会话域表可能尚未在存量库建齐，清扫失败仅告警不阻断服务启动）
-    try:
-        await reset_stale_story_generating()
-    except Exception as exc:
-        logger.warning(
-            f"[STORY] 启动清扫失败，已跳过（确认已执行 story_alter_ai_workspace.sql 后重启恢复）: {exc}"
-        )
-    # SSE 事件名与字典同步：读取 sse_event 字典构建发帧缓存，缺失枚举项幂等补录
-    # （失败仅告警，发帧回落枚举默认值，不阻断启动）
-    await sync_sse_event_dict()
+    # 启动清扫 + 持久化装配：以下任务相互独立，并发执行缩短冷启动
+    # （checkpointer open 最多等 30s，串行时冷启动时间为各项之和）。
+    # 失败语义逐项保留：reset_stale_reindexing 失败仍 fail-fast 拒绝启动，
+    # 会话域清扫/SSE 字典同步失败仅告警不阻断（与原实现一致）
+    async def _guarded(name: str, coro) -> None:
+        try:
+            await coro
+        except Exception as exc:
+            logger.warning(f"{name} 启动清扫失败，已跳过: {exc}")
+
+    startup = await asyncio.gather(
+        DocumentService().reset_stale_reindexing(),
+        open_checkpointer(),
+        _guarded(
+            "[CHAT]",
+            reset_stale_generating(),
+        ),
+        _guarded(
+            "[DRAW]",
+            reset_stale_draw_generating(),
+        ),
+        _guarded(
+            "[STORY]（确认已执行 story_alter_ai_workspace.sql 后重启恢复）",
+            reset_stale_story_generating(),
+        ),
+        _guarded(
+            "[SSE]",
+            sync_sse_event_dict(),
+        ),
+        return_exceptions=True,
+    )
+    # fail-fast 语义保留：reindexing 清扫与 checkpointer 装配任一失败即拒绝启动
+    for required in (startup[0], startup[1]):
+        if isinstance(required, BaseException):
+            raise required
     # checkpoint TTL：启动执行一次 + 每日循环后台任务（不动业务表）
     ttl_startup_failed = False
     try:
