@@ -18,8 +18,10 @@ from sqlalchemy import text
 # 原值 2 会在多库间来回切换时反复淘汰、缓存抖动失效；索引重建时仍主动失效
 _BUNDLE_LRU_MAX = 16
 _bundles: "OrderedDict[str, EntityBundle]" = OrderedDict()
-# 并发首查同一 KB 时的装载互斥锁
-_load_lock = asyncio.Lock()
+# 按 KB 维度的装载互斥锁：同一 KB 并发首查只构建一次，
+# 不同 KB 的加载互不阻塞（全局单锁会把跨库扇出完全串行化）
+_load_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
+_LOAD_LOCK_MAX = 64
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,19 @@ def invalidate_entity_bundle(kb_id: str | None = None) -> None:
     _bundles.pop(key, None)
 
 
+def _load_lock_for(key: str) -> asyncio.Lock:
+    """取（惰性创建）该 KB 的装载锁；少量淘汰防止锁表无界增长。"""
+    lock = _load_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _load_locks[key] = lock
+        while len(_load_locks) > _LOAD_LOCK_MAX:
+            _load_locks.popitem(last=False)
+    else:
+        _load_locks.move_to_end(key)
+    return lock
+
+
 async def load_entity_bundle(kb_id: uuid.UUID | str) -> EntityBundle | None:
     """Load (and cache) the entity index bundle for one KB.
 
@@ -64,7 +79,7 @@ async def load_entity_bundle(kb_id: uuid.UUID | str) -> EntityBundle | None:
     # 进程级共享引擎（连接池），避免每次加载重建引擎/dispose 的开销
     engine = get_async_engine()
     # 同一 KB 并发首查只构建一次（消除 check-then-set 竞态下的重复建载）
-    async with _load_lock:
+    async with _load_lock_for(key):
         cached = _bundles.get(key)
         if cached is not None:
             _bundles.move_to_end(key)

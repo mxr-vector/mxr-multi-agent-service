@@ -170,11 +170,12 @@ class ChatSessionService:
             return await ChatSessionRepository(session).stats(ctx.user_id)
 
     async def delete(self, ctx: UserContext, session_id: uuid.UUID) -> None:
-        """删除会话：先取消在途任务，同事务物理删除消息与会话行，再清理 checkpoint thread。"""
-        cancel_generation(session_id.hex)
+        """删除会话：校验属主后取消在途任务，同事务物理删除消息与会话行，再清理 checkpoint thread。"""
         async with get_session() as session:
             repo = ChatSessionRepository(session)
             chat_session = await self._assert_owned(repo, session_id, ctx)
+            # 取消在途生成必须在校验属主之后，避免任意用户凭 session_id 越权取消他人任务
+            cancel_generation(session_id.hex)
             await ChatMessageRepository(session).delete_by_session(session_id)
             await repo.delete(chat_session)
             await session.commit()
@@ -448,7 +449,15 @@ class ChatCompletionService:
                 },
             )
             if is_first_turn:
-                spawn_side_task(self._generate_title(session_id, question), tag="CHAT")
+                # 标题生成属收尾旁路任务：任何异常不得影响已完成的问答落库与收尾帧
+                try:
+                    spawn_side_task(
+                        self._generate_title(session_id, question), tag="CHAT"
+                    )
+                except Exception:
+                    logger.exception(
+                        f"[CHAT] 创建标题生成任务失败 session={session_hex}"
+                    )
         except asyncio.CancelledError:
             # 用户停止：半截内容落库 stopped（保留已采集的部分指标），done 帧正常收尾
             partial_metrics = {
@@ -527,7 +536,6 @@ class ChatCompletionService:
                 )
             await session.commit()
 
-    @staticmethod
     async def stop(self, ctx: UserContext, session_id: uuid.UUID) -> bool:
         """停止会话在途生成（幂等）；仅属主可停止，返回是否实际取消。"""
         if not ctx.user_id:
@@ -538,6 +546,7 @@ class ChatCompletionService:
             )
         return cancel_generation(session_id.hex)
 
+    @staticmethod
     async def _generate_title(session_id: uuid.UUID, question: str) -> None:
         """首轮完成后异步生成会话标题：rewrite_model 一句摘要，失败/超时回落截断。"""
         fallback = question[:_TITLE_FALLBACK_LENGTH]

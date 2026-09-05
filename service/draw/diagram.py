@@ -190,13 +190,15 @@ class DrawSessionService:
             return version.to_dict(with_xml=True)
 
     async def delete(self, ctx, session_id: uuid.UUID) -> None:
-        """删除会话：先取消在途任务，同事务物理删除消息与版本记录（预览/图片文件不追删）。"""
-        if _generation_registry.in_flight(session_id.hex):
-            bad_except("该会话正在生成中，请先停止生成")
-        _generation_registry.cancel(session_id.hex)
+        """删除会话：校验属主后取消在途任务，同事务物理删除消息与版本记录（预览/图片文件不追删）。"""
         async with get_session() as session:
             repo = DrawSessionRepository(session)
             draw_session = await self._assert_owned(repo, session_id, ctx)
+            # 取消在途生成必须在校验属主之后：in_flight/cancel 的差异化报错
+            # 会向未授权用户泄露他人会话的存在与运行状态
+            if _generation_registry.in_flight(session_id.hex):
+                bad_except("该会话正在生成中，请先停止生成")
+            _generation_registry.cancel(session_id.hex)
             await DrawMessageRepository(session).delete_by_session(session_id)
             await DrawDiagramVersionRepository(session).delete_by_session(session_id)
             await repo.delete(draw_session)

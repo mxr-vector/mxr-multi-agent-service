@@ -148,8 +148,13 @@ class ChatGraph:
         max_messages: int,
         history_budget: int,
         model_name: str,
+        question: str = "",
     ) -> str:
-        """checkpointer 无历史时回落业务表读最近 N 条消息并过输入预算裁剪。"""
+        """checkpointer 无历史时回落业务表读最近 N 条消息并过输入预算裁剪。
+
+        question 非空时剔除表末与之相同的 user 消息：stream 在图执行前已把
+        本轮问题写入业务表，不剔除会与渲染的 HumanMessage 重复注入同一问题。
+        """
         if not session_id_hex:
             return ""
         # 局部导入：避免 agent 层与 database 层在模块加载期的耦合
@@ -164,6 +169,13 @@ class ChatGraph:
             records = await ChatMessageRepository(session).list_recent(
                 session_id, max_messages
             )
+        if (
+            question
+            and records
+            and records[-1].role == ChatRole.USER.value
+            and (records[-1].content or "").strip() == question.strip()
+        ):
+            records = records[:-1]
         lines = [
             f"{record.role}: {record.content}"
             for record in records
@@ -386,6 +398,7 @@ class ChatGraph:
                 CFG.chat_history_max_messages,
                 history_budget,
                 model_name,
+                question=question,
             )
         msgs: List[BaseMessage] = [
             SystemMessage(

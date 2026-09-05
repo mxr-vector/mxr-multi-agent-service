@@ -131,6 +131,10 @@ CREATE INDEX idx_rag_documents_dept         ON rag.rag_documents (dept_id);
 CREATE INDEX idx_rag_documents_kb           ON rag.rag_documents (knowledge_base_id);
 CREATE INDEX idx_rag_documents_folder       ON rag.rag_documents (folder_id);
 CREATE INDEX idx_rag_documents_source_hash  ON rag.rag_documents (source_uri, content_hash);
+-- 同一知识库内同一 source_uri 仅允许一个有效文档（软删行除外，删除后可重传）：
+-- 上传链路 find-then-insert 的并发竞态由该唯一索引兜底，冲突方回落版本替换路径。
+-- 存量库请执行 database/sql/rag_alter_documents_source_unique.sql 迁移
+CREATE UNIQUE INDEX uq_rag_documents_kb_source ON rag.rag_documents (knowledge_base_id, source_uri) WHERE status != 'deleted';
 CREATE INDEX idx_rag_documents_metadata_gin ON rag.rag_documents USING GIN (metadata);
 CREATE INDEX idx_rag_documents_status       ON rag.rag_documents (status) WHERE status != 'deleted';
 CREATE INDEX idx_rag_documents_valid_until  ON rag.rag_documents (valid_until) WHERE valid_until IS NOT NULL;

@@ -1,11 +1,12 @@
 from typing import List
+from warnings import deprecated
 
 from langchain_core.embeddings import Embeddings
 
 from model.embeddings.factory import get_embedding_client
 
 
-@deprecated
+@deprecated("业务侧优先使用官方 SDK 客户端；本适配器仅为 LangChain 生态桥接保留")
 class LangChainEmbeddingAdapter(Embeddings):
     """
     将统一封装的 BaseEmbeddingClient 适配为 LangChain 的 Embeddings 类型。

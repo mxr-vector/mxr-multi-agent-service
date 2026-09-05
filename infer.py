@@ -57,13 +57,17 @@ async def lifespan(app: FastAPI):
     # （失败仅告警，发帧回落枚举默认值，不阻断启动）
     await sync_sse_event_dict()
     # checkpoint TTL：启动执行一次 + 每日循环后台任务（不动业务表）
+    ttl_startup_failed = False
     try:
         await cleanup_expired_checkpoints()
     except Exception as exc:
+        # 启动期失败（多为瞬时 DB 故障）：循环任务首轮改用 1 小时间隔重试，
+        # 而非等满 24 小时导致过期 checkpoint 长期滞留
+        ttl_startup_failed = True
         logger.warning(
             f"[CHAT] 启动期 checkpoint TTL 清理失败，交由循环任务重试: {exc}"
         )
-    start_ttl_task()
+    start_ttl_task(retry_first=ttl_startup_failed)
     yield
     # 关停：释放图单例与 checkpointer 资源（在途生成任务随事件循环关闭一并取消）
     chat_graph.reset()
@@ -81,8 +85,9 @@ def create_app() -> FastAPI:
     origins = ENV.cors_origins
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-    # 挂载静态文件
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+    # 挂载静态文件（锚定项目根，与 upload_dir 同口径：换目录启动不失效）
+    static_dir = ENV.base_path / "static"
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
     # 挂载全局上传目录（头像等）：路径带 /public 前缀命中鉴权白名单，
     # <img> 等无法携带 token 的请求可直接访问
     ENV.upload_dir.mkdir(parents=True, exist_ok=True)
@@ -123,12 +128,12 @@ app = create_app()
 # 静态首页
 @app.get("/", include_in_schema=False)
 async def root():
-    return FileResponse("static/index.html")
+    return FileResponse(ENV.base_path / "static" / "index.html")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return FileResponse("static/favicon.ico")
+    return FileResponse(ENV.base_path / "static" / "favicon.ico")
 
 
 # 启动（仅本地调试用）

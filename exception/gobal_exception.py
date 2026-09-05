@@ -8,7 +8,11 @@ from utils.logger import logger
 
 
 def register_exception(app):
-    """注册全局异常处理"""
+    """注册全局异常处理
+
+    body.code 契约（客户端判定依据）：业务异常（BadException）返回 code=-1，
+    HTTP 异常（HTTPException）返回 code=HTTP 状态码（404/401/422…）。
+    """
 
     @app.exception_handler(BadException)
     async def bad_exception_handler(request: Request, exc: BadException):
@@ -40,8 +44,10 @@ def register_exception(app):
 
     @app.exception_handler(AssertionError)
     async def assertion_exception_handler(request: Request, exc: AssertionError):
-        # 断言消息可能携带内部细节（变量值/调用路径等），只入日志不回传客户端
-        logger.warning(f"断言校验失败（响应统一通用文案）: {exc}")
+        # 断言消息可能携带内部细节（变量值/调用路径等），只入日志不回传客户端。
+        # 须记录完整堆栈：库内部（SQLAlchemy/LangGraph 等）误用也会抛
+        # AssertionError，仅记消息无法定位真实故障点
+        logger.opt(exception=exc).warning("断言校验失败（响应统一通用文案）")
         return JSONResponse(content=R.fail(msg="参数校验失败").model_dump())
 
     @app.exception_handler(Exception)

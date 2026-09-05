@@ -3,13 +3,15 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from database.postgre_client import get_session
 from database.rag.chunks import ChunkRepository
 from database.rag.document import DocumentRepository
 from database.rag.folder import FolderRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
-from service.rag.knowledge_base import assert_kb_visible
+from service.rag.knowledge_base import assert_kb_visible, assert_kb_writable
 from utils.file_ingest import ingest_file
 from utils.id import format_id
 from utils.logger import logger
@@ -70,6 +72,8 @@ class DocumentService:
 
             kb = await kb_repo.get(knowledge_base_id)
             await assert_kb_visible(kb, ctx, knowledge_base_id)
+            # 写权限收口：与知识库元数据管理同口径，仅 owner/admin 可写（可见≠可写）
+            await assert_kb_writable(kb, ctx)
 
             # 文档必须归属部门：未显式指定 / 用户无部门时继承所在知识库的归属部门
             # （新建知识库已强制归属），仅存量游离库继承后仍为空，拒绝上传
@@ -111,48 +115,123 @@ class DocumentService:
                 logger.info(f"[RAG] 文档未变化，跳过重新切块: {effective_source_uri}")
                 return existing.to_dict()
 
+            if existing is not None and existing.status == "reindexing":
+                # 后台向量化作业正在搬运该文档的分块，此时插入新版本块集
+                # 会被作业的旧版本清理误删（数据丢失），拒绝重传直至同步完成
+                bad_except("文档正在向量化中，请稍后再试")
+
             if existing is not None:
-                # 变化：新版本内容替换 + 新版本块集（旧版本块留待 vectorize 清理）
-                old_leaf_count = await chunk_repo.count_level0(
-                    existing.id, existing.version
-                )
-                doc = await doc_repo.replace_content(
-                    existing, content, content_hash, doc_type
-                )
-                # 重新上传时按用户弹窗填写的文件夹/有效期/备注覆盖旧值
-                self._apply_upload_meta(
-                    doc, folder_id, valid_from, valid_until, merged_metadata
-                )
-                await self._persist_chunk_tree(
-                    chunk_repo, doc.id, doc.version, parents, doc.dept_id
-                )
-                await kb_repo.adjust_counts(
-                    kb, doc_delta=0, chunk_delta=new_leaf_count - old_leaf_count
-                )
-            else:
-                # 新文档：version=1, status='pending'
-                doc = await doc_repo.create(
-                    knowledge_base_id=knowledge_base_id,
-                    content=content,
-                    content_hash=content_hash,
-                    doc_type=doc_type,
-                    source_uri=effective_source_uri,
-                    source_system=source_system,
-                    title=title or filename,
-                    metadata=merged_metadata,
+                doc = await self._replace_existing_doc(
+                    doc_repo,
+                    chunk_repo,
+                    kb_repo,
+                    kb,
+                    existing,
+                    content,
+                    content_hash,
+                    doc_type,
+                    parents,
+                    new_leaf_count,
                     folder_id=folder_id,
                     valid_from=valid_from,
                     valid_until=valid_until,
-                    dept_id=owner_dept,
+                    merged_metadata=merged_metadata,
                 )
-                await self._persist_chunk_tree(
-                    chunk_repo, doc.id, doc.version, parents, doc.dept_id
-                )
-                await kb_repo.adjust_counts(kb, doc_delta=1, chunk_delta=new_leaf_count)
+            else:
+                # 新文档：version=1, status='pending'。
+                # create 后立即 flush 提前暴露 (kb, source_uri) 唯一冲突：
+                # 并发上传同文件的 check-then-act 竞态由唯一索引兜底，
+                # 冲突方回落到版本替换路径，不再产生重复文档
+                try:
+                    doc = await doc_repo.create(
+                        knowledge_base_id=knowledge_base_id,
+                        content=content,
+                        content_hash=content_hash,
+                        doc_type=doc_type,
+                        source_uri=effective_source_uri,
+                        source_system=source_system,
+                        title=title or filename,
+                        metadata=merged_metadata,
+                        folder_id=folder_id,
+                        valid_from=valid_from,
+                        valid_until=valid_until,
+                        dept_id=owner_dept,
+                    )
+                    await session.flush()
+                    await kb_repo.adjust_counts(
+                        kb, doc_delta=1, chunk_delta=new_leaf_count
+                    )
+                except IntegrityError:
+                    await session.rollback()
+                    existing = await doc_repo.find_by_source(
+                        knowledge_base_id, effective_source_uri
+                    )
+                    if existing is None:
+                        raise
+                    if existing.status == "reindexing":
+                        bad_except("文档正在向量化中，请稍后再试")
+                    logger.warning(
+                        f"[RAG] 并发上传同源文件命中唯一约束，回落版本替换: "
+                        f"{effective_source_uri}"
+                    )
+                    # rollback 使事务内已取实例过期，kb 须重取后再计数
+                    kb = await kb_repo.get(knowledge_base_id)
+                    doc = await self._replace_existing_doc(
+                        doc_repo,
+                        chunk_repo,
+                        kb_repo,
+                        kb,
+                        existing,
+                        content,
+                        content_hash,
+                        doc_type,
+                        parents,
+                        new_leaf_count,
+                        folder_id=folder_id,
+                        valid_from=valid_from,
+                        valid_until=valid_until,
+                        merged_metadata=merged_metadata,
+                    )
 
             await session.commit()
             self._enqueue_wiki_dirty(doc.id, doc.knowledge_base_id)
             return doc.to_dict()
+
+    @staticmethod
+    async def _replace_existing_doc(
+        doc_repo: DocumentRepository,
+        chunk_repo: ChunkRepository,
+        kb_repo: KnowledgeBaseRepository,
+        kb,
+        existing,
+        content: str,
+        content_hash: str,
+        doc_type: str | None,
+        parents: list[dict[str, Any]],
+        new_leaf_count: int,
+        *,
+        folder_id: uuid.UUID | None,
+        valid_from: datetime | None,
+        valid_until: datetime | None,
+        merged_metadata: dict | None,
+    ):
+        """同源文档内容/策略变化：新版本内容替换 + 新版本块集（旧版本块留待 vectorize 清理）。
+
+        上传主链路与并发唯一冲突回落链路共用。
+        """
+        old_leaf_count = await chunk_repo.count_level0(existing.id, existing.version)
+        doc = await doc_repo.replace_content(existing, content, content_hash, doc_type)
+        # 重新上传时按用户弹窗填写的文件夹/有效期/备注覆盖旧值
+        DocumentService._apply_upload_meta(
+            doc, folder_id, valid_from, valid_until, merged_metadata
+        )
+        await DocumentService._persist_chunk_tree(
+            chunk_repo, doc.id, doc.version, parents, doc.dept_id
+        )
+        await kb_repo.adjust_counts(
+            kb, doc_delta=0, chunk_delta=new_leaf_count - old_leaf_count
+        )
+        return doc
 
     @staticmethod
     def _enqueue_wiki_dirty(
@@ -264,6 +343,7 @@ class DocumentService:
 
             kb = await kb_repo.get(doc.knowledge_base_id)
             await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
+            await assert_kb_writable(kb, ctx)
 
             leaf_chunks = await chunk_repo.fetch_level0(doc.id, doc.version)
             if not leaf_chunks:
@@ -323,9 +403,20 @@ class DocumentService:
                 # 必须丢进线程池执行，否则会卡死事件循环：响应刷不出去（前端超时）、
                 # /status 轮询也会挂起
                 # 先写新点，再清理旧版本点（灰度重建，避免检索读到半空状态）
+                vectorized_version = doc.version
                 await asyncio.to_thread(
                     manager.upsert_hybrid, texts, payloads=payloads, ids=ids
                 )
+
+                # 清理旧版本前复核版本：upsert 期间若发生并发重传（版本已递增），
+                # excluding_version 会把新版本的块当"旧版本"误删，造成数据丢失；
+                # 此时跳过清理并保持状态，交由新版本自身的 vectorize 流程收尾
+                doc = await doc_repo.get(doc_id)
+                if doc is None or doc.version != vectorized_version:
+                    logger.warning(
+                        f"[RAG] 向量化期间文档版本已变化，跳过旧版本清理: {doc_id}"
+                    )
+                    return
 
                 stale_leaves = await chunk_repo.fetch_level0_excluding_version(
                     doc.id, doc.version
@@ -430,6 +521,7 @@ class DocumentService:
 
             kb = await kb_repo.get(doc.knowledge_base_id)
             await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
+            await assert_kb_writable(kb, ctx)
 
             # 计数只回冲当前版本叶块数（与 upload 的增量口径对称），
             # 而 Qdrant 清理覆盖全部版本，兼顾未被 vectorize 清掉的旧版本点
@@ -467,6 +559,7 @@ class DocumentService:
                 bad_except(f"文档不存在: {doc_id}")
             kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id)
             await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
+            await assert_kb_writable(kb, ctx)
             if changes.get("folder_id") is not None:
                 await self._require_folder_in_kb(
                     FolderRepository(session),
@@ -508,7 +601,14 @@ class DocumentService:
                 status=status,
                 dept_ids=flt.dept_ids,
             )
-            return build_page_result([doc.to_dict() for doc in docs], total, page, size)
+            # 列表不携带全文 content（单文档可达 MB 级，整页返回体积过大），
+            # 全文经详情/分块接口按需获取
+            return build_page_result(
+                [doc.to_dict(include_content=False) for doc in docs],
+                total,
+                page,
+                size,
+            )
 
     async def get(self, ctx: UserContext, doc_id: uuid.UUID) -> dict:
         """按 id 获取文档（须落在可见知识库下），不存在时抛业务异常。"""

@@ -175,12 +175,13 @@ class StorySessionService:
             return build_page_result([row.to_dict() for row in rows], total, page, size)
 
     async def delete(self, ctx: UserContext, session_id: uuid.UUID) -> None:
-        """删除会话：先取消在途任务，同事务物理删除消息与会话行，
+        """删除会话：校验属主后取消在途任务，同事务物理删除消息与会话行，
         commit 后清理会话产物文件（未沉淀结果随之丢弃不留痕）。"""
-        cancel_generation(session_id.hex)
         asset_files: "list[str]" = []
         async with get_session() as session:
             row, project = await self._assert_session_owned(session, session_id, ctx)
+            # 取消在途生成必须在校验属主之后，避免任意用户凭 session_id 越权取消他人任务
+            cancel_generation(session_id.hex)
             asset_files = await MessageRepository(session).list_image_files(session_id)
             await MessageRepository(session).delete_by_session(session_id)
             await SessionRepository(session).delete(session_id)

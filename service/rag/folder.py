@@ -4,7 +4,7 @@ from database.postgre_client import get_session
 from database.rag.folder import FolderRepository
 from database.rag.knowledge_base import KnowledgeBaseRepository
 from exception.bad_except import bad_except
-from service.rag.knowledge_base import assert_kb_visible
+from service.rag.knowledge_base import assert_kb_visible, assert_kb_writable
 from utils.page import PageResult, build_page_result
 from utils.user_context import UserContext
 
@@ -32,12 +32,13 @@ class FolderService:
 
         校验所属知识库存在、未删除且对当前上下文可见；dept_id 从上下文注入
         （机器通道 / 无部门用户兜底空字符串）；提供 parent_id 时校验父文件夹
-        存在且同属该知识库。
+        存在且同属该知识库。写权限与知识库管理同口径：仅 owner/admin。
         """
         async with get_session() as session:
             kb_repo = KnowledgeBaseRepository(session)
             kb = await kb_repo.get(knowledge_base_id)
             await assert_kb_visible(kb, ctx, knowledge_base_id)
+            await assert_kb_writable(kb, ctx)
             repo = FolderRepository(session)
             if parent_id is not None:
                 await self._require_parent_in_kb(repo, parent_id, knowledge_base_id)
@@ -107,6 +108,7 @@ class FolderService:
             if folder is None:
                 bad_except(f"文件夹不存在: {folder_id}")
             await self._assert_kb(ctx, session, folder.knowledge_base_id)
+            await self._assert_kb_writable(ctx, session, folder.knowledge_base_id)
             if parent_id_set and parent_id is not None:
                 if parent_id == folder_id:
                     bad_except("父文件夹不能是自身")
@@ -134,6 +136,7 @@ class FolderService:
             if folder is None:
                 bad_except(f"文件夹不存在: {folder_id}")
             await self._assert_kb(ctx, session, folder.knowledge_base_id)
+            await self._assert_kb_writable(ctx, session, folder.knowledge_base_id)
             if await repo.has_children(folder_id):
                 bad_except("文件夹下存在子文件夹，无法删除")
             if await repo.has_referencing_document(folder_id):
@@ -159,3 +162,9 @@ class FolderService:
         """按 id 操作文件夹前校验其归属知识库对当前上下文可见（收口同 delete 链路）。"""
         kb = await KnowledgeBaseRepository(session).get(knowledge_base_id)
         await assert_kb_visible(kb, ctx, knowledge_base_id)
+
+    @staticmethod
+    async def _assert_kb_writable(ctx, session, knowledge_base_id: uuid.UUID) -> None:
+        """写操作（更新/删除）前置：在可见性校验之上追加 owner/admin 写权限收口。"""
+        kb = await KnowledgeBaseRepository(session).get(knowledge_base_id)
+        await assert_kb_writable(kb, ctx)

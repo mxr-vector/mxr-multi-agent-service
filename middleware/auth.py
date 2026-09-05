@@ -45,9 +45,12 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         auth = request.headers.get("Authorization")
 
-        # 通道一：静态 API key（机器调用），常数时间比对防时序侧信道
+        # 通道一：静态 API key（机器调用），常数时间比对防时序侧信道。
+        # 以 bytes 比对：str 版 compare_digest 遇非 ASCII 头值会抛 TypeError，
+        # 且异常发生在中间件层、统一异常处理器接不住，会把 401 变成裸 500
         if auth is not None and hmac.compare_digest(
-            auth, f"Bearer {ENV.api_secret_key}"
+            auth.encode("utf-8", "surrogateescape"),
+            f"Bearer {ENV.api_secret_key}".encode("utf-8", "surrogateescape"),
         ):
             return await call_next(request)
 

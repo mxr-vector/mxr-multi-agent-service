@@ -103,7 +103,9 @@ def hybrid_retrieve_multi(
         return []
     limit = pool_size if pool_size is not None else CFG.rag_candidate_pool_size
     if len(kb_ids) == 1:
-        return hybrid_retrieve(query, kb_ids[0], pool_size=limit)
+        # 单库同样走 _retrieve_one 的失败降级包装：单库检索失败仅告警返回空，
+        # 与多库路径及上方"单库失败不中断整体检索"的语义保持一致
+        return _retrieve_one_single(kb_ids[0], limit)
 
     # 预生成查询向量，避免扇出时每库重复调用 embedding / BM25 编码
     from model.embeddings.factory import get_embedding_client
@@ -123,6 +125,13 @@ def hybrid_retrieve_multi(
             )
         except Exception as exc:
             logger.warning(f"[RAG] 知识库 {kb_id.hex} 检索失败，跳过: {exc}")
+            return []
+
+    def _retrieve_one_single(kb_id: uuid.UUID, pool_limit: int) -> List[dict]:
+        try:
+            return hybrid_retrieve(query, kb_id, pool_size=pool_limit)
+        except Exception as exc:
+            logger.warning(f"[RAG] 知识库 {kb_id.hex} 检索失败，返回空候选: {exc}")
             return []
 
     workers = min(_FANOUT_MAX_WORKERS, len(kb_ids))

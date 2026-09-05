@@ -88,10 +88,16 @@ async def open_checkpointer() -> AsyncPostgresSaver:
 
 
 async def close_checkpointer() -> None:
-    """关停时释放：取消 TTL 后台任务并关闭 psycopg 连接池（幂等）。"""
+    """关停时释放：取消 TTL 后台任务并等待其退出，再关闭 psycopg 连接池（幂等）。"""
     global _pool, _saver, _ttl_task
     if _ttl_task is not None:
         _ttl_task.cancel()
+        # 必须等任务真正退出再关池：cancel 仅是请求，若清理正卡在某轮
+        # adelete_thread 上，立即关池会让其在已关闭的连接上继续报错
+        try:
+            await _ttl_task
+        except asyncio.CancelledError:
+            pass
         _ttl_task = None
     if _pool is not None:
         await _pool.close()
@@ -116,9 +122,9 @@ async def cleanup_expired_checkpoints() -> int:
     业务表中的会话与消息完整保留（过期会话续聊由 respond 回落业务表历史）。
     """
     saver = get_checkpointer()
-    threshold = datetime.now(timezone.utc) - timedelta(
-        days=CFG.chat_checkpoint_ttl_days
-    )
+    # 快照一次使用（阈值计算与日志共用），避免热更新窗口内的撕裂读
+    ttl_days = CFG.chat_checkpoint_ttl_days
+    threshold = datetime.now(timezone.utc) - timedelta(days=ttl_days)
     async with get_session() as session:
         expired_ids = await ChatSessionRepository(session).list_expired_ids(threshold)
     for session_id in expired_ids:
@@ -126,20 +132,24 @@ async def cleanup_expired_checkpoints() -> int:
     if expired_ids:
         logger.info(
             f"[CHAT] checkpoint TTL 清理完成：{len(expired_ids)} 个过期 thread"
-            f"（阈值 {CFG.chat_checkpoint_ttl_days} 天）"
+            f"（阈值 {ttl_days} 天）"
         )
     return len(expired_ids)
 
 
-async def _ttl_loop() -> None:
+async def _ttl_loop(retry_first: bool = False) -> None:
     """每日执行一次 TTL 清理；单轮失败以 1 小时为间隔重试，成功恢复每日周期。
 
     - 先休眠再执行：lifespan 启动序列已同步清扫过一次（见 open_checkpointer
       调用方），循环启动即执行会与那次清扫重复；
+    - retry_first：启动期同步清扫失败时置真，首轮按 1 小时间隔重试而非
+      等满 24 小时（否则启动期一次瞬时 DB 故障会让过期 checkpoint 滞留一天）；
     - 主体包 try/except：异常记录完整堆栈（logger.exception）后以较短间隔
       重试，而非等待满 24 小时。
     """
-    interval = _TTL_LOOP_INTERVAL_SECONDS
+    interval = _TTL_RETRY_INTERVAL_SECONDS if retry_first else (
+        _TTL_LOOP_INTERVAL_SECONDS
+    )
     while True:
         await asyncio.sleep(interval)
         try:
@@ -152,9 +162,9 @@ async def _ttl_loop() -> None:
             interval = _TTL_RETRY_INTERVAL_SECONDS
 
 
-def start_ttl_task() -> None:
+def start_ttl_task(retry_first: bool = False) -> None:
     """挂起 TTL 每日清理后台任务（模块级强引用持有，幂等）。"""
     global _ttl_task
     if _ttl_task is not None and not _ttl_task.done():
         return
-    _ttl_task = asyncio.create_task(_ttl_loop())
+    _ttl_task = asyncio.create_task(_ttl_loop(retry_first))

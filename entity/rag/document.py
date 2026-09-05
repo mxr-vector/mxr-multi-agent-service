@@ -76,8 +76,12 @@ class Document(Base):
         nullable=False, server_default=func.now()
     )
 
-    def to_dict(self) -> dict:
-        """转为可 JSON 序列化的普通字典，供统一响应回写。"""
+    def to_dict(self, include_content: bool = True) -> dict:
+        """转为可 JSON 序列化的普通字典，供统一响应回写。
+
+        include_content=False 用于列表场景剔除全文 content（单文档可达 MB 级，
+        整页返回体积过大），全文经详情/分块接口按需获取。
+        """
         return {
             "id": format_id(self.id),
             "dept_id": self.dept_id,
@@ -87,7 +91,7 @@ class Document(Base):
             "source_system": self.source_system,
             "title": self.title,
             "doc_type": self.doc_type,
-            "content": self.content,
+            "content": self.content if include_content else None,
             "content_hash": self.content_hash,
             "metadata": self.doc_metadata,
             "source_updated_at": self.source_updated_at,

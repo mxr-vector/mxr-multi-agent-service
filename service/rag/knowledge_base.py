@@ -51,6 +51,19 @@ async def assert_kb_visible(
     bad_except(f"知识库不存在: {kb_id}")
 
 
+async def assert_kb_writable(kb: KnowledgeBase, ctx: UserContext) -> None:
+    """知识库写操作权限收口：仅 owner 与 admin（机器通道视为 admin）。
+
+    供知识库元数据/删除与文档、文件夹等库内写链路统一调用；
+    与可见性同文案拒绝，不泄露资源存在性。
+    """
+    if kb.owner is not None and kb.owner == ctx.username:
+        return
+    if await is_admin(ctx):
+        return
+    bad_except(f"知识库不存在: {kb.id.hex}")
+
+
 class KnowledgeBaseService:
     """
     知识库业务层。
@@ -193,15 +206,8 @@ class KnowledgeBaseService:
     async def _assert_kb_writable(
         self, kb: KnowledgeBase, ctx: UserContext
     ) -> None:
-        """写操作（元数据更新 / 删除）权限收口：仅 owner 与 admin（机器通道视为 admin）。
-
-        与可见性同文案拒绝，不泄露资源存在性。
-        """
-        if kb.owner is not None and kb.owner == ctx.username:
-            return
-        if await is_admin(ctx):
-            return
-        bad_except(f"知识库不存在: {kb.id.hex}")
+        """写操作（元数据更新 / 删除）权限收口，实现见模块级 assert_kb_writable。"""
+        await assert_kb_writable(kb, ctx)
 
     async def get(self, ctx: UserContext, kb_id: uuid.UUID) -> dict:
         """按 id 获取知识库（须对当前上下文可见），不存在时抛出业务异常。"""
