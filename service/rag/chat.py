@@ -128,12 +128,13 @@ class ChatSessionService:
     async def _assert_owned(
         self, repo: ChatSessionRepository, session_id: uuid.UUID, ctx: UserContext
     ) -> ChatSession:
-        """属主校验收口：不存在 / 已删除 / 非本人一律同文案拒绝。"""
+        """属主校验收口：不存在 / 已删除 / 非本人（含机器通道，无属主身份）一律同文案拒绝。"""
         chat_session = await repo.get(session_id)
         if (
             chat_session is None
             or chat_session.status == "deleted"
-            or (ctx.user_id is not None and chat_session.user_id != ctx.user_id)
+            or ctx.user_id is None
+            or chat_session.user_id != ctx.user_id
         ):
             bad_except(f"会话不存在: {session_id.hex}")
         return chat_session
@@ -300,10 +301,16 @@ class ChatCompletionService:
         if existing is not None and not existing.done():
             bad_except("上一条回答尚未完成，请稍候或先停止生成")
 
-        # kb 检索范围解析（消息级）：显式传入优先，否则解析缺省可见范围
-        resolved_kb_ids = (
-            kb_ids if kb_ids else await self._kb_service.list_visible_ids(ctx)
-        )
+        # kb 检索范围解析（消息级）：显式传入须经服务端可见性/状态过滤（交集），
+        # 不可见与不存在同语义；否则解析缺省可见范围
+        if kb_ids:
+            resolved_kb_ids = await self._kb_service.filter_retrievable_ids(
+                ctx, kb_ids
+            )
+            if not resolved_kb_ids:
+                bad_except(f"知识库不存在: {','.join(kb_ids)}")
+        else:
+            resolved_kb_ids = await self._kb_service.list_visible_ids(ctx)
 
         # 写库时序：user 消息（kb_ids 快照）→ assistant 占位（generating）
         now = datetime.now(timezone.utc)
@@ -543,6 +550,16 @@ class ChatCompletionService:
             await session.commit()
 
     @staticmethod
+    async def stop(self, ctx: UserContext, session_id: uuid.UUID) -> bool:
+        """停止会话在途生成（幂等）；仅属主可停止，返回是否实际取消。"""
+        if not ctx.user_id:
+            bad_except("流式问答仅支持用户通道调用")
+        async with get_session() as session:
+            await self._session_service._assert_owned(
+                ChatSessionRepository(session), session_id, ctx
+            )
+        return cancel_generation(session_id.hex)
+
     async def _generate_title(session_id: uuid.UUID, question: str) -> None:
         """首轮完成后异步生成会话标题：rewrite_model 一句摘要，失败/超时回落截断。"""
         fallback = question[:_TITLE_FALLBACK_LENGTH]

@@ -12,6 +12,7 @@ from utils.id import format_id
 from utils.page import PageResult, build_page_result
 from utils.user_context import (
     UserContext,
+    is_admin,
     resolve_dept_filter,
     resolve_owner_dept,
     resolve_visible_dept_ids,
@@ -22,23 +23,30 @@ async def assert_kb_visible(
     kb: KnowledgeBase | None, ctx: UserContext, kb_id: object
 ) -> KnowledgeBase:
     """
-    知识库可见性校验（数据权限收口）：按 ctx.data_scope 判定单个知识库是否可见。
+    知识库可见性校验（数据权限收口）：visibility × ctx.data_scope 双维度判定。
+
+    - public：任何人可见；
+    - 本人库恒可见（owner 恒可见，含本人 private）；
+    - department：部门边界内可见（按 data_scope 展开，all 档不限部门）；
+    - private（及未知取值按最窄档处理）：仅 owner 与 admin；
+    - 机器通道视为 admin。
 
     不可见与不存在 / 已删除 MUST 返回同一文案，不泄露资源存在性。
     供知识库、文档、文件夹链路在接受 knowledge_base_id 时统一前置调用。
     """
     if kb is None or kb.status == "deleted":
         bad_except(f"知识库不存在: {kb_id}")
-    flt = await resolve_dept_filter(ctx)
-    if flt.owner is not None:
-        # self 档：按属主收敛
-        if kb.owner == ctx.username:
-            return kb
-    elif flt.dept_ids is None:
-        # all 档：无边界
+    if kb.visibility == "public":
         return kb
-    elif kb.dept_id in flt.dept_ids:
-        # dept / dept_and_child 档：部门边界 IN 判定
+    if kb.owner is not None and kb.owner == ctx.username:
+        return kb
+    if kb.visibility == "department":
+        dept_ids = await resolve_visible_dept_ids(ctx)
+        if dept_ids is None or kb.dept_id in dept_ids:
+            return kb
+        bad_except(f"知识库不存在: {kb_id}")
+    # private / 未知取值：仅 owner（上方已判）与 admin
+    if await is_admin(ctx):
         return kb
     bad_except(f"知识库不存在: {kb_id}")
 
@@ -156,6 +164,45 @@ class KnowledgeBaseService:
             )
             return [format_id(kb_id) for kb_id in ids]
 
+    async def filter_retrievable_ids(
+        self, ctx: UserContext, kb_ids: "list[str]"
+    ) -> "list[str]":
+        """
+        对显式传入的检索范围做服务端同口径过滤（可见性 × status='active' 取交集）。
+
+        与 list_visible_ids 的三支并集（public / 本人库 / 部门 department 库）
+        完全同口径，杜绝显式 kb_ids 绕过权限直达他人 private 库或已删除/
+        归档库：不可见与不存在同语义，直接从结果中剔除。返回 hex 无连字符 id。
+        """
+        uuids: list[uuid.UUID] = []
+        for hex_id in kb_ids:
+            try:
+                uuids.append(uuid.UUID(hex_id))
+            except (ValueError, TypeError):
+                continue
+        if not uuids:
+            return []
+        dept_ids = await resolve_visible_dept_ids(ctx)
+        async with get_session() as session:
+            repo = KnowledgeBaseRepository(session)
+            ids = await repo.list_active_visible_by_ids(
+                uuids, owner=ctx.username, dept_ids=dept_ids
+            )
+            return [format_id(kb_id) for kb_id in ids]
+
+    async def _assert_kb_writable(
+        self, kb: KnowledgeBase, ctx: UserContext
+    ) -> None:
+        """写操作（元数据更新 / 删除）权限收口：仅 owner 与 admin（机器通道视为 admin）。
+
+        与可见性同文案拒绝，不泄露资源存在性。
+        """
+        if kb.owner is not None and kb.owner == ctx.username:
+            return
+        if await is_admin(ctx):
+            return
+        bad_except(f"知识库不存在: {kb.id.hex}")
+
     async def get(self, ctx: UserContext, kb_id: uuid.UUID) -> dict:
         """按 id 获取知识库（须对当前上下文可见），不存在时抛出业务异常。"""
         async with get_session() as session:
@@ -167,12 +214,14 @@ class KnowledgeBaseService:
     async def update(self, ctx: UserContext, kb_id: uuid.UUID, changes: dict[str, Any]) -> dict:
         """
         仅元数据更新（name/description/icon/visibility/owner/status）；
-        dept_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常。
+        dept_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常；
+        写权限收紧为 owner / admin（_assert_kb_writable）。
         """
         async with get_session() as session:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.get(kb_id)
             await assert_kb_visible(kb, ctx, kb_id)
+            await self._assert_kb_writable(kb, ctx)
             kb = await repo.update_metadata(kb_id, changes)
             if kb is None:
                 bad_except(f"知识库不存在: {kb_id}")
@@ -189,6 +238,7 @@ class KnowledgeBaseService:
             repo = KnowledgeBaseRepository(session)
             kb = await repo.get(kb_id)
             await assert_kb_visible(kb, ctx, kb_id)
+            await self._assert_kb_writable(kb, ctx)
             if await DocumentRepository(session).has_by_kb(
                 kb_id
             ) or await FolderRepository(session).has_by_kb(kb_id):

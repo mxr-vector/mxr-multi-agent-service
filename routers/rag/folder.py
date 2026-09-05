@@ -71,7 +71,10 @@ async def list_folders(
 
 
 @router.get("/{folder_id}")
-async def get_folder(folder_id: uuid.UUID = Path(...)):
+async def get_folder(
+    folder_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
     """按 id 获取文件夹。"""
     folder = await _service.get(ctx, folder_id)
     return R.success(data=folder)

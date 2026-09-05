@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Depends, Path
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from service.rag.chat import ChatCompletionService, cancel_generation
+from service.rag.chat import ChatCompletionService
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
 
@@ -71,6 +71,6 @@ async def stop_generation(
     session_id: uuid.UUID = Path(...),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """停止生成：取消该会话在途生成任务（推理即刻中止）；无在途任务幂等成功。"""
-    cancelled = cancel_generation(session_id.hex)
+    """停止生成：仅属主可停止；取消该会话在途生成任务（推理即刻中止）；无在途任务幂等成功。"""
+    cancelled = await _service.stop(ctx, session_id)
     return R.success(data={"cancelled": cancelled})

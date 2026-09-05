@@ -84,8 +84,9 @@ class DocumentService:
                     FolderRepository(session), folder_id, knowledge_base_id
                 )
 
-            # 解析 + 切块（纯预处理，不落库）；不支持类型/策略组合在此抛业务异常
-            parsed = ingest_file(filename, data, chunk_strategy)
+            # 解析 + 切块（纯预处理，不落库）；不支持类型/策略组合在此抛业务异常。
+            # 解析与语义切块是秒级 CPU/同步 IO 操作，丢线程池避免卡死事件循环
+            parsed = await asyncio.to_thread(ingest_file, filename, data, chunk_strategy)
             content = parsed["content"]
             content_hash = parsed["content_hash"]
             doc_type = parsed["doc_type"]

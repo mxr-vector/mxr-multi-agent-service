@@ -20,7 +20,6 @@ from service.draw.diagram import (
     IMAGE_EXTENSION_MIME,
     DrawCompletionService,
     DrawSessionService,
-    cancel_generation,
 )
 from utils.env import ENV
 from utils.page import build_page_result
@@ -84,8 +83,8 @@ async def stop_generation(
     session_id: uuid.UUID = Path(...),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """停止生成：取消该会话在途生成任务（推理即刻中止）；无在途任务幂等成功。"""
-    cancelled = cancel_generation(session_id.hex)
+    """停止生成：仅属主可停止；取消该会话在途生成任务（推理即刻中止）；无在途任务幂等成功。"""
+    cancelled = await _completion_service.stop(ctx, session_id)
     return R.success(data={"cancelled": cancelled})
 
 

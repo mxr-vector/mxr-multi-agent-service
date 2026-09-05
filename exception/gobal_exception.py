@@ -28,8 +28,14 @@ def register_exception(app):
         request: Request, exc: RequestValidationError
     ):
         logger.warning(f"参数验证失败: {exc.errors()}")
+        # 只回 loc+msg：errors() 内含用户原始输入回显与内部字段结构，不外发
+        detail = [
+            {"loc": ".".join(str(p) for p in err.get("loc", [])), "msg": err.get("msg")}
+            for err in exc.errors()
+        ]
         return JSONResponse(
-            content=R.fail(msg=f"参数验证失败", data=exc.errors()).model_dump()
+            status_code=422,
+            content=R.fail(msg="参数验证失败", data=detail).model_dump(),
         )
 
     @app.exception_handler(AssertionError)
@@ -40,6 +46,9 @@ def register_exception(app):
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.exception("服务器内部错误", exc_info=exc)
-        return JSONResponse(content=R.fail(msg="服务器内部错误").model_dump())
+        # 必须携带 500：缺省 200 会把真实故障在网关/监控/重试侧误判为成功
+        return JSONResponse(
+            status_code=500, content=R.fail(msg="服务器内部错误").model_dump()
+        )
 
     logger.info("全局异常处理已注册")

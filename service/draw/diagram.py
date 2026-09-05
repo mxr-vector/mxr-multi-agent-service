@@ -279,18 +279,8 @@ class DrawCompletionService:
         if not ctx.user_id:
             bad_except("绘图问答仅支持用户通道调用")
 
-        # 图片引用与基线版本在进流前完成校验（含 data URI 预构造，早失败）
+        # 图片引用在进流前完成校验（含 data URI 预构造，早失败）
         image_data_uri = _image_to_data_uri(image_file) if image_file else None
-
-        base_mermaid: str | None = None
-        if base_version_id is not None:
-            async with get_session() as session:
-                base_version = await DrawDiagramVersionRepository(session).get(
-                    base_version_id
-                )
-                if base_version is None:
-                    bad_except("基线版本不存在")
-                base_mermaid = base_version.mermaid_source
 
         # 会话解析：缺省自动创建（标题取首问截断）；显式传入须为本人未删会话
         async with get_session() as session:
@@ -306,6 +296,21 @@ class DrawCompletionService:
                     repo, session_id, ctx
                 )
             resolved_session_id: uuid.UUID = draw_session.id
+
+        # 基线版本须归属当前会话：杜绝借他人版本的 mermaid_source 越权读图、
+        # 以及新版本 parent_id 指向他人会话污染版本链
+        base_mermaid: str | None = None
+        if base_version_id is not None:
+            async with get_session() as session:
+                base_version = await DrawDiagramVersionRepository(session).get(
+                    base_version_id
+                )
+                if (
+                    base_version is None
+                    or base_version.session_id != resolved_session_id
+                ):
+                    bad_except("基线版本不存在")
+                base_mermaid = base_version.mermaid_source
 
         session_hex = resolved_session_id.hex
 
@@ -370,6 +375,16 @@ class DrawCompletionService:
                     task.cancel()
 
         return _frames()
+
+    async def stop(self, ctx, session_id: uuid.UUID) -> bool:
+        """停止会话在途生成（幂等）；仅属主可停止，返回是否实际取消。"""
+        if not ctx.user_id:
+            bad_except("绘图会话仅支持用户通道调用")
+        async with get_session() as session:
+            await self._session_service._assert_owned(
+                DrawSessionRepository(session), session_id, ctx
+            )
+        return cancel_generation(session_id.hex)
 
     def _build_messages(
         self,

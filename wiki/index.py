@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Sequence
@@ -62,11 +63,17 @@ class TopicIndexBuilder:
         version = version or int(datetime.now(timezone.utc).timestamp())
         # Pre-computed document vectors (e.g. aggregated evidence embeddings)
         # skip re-embedding; otherwise the factory embeds in input order.
+        # 同步重 IO/重 CPU 段（embedding、聚类、Qdrant 写）一律丢线程池，
+        # 避免构建期间阻塞事件循环（对齐 wiki/jobs.py 的 to_thread 模式）
         if vectors is None:
-            vectors = build_document_vectors(
-                normalized, embedding_client=self.embedding_client
+            vectors = await asyncio.to_thread(
+                build_document_vectors,
+                normalized,
+                embedding_client=self.embedding_client,
             )
-        clusters = cluster_documents(list(vectors), self.cluster_config)
+        clusters = await asyncio.to_thread(
+            cluster_documents, list(vectors), self.cluster_config
+        )
         reviews = await review_anomalous_clusters(clusters.clusters, reviewer=reviewer)
         cross_zone_pairs = find_cross_partition_duplicates(clusters.clusters)
         cross_zone_reviews = await review_cross_partition_duplicates(
@@ -91,8 +98,10 @@ class TopicIndexBuilder:
             )
         store = self.store_factory(scope_id, embedding_client=self.embedding_client)
         if recreate:
-            store.delete_collection()
-        store.upsert_pages(pages, embedding_client=self.embedding_client)
+            await asyncio.to_thread(store.delete_collection)
+        await asyncio.to_thread(
+            store.upsert_pages, pages, embedding_client=self.embedding_client
+        )
         return TopicIndexBuildResult(
             scope_id=str(scope_id),
             version=version,
@@ -126,7 +135,7 @@ class TopicIndexBuilder:
     ) -> TopicIndexBuildResult | None:
         """Rebuild documents belonging to dirty pages' coarse partitions only."""
         store = self.store_factory(scope_id, embedding_client=self.embedding_client)
-        dirty_pages = store.list_pages(dirty_only=True)
+        dirty_pages = await asyncio.to_thread(store.list_pages, dirty_only=True)
         partitions = {
             page.coarse_partition for page in dirty_pages if page.coarse_partition
         }
@@ -137,7 +146,9 @@ class TopicIndexBuilder:
             for item in documents
         ]
         partition_pages = [
-            page for page in store.list_pages() if page.coarse_partition in partitions
+            page
+            for page in await asyncio.to_thread(store.list_pages)
+            if page.coarse_partition in partitions
         ]
         impacted_ids = {
             document_id for page in partition_pages for document_id in page.documents
@@ -151,7 +162,7 @@ class TopicIndexBuilder:
         if not impacted:
             return None
         old_ids = [page.topic_id for page in partition_pages]
-        store.delete_topic_ids(old_ids)
+        await asyncio.to_thread(store.delete_topic_ids, old_ids)
         return await self.build(
             impacted,
             scope_id,

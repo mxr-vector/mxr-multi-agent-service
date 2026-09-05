@@ -52,6 +52,7 @@ from agent.tools.rag_tools import (
     knowledge_base_search,
     web_search,
 )
+from exception.bad_except import BadException
 from model.chat.factory import build_chat_model
 from core.config_snapshot import CFG
 from utils.logger import logger
@@ -369,8 +370,8 @@ class ChatGraph:
         """分派执行单次工具调用；返回 (tool_call_id, outcome, 指标增量)。
 
         navigation_context 就地累积（导航上下文供后续检索）。
-        分层工具（关系查询/块读取）未显式传库范围时注入本轮请求的 kb_ids，
-        确保读取作用域不超出当前请求授权的知识库。
+        分层工具（关系查询/块读取）无条件以本轮请求的 kb_ids 覆盖库范围，
+        确保读取作用域不超出当前请求授权的知识库（含空集=无权限）。
         """
         name = tool_call.get("name", "")
         args = dict(tool_call.get("args") or {})
@@ -388,11 +389,21 @@ class ChatGraph:
             # 导航保持结构化上下文：主题摘要/关键词不序列化进证据 query，
             # 避免置换用户的词汇/语义信号。
             args["navigation"] = list(navigation_context)
-        if kb_ids:
-            if name in ("entity_relation_lookup", "chunk_read") and not args.get(
-                "knowledge_base_ids"
-            ):
-                args["knowledge_base_ids"] = list(kb_ids)
+        if name in ("entity_relation_lookup", "chunk_read"):
+            # 分层工具同口径强制以请求解析的库范围快照覆盖模型入参（含空集），
+            # 防止幻觉/被检索内容注入的 kb id 越权读取；
+            # chunk_read 对空作用域显式拒绝（impl 层空列表=无权限，非全库）。
+            args["knowledge_base_ids"] = list(kb_ids or [])
+            if name == "chunk_read" and not kb_ids:
+                return (
+                    tool_call["id"],
+                    ToolOutcome(
+                        text="块读取：当前请求无可用知识库范围，无法读取。",
+                        docs=[],
+                        metrics={"chunks": 0},
+                    ),
+                    {},
+                )
         if name in ("knowledge_base_search", "kb_wiki_lookup"):
             # 检索类工具强制以请求解析出的库范围快照覆盖模型入参（含空集），
             # 防止幻觉/注入的 kb id 越权跨库检索。
@@ -407,7 +418,22 @@ class ChatGraph:
             writer(
                 {"type": "think", "text": f"正在检索知识库（第 {tool_rounds} 轮）..."}
             )
-        outcome = await impl(**args)
+        # 单工具失败不炸整轮问答：转为错误 ToolMessage 让模型基于失败提示继续
+        # （如检索后端抖动、模型给出意外参数名等），并保留 tool_call_id 协议合法性
+        try:
+            outcome = await impl(**args)
+        except BadException as exc:
+            logger.warning(f"[CHAT] 工具 {name} 业务失败: {exc}")
+            outcome = ToolOutcome(
+                text=f"工具 {name} 执行失败：{exc}", docs=[], metrics={}
+            )
+        except Exception:
+            logger.exception(f"[CHAT] 工具 {name} 执行异常")
+            outcome = ToolOutcome(
+                text=f"工具 {name} 执行异常，请基于已有信息继续，或调整检索词后重试。",
+                docs=[],
+                metrics={},
+            )
         delta = {
             "reflect_rounds": outcome.metrics.get("reflect_rounds", 0),
             "retrieved_count": outcome.metrics.get("retrieved_count", 0),
@@ -513,9 +539,17 @@ class ChatGraph:
             if not getattr(response, "tool_calls", None):
                 break
             if tool_rounds >= CFG.rag_reflect_round_cap:
-                # 达到工具循环上限：先把带未应答 tool_calls 的响应回填（部分
-                # 提供方对悬空 tool_calls 的续写请求会拒绝），再切无工具模型强制收尾
+                # 达到工具循环上限：带 tool_calls 的响应必须紧跟对应 role=tool
+                # 消息（否则严格后端对悬空 tool_calls 的续写请求返回 400），
+                # 先逐个回填占位 ToolMessage，再切无工具模型强制收尾
                 msgs.append(response)
+                for tool_call in response.tool_calls:
+                    msgs.append(
+                        ToolMessage(
+                            content="已达到检索轮数上限，本次调用未执行。",
+                            tool_call_id=tool_call["id"],
+                        )
+                    )
                 msgs.append(
                     SystemMessage(
                         content="已达到检索轮数上限，请直接基于已有检索结果组织回答。"

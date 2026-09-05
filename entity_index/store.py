@@ -29,11 +29,20 @@ class EntityBundle:
 
 
 def invalidate_entity_bundle(kb_id: str | None = None) -> None:
-    """Drop cached bundles (called after index rebuilds)."""
+    """Drop cached bundles (called after index rebuilds).
+
+    缓存键统一为带连字符的 str(uuid.UUID(...))（与 load_entity_bundle 的键
+    同一规范形）：调用方可能传 kb_id.hex（无连字符），须先归一再失效，
+    否则键永不相等、失效静默落空。
+    """
     if kb_id is None:
         _bundles.clear()
-    else:
-        _bundles.pop(str(kb_id), None)
+        return
+    try:
+        key = str(uuid.UUID(str(kb_id)))
+    except (ValueError, AttributeError):
+        key = str(kb_id)
+    _bundles.pop(key, None)
 
 
 async def load_entity_bundle(kb_id: uuid.UUID | str) -> EntityBundle | None:

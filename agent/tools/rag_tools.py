@@ -667,13 +667,21 @@ async def chunk_read_impl(
         norm[item] = str(parsed)
     if not uuids:
         return ToolOutcome(text="块读取：无有效 id。", docs=[], metrics={"chunks": 0})
-    # KB 作用域：块表无 kb 列，经文档表关联过滤；未传作用域时不限制（兼容旧调用）
+    # KB 作用域：块表无 kb 列，经文档表关联过滤。
+    # None=未传作用域（兼容旧调用，不限制）；空列表=无可用范围，显式拒绝，
+    # 防止调用方把空集误当全库放行
     kb_uuids = []
     for kb in knowledge_base_ids or []:
         try:
             kb_uuids.append(uuid.UUID(str(kb)))
         except ValueError:
             continue
+    if knowledge_base_ids is not None and not kb_uuids:
+        return ToolOutcome(
+            text="块读取：当前无可用知识库范围，无法读取。",
+            docs=[],
+            metrics={"chunks": 0},
+        )
     scope = (
         " AND c.document_id IN (SELECT id FROM rag.rag_documents WHERE knowledge_base_id = ANY(:kbs))"
         if kb_uuids

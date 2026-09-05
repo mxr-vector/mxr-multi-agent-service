@@ -49,15 +49,25 @@ checkpointer 实现跨请求的多轮记忆。图节点 MUST 为 async，模型�
 - **WHEN** 新会话的第一条提问进入图
 - **THEN** condense 不调用改写模型，原问题直接进入检索
 
-### Requirement: kb 检索范围为消息级
-每次提问的检索范围 SHALL 由该请求的 `kb_ids` 决定：显式传入时使用传入值；
-未传时服务端 SHALL 按当前用户的缺省可见范围
-（`KnowledgeBaseService.list_visible_ids`）解析。实际生效的 kb 范围 SHALL
-以快照形式存储在该轮 user 消息的 `kb_ids` 字段，仅作溯源，不约束后续轮次。
+### Requirement: kb 检索范围为消息级且服务端强制过滤
+每次提问的检索范围 SHALL 由该请求的 `kb_ids` 经服务端过滤后决定：
+显式传入时 SHALL 与当前用户的可见检索范围（visibility × data_scope ×
+status='active'，与 `KnowledgeBaseService.list_visible_ids` 同口径）取交集，
+不可见 id 与不存在同语义直接剔除，MUST NOT 直达他人 private/已删除/已归档库；
+过滤后为空 SHALL 拒绝请求；未传 `kb_ids` 时服务端 SHALL 按当前用户的缺省
+可见范围（`KnowledgeBaseService.list_visible_ids`）解析。实际生效的 kb 范围
+SHALL 以快照形式存储在该轮 user 消息的 `kb_ids` 字段，仅作溯源，不约束后续
+轮次。图运行期（含分层工具 chunk_read / entity_relation_lookup）SHALL 以该
+快照覆盖全部检索/读取工具的 `knowledge_base_ids` 入参，杜绝注入的 kb id
+越权读取。
 
 #### Scenario: 同一会话不同轮次使用不同知识库
-- **WHEN** 第一轮传 `kb_ids=[A]`、第二轮传 `kb_ids=[B]`
+- **WHEN** 第一轮传 `kb_ids=[A]`、第二轮传 `kb_ids=[B]`（均对当前用户可见）
 - **THEN** 两轮分别只检索对应知识库，且两条 user 消息各自记录当轮快照
+
+#### Scenario: 显式传入不可见知识库
+- **WHEN** 请求携带他人 private 知识库的 id
+- **THEN** 该 id 被服务端剔除（与不存在同语义）；全部 id 均不可见时拒绝请求
 
 #### Scenario: 未选库回落缺省可见范围
 - **WHEN** 请求未携带 `kb_ids`

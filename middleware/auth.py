@@ -10,6 +10,20 @@ from utils.jwt_token import verify_token
 EXCLUDE_PATHS = {"/", "/docs", "/openapi.json", "/favicon.ico", "/static"}
 
 
+def _is_excluded(path: str) -> bool:
+    """免鉴权判定：静态路径集合 + mount 型前缀。
+
+    - 前缀统一按路径段匹配（/public 或 /public/...），防止 /publicxxx 误免鉴权；
+    - /static 为 mount 前缀，静态资源实际路径形如 /static/assets/xxx.js，
+      精确匹配集合无法命中，须按前缀放行。
+    """
+    if path in EXCLUDE_PATHS:
+        return True
+    return path == "/public" or path.startswith("/public/") or path.startswith(
+        "/static/"
+    )
+
+
 class TokenAuthMiddleware(BaseHTTPMiddleware):
     """
     双通道鉴权：
@@ -22,11 +36,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # 跳过无需认证的路径（/public* 同时兼容 BASE_URL 挂载前缀）
-        if (
-            path in EXCLUDE_PATHS
-            or path.startswith("/public")
-            or path.startswith(f"{ENV.base_url}/public")
+        # 跳过无需认证的路径（含 BASE_URL 挂载前缀下的 /public，按路径段匹配）
+        base_public = f"{ENV.base_url}/public"
+        if _is_excluded(path) or path == base_public or path.startswith(
+            base_public + "/"
         ):
             return await call_next(request)
 

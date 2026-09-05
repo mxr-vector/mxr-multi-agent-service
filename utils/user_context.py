@@ -124,15 +124,17 @@ async def get_user_context(request: Request) -> UserContext:
 _ADMIN_ROLE_KEY = "admin"
 
 
-async def require_admin(ctx: UserContext = Depends(get_user_context)) -> UserContext:
+async def is_admin(ctx: UserContext) -> bool:
     """
-    FastAPI 依赖：管理端接口守卫（/system 管理面等）。
+    判定当前上下文是否具备管理员权限（sys_role.role_key='admin'）。
 
-    - 机器通道（静态 API key）放行；
-    - 用户须持有 status='active' 且 role_key='admin' 的角色，否则业务失败拒绝。
+    机器通道视为管理员（与 require_admin 的放行口径一致）；
+    供业务层可见性 / 写权限收口复用，require_admin 亦基于本函数实现。
     """
     if ctx.is_machine:
-        return ctx
+        return True
+    if not ctx.user_id:
+        return False
     async with get_session() as session:
         stmt = (
             select(Role.id)
@@ -144,8 +146,17 @@ async def require_admin(ctx: UserContext = Depends(get_user_context)) -> UserCon
             )
             .limit(1)
         )
-        row = (await session.execute(stmt)).first()
-    if row is None:
+        return (await session.execute(stmt)).first() is not None
+
+
+async def require_admin(ctx: UserContext = Depends(get_user_context)) -> UserContext:
+    """
+    FastAPI 依赖：管理端接口守卫（/system 管理面等）。
+
+    用户须持有 status='active' 且 role_key='admin' 的角色，否则业务失败拒绝；
+    机器通道（静态 API key）放行。
+    """
+    if not await is_admin(ctx):
         bad_except("无管理员权限，禁止访问管理接口")
     return ctx
 

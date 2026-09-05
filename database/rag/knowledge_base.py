@@ -134,6 +134,39 @@ class KnowledgeBaseRepository:
         result = await self.session.execute(stmt)
         return [row[0] for row in result.all()]
 
+    async def list_active_visible_by_ids(
+        self,
+        ids: "list[uuid.UUID]",
+        owner: str | None = None,
+        dept_ids: "list[str] | None" = None,
+    ) -> "list[uuid.UUID]":
+        """
+        在给定 id 集合内列出当前用户可检索的 status='active' 知识库 id
+        （可见性三支 OR 与 list_active_visible_ids 完全同口径，仅叠加 id IN 约束）。
+
+        供问答链路对显式传入的 kb_ids 做服务端可见性/状态过滤（取交集），
+        杜绝显式 id 绕过权限直达他人 private 库；不可见 id 直接不在结果中，
+        与不存在同语义。ids 为空时直接返回空列表，不发查询。
+        """
+        if not ids:
+            return []
+        stmt = select(KnowledgeBase.id).where(
+            KnowledgeBase.status == "active", KnowledgeBase.id.in_(ids)
+        )
+        clauses = [KnowledgeBase.visibility == "public"]
+        if owner is not None:
+            clauses.append(KnowledgeBase.owner == owner)
+        dept_branch = KnowledgeBase.visibility == "department"
+        if dept_ids is None:
+            # 不限部门（all 档/机器通道）：所有 department 库均可见
+            clauses.append(dept_branch)
+        elif dept_ids:
+            clauses.append(and_(dept_branch, KnowledgeBase.dept_id.in_(dept_ids)))
+        # dept_ids == [] → department 支为空，不追加
+        stmt = stmt.where(or_(*clauses))
+        result = await self.session.execute(stmt)
+        return [row[0] for row in result.all()]
+
     async def get(self, kb_id: uuid.UUID) -> KnowledgeBase | None:
         """按 id 获取知识库，不存在返回 None（含软删除的行也会返回，由业务层决定语义）。"""
         return await self.session.get(KnowledgeBase, kb_id)
