@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.rag import DocumentStatus
 from entity.rag.document import Document
 from entity.rag.folder import Folder
 from utils.page import paginate
@@ -116,7 +117,7 @@ class FolderRepository:
             .select_from(Document)
             .where(
                 Document.folder_id == folder_id,
-                Document.status != "deleted",
+                Document.status != DocumentStatus.DELETED,
             )
         )
         result = await self.session.execute(stmt)

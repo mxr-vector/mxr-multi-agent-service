@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.system import RecordStatus
 from entity.system.dept import Dept
 from entity.system.user import User
 
@@ -31,7 +32,7 @@ class DeptRepository:
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
         leader: str | None = None,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
     ) -> Dept:
         """插入一条部门，id 由数据库 uuidv7() 生成。"""
         dept = Dept(

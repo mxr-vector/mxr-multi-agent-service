@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.story import StoryProjectStatus, StoryKeyframeStatus
 from entity.story.project import (
     StoryExportPackage,
     StoryKeyframe,
@@ -80,7 +81,7 @@ class ProjectRepository:
         if status:
             stmt = stmt.where(StoryProject.status == status)
         else:
-            stmt = stmt.where(StoryProject.status != "deleted")
+            stmt = stmt.where(StoryProject.status != StoryProjectStatus.DELETED)
         if keyword:
             stmt = stmt.where(StoryProject.title.ilike(ilike_pattern(keyword)))
         stmt = stmt.order_by(StoryProject.updated_at.desc())
@@ -126,7 +127,7 @@ class ProjectRepository:
                 .select_from(StoryKeyframe)
                 .where(
                     StoryKeyframe.project_id == project_id,
-                    StoryKeyframe.status != "archived",
+                    StoryKeyframe.status != StoryKeyframeStatus.ARCHIVED,
                 )
             )
             or 0
@@ -546,7 +547,7 @@ class ProjectAssetRepository:
             .where(
                 StoryProjectAsset.asset_type == "character",
                 StoryProjectAsset.asset_id == character_id,
-                StoryProject.status != "deleted",
+                StoryProject.status != StoryProjectStatus.DELETED,
             )
         )
         return await self.session.scalar(stmt) or 0
@@ -560,7 +561,7 @@ class ProjectAssetRepository:
             .where(
                 StoryProjectAsset.asset_type == "character",
                 StoryProjectAsset.asset_id == character_id,
-                StoryProject.status != "deleted",
+                StoryProject.status != StoryProjectStatus.DELETED,
             )
             .order_by(StoryProjectAsset.sort_order.asc())
         )

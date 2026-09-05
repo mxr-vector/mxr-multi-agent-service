@@ -28,6 +28,7 @@ from agent.constants.enums.chat import (
     SseEvent,
 )
 from agent.prompts.chat import TITLE_PROMPT
+from agent.constants.enums.chat import SessionStatus
 from database.postgre_client import get_session
 from database.rag.chat import ChatMessageRepository, ChatSessionRepository
 from database.rag.document import DocumentRepository
@@ -112,7 +113,7 @@ class ChatSessionService:
         chat_session = await repo.get(session_id)
         if (
             chat_session is None
-            or chat_session.status == "deleted"
+            or chat_session.status == SessionStatus.DELETED
             or ctx.user_id is None
             or chat_session.user_id != ctx.user_id
         ):

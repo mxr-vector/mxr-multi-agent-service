@@ -1,6 +1,7 @@
 import uuid
 from typing import Any
 
+from agent.constants.enums.rag import KBStatus, KBVisibility
 from database.postgre_client import get_session
 from database.rag.document import DocumentRepository
 from database.rag.folder import FolderRepository
@@ -34,13 +35,13 @@ async def assert_kb_visible(
     不可见与不存在 / 已删除 MUST 返回同一文案，不泄露资源存在性。
     供知识库、文档、文件夹链路在接受 knowledge_base_id 时统一前置调用。
     """
-    if kb is None or kb.status == "deleted":
+    if kb is None or kb.status == KBStatus.DELETED:
         bad_except(f"知识库不存在: {kb_id}")
-    if kb.visibility == "public":
+    if kb.visibility == KBVisibility.PUBLIC:
         return kb
     if kb.owner is not None and kb.owner == ctx.username:
         return kb
-    if kb.visibility == "department":
+    if kb.visibility == KBVisibility.DEPARTMENT:
         dept_ids = await resolve_visible_dept_ids(ctx)
         if dept_ids is None or kb.dept_id in dept_ids:
             return kb
@@ -82,7 +83,7 @@ class KnowledgeBaseService:
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
         embedding_dim: int | None = None,
-        visibility: str = "private",
+        visibility: str = KBVisibility.PRIVATE,
         owner: str | None = None,
         dept_id: str | None = None,
     ) -> dict:

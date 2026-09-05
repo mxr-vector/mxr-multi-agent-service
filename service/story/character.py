@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from uuid_utils.compat import uuid7
 
+from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
@@ -410,7 +411,7 @@ class CastingService:
         project = await ProjectRepository(session).get(project_id)
         if (
             project is None
-            or project.status == "deleted"
+            or project.status == StoryProjectStatus.DELETED
             or project.user_id != ctx.user_id
         ):
             bad_except("项目不存在")

@@ -4,6 +4,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
+from agent.constants.enums.system import RecordStatus
 from service.system.role import RoleService
 from utils.response import R
 from utils.user_context import require_admin
@@ -24,7 +25,7 @@ class RoleCreate(BaseModel):
     role_key: str
     data_scope: Literal["all", "dept_and_child", "dept", "self"] = "all"
     sort_order: int = 0
-    status: str = "active"
+    status: str = RecordStatus.ACTIVE
     remark: Optional[str] = None
 
 

@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
+from agent.constants.enums.system import RecordStatus
 from service.system.dept import DeptService
 from utils.response import R
 from utils.user_context import require_admin
@@ -24,7 +25,7 @@ class DeptCreate(BaseModel):
     parent_id: Optional[uuid.UUID] = None
     sort_order: int = 0
     leader: Optional[str] = None
-    status: str = "active"
+    status: str = RecordStatus.ACTIVE
 
 
 class DeptUpdate(BaseModel):

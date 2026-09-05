@@ -15,6 +15,7 @@ from pathlib import Path
 
 from uuid_utils.compat import uuid7
 
+from agent.constants.enums.story import StoryKeyframeStatus
 from database.postgre_client import get_session
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
@@ -57,7 +58,7 @@ _KEYFRAME_UPDATABLE = {
 }
 
 # 关键帧状态白名单（业务层校验）
-_KEYFRAME_STATUS = {"draft", "generating", "done", "failed", "archived"}
+_KEYFRAME_STATUS = frozenset(s.value for s in StoryKeyframeStatus)
 
 # 创建时可接受的字段集（状态固定 draft）
 _KEYFRAME_CREATABLE = _KEYFRAME_UPDATABLE - {"status"}
@@ -333,11 +334,11 @@ class KeyframeService:
             new_status = fields.get("status", old_status)
             if new_status != old_status:
                 # 归档即退出统计与导出：移除导出选择行并重算项目计数
-                if new_status == "archived":
+                if new_status == StoryKeyframeStatus.ARCHIVED:
                     await ProjectAssetRepository(session).remove(
                         keyframe.project_id, "keyframe", keyframe_id
                     )
-                if "archived" in (old_status, new_status):
+                if StoryKeyframeStatus.ARCHIVED in (old_status, new_status):
                     project = await project_repo.get(keyframe.project_id)
                     if project is not None:
                         await project_repo.recount_assets(project)
@@ -425,7 +426,7 @@ class KeyframeService:
                 keyframe = await kf_repo.get(keyframe_id)
                 if keyframe is None or keyframe.project_id != project_id:
                     bad_except("关键帧不存在或不属于本项目")
-                if keyframe.status == "archived":
+                if keyframe.status == StoryKeyframeStatus.ARCHIVED:
                     bad_except("已归档关键帧不可参与导出选择，请先取消归档")
             asset_repo = ProjectAssetRepository(session)
             for row in await asset_repo.list_by_type(project_id, "keyframe"):

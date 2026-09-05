@@ -35,6 +35,7 @@ from database.draw.diagram import (
     DrawMessageRepository,
     DrawSessionRepository,
 )
+from agent.constants.enums.chat import SessionStatus
 from database.postgre_client import get_session
 from exception.bad_except import bad_except
 from model.visual.factory import build_visual_model
@@ -139,7 +140,7 @@ class DrawSessionService:
         draw_session = await repo.get(session_id)
         if (
             draw_session is None
-            or draw_session.status == "deleted"
+            or draw_session.status == SessionStatus.DELETED
             or draw_session.user_id != ctx.user_id
         ):
             bad_except("绘图会话不存在")

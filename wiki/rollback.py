@@ -11,6 +11,8 @@ def rollback_topic_index(scope_id: str) -> dict:
     The evidence collections are never touched.  Callers should also set
     ``WIKI_ENABLED=false`` (or omit the wiki tool) before restarting workers.
     """
+    from agent.tools.rag_tools import TOOL_KNOWLEDGE_BASE_SEARCH
+
     store = TopicPageStore(scope_id)
     existed = store.collection_exists()
     store.delete_collection()
@@ -19,7 +21,7 @@ def rollback_topic_index(scope_id: str) -> dict:
         "collection": store.collection,
         "collection_deleted": existed,
         "evidence_collections_touched": False,
-        "fallback": "knowledge_base_search",
+        "fallback": TOOL_KNOWLEDGE_BASE_SEARCH,
         "next_step": "set WIKI_ENABLED=false and restart workers",
     }
 

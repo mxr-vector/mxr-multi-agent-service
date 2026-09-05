@@ -1,5 +1,6 @@
 import uuid
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.dept import DeptRepository
 from exception.bad_except import bad_except
@@ -20,7 +21,7 @@ class DeptService:
         parent_id: uuid.UUID | None = None,
         sort_order: int = 0,
         leader: str | None = None,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
     ) -> dict:
         """创建部门并返回其数据；提供 parent_id 时校验父部门存在。"""
         async with get_session() as session:

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.system import RecordStatus
 from entity.system.menu import Menu
 
 from utils.keyword import ilike_pattern
@@ -36,7 +37,7 @@ class MenuRepository:
         perms: str | None = None,
         visible: bool = True,
         sort_order: int = 0,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
     ) -> Menu:
         """插入一条菜单，id 由数据库 uuidv7() 生成。"""
         menu = Menu(

@@ -1,6 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.rag import KBStatus
 from entity.rag.knowledge_base import KnowledgeBase
 
 
@@ -32,7 +33,7 @@ class StatsRepository:
             func.count(),
             func.sum(KnowledgeBase.document_count),
             func.sum(KnowledgeBase.total_chunk_count),
-        ).where(KnowledgeBase.status != "deleted")
+        ).where(KnowledgeBase.status != KBStatus.DELETED)
         if dept_ids is not None:
             stmt = stmt.where(KnowledgeBase.dept_id.in_(dept_ids))
         if owner is not None:

@@ -1,9 +1,10 @@
 import uuid
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
 
+from agent.constants.enums.rag import KBStatus, KBVisibility
 from service.rag.knowledge_base import KnowledgeBaseService
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
@@ -29,7 +30,7 @@ class KnowledgeBaseCreate(BaseModel):
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
     embedding_dim: Optional[int] = None
-    visibility: Literal["private", "department", "public"] = "private"
+    visibility: KBVisibility = KBVisibility.PRIVATE
     owner: Optional[str] = None
     dept_id: Optional[str] = None
 
@@ -40,9 +41,9 @@ class KnowledgeBaseUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
-    visibility: Optional[Literal["private", "department", "public"]] = None
+    visibility: Optional[KBVisibility] = None
     owner: Optional[str] = None
-    status: Optional[Literal["active", "archived"]] = None
+    status: Optional[KBStatus] = None
 
 
 @router.post("")

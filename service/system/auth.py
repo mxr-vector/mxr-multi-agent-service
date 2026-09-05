@@ -8,6 +8,7 @@ status='disabled' 的用户拒绝登录并明确提示。均走 bad_except 统�
 import asyncio
 import uuid
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.user import UserRepository
 from exception.bad_except import bad_except
@@ -36,7 +37,7 @@ class AuthService:
             )
             if not password_ok:
                 bad_except(_LOGIN_FAILED_MSG)
-            if user.status == "disabled":
+            if user.status == RecordStatus.DISABLED:
                 bad_except("账号已停用，请联系管理员")
             token = create_token(format_id(user.id), user.username)
             return {"token": token, "user": user.to_dict()}

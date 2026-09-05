@@ -6,6 +6,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils.compat import uuid7
 
+from agent.constants.enums.rag import KBStatus, KBVisibility
 from database.qdrant_client import build_kb_collection_name
 from entity.rag.knowledge_base import KnowledgeBase
 from utils.page import paginate
@@ -47,7 +48,7 @@ class KnowledgeBaseRepository:
         embedding_provider: str | None = None,
         embedding_model: str | None = None,
         embedding_dim: int | None = None,
-        visibility: str = "private",
+        visibility: str = KBVisibility.PRIVATE,
         owner: str | None = None,
     ) -> KnowledgeBase:
         """插入知识库（仅元数据，不创建任何 Qdrant collection）。
@@ -88,7 +89,7 @@ class KnowledgeBaseRepository:
         可选按 dept_ids IN / owner 等值过滤（数据权限边界由 service 层换算）。
         返回 (items, total)。
         """
-        stmt = select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
+        stmt = select(KnowledgeBase).where(KnowledgeBase.status != KBStatus.DELETED)
         if keyword:
             pattern = ilike_pattern(keyword)
             stmt = stmt.where(
@@ -120,11 +121,11 @@ class KnowledgeBaseRepository:
 
         注：参数/返回注解用字符串形式，避免类作用域内被上方 `list` 方法遮蔽。
         """
-        stmt = select(KnowledgeBase.id).where(KnowledgeBase.status == "active")
-        clauses = [KnowledgeBase.visibility == "public"]
+        stmt = select(KnowledgeBase.id).where(KnowledgeBase.status == KBStatus.ACTIVE)
+        clauses = [KnowledgeBase.visibility == KBVisibility.PUBLIC]
         if owner is not None:
             clauses.append(KnowledgeBase.owner == owner)
-        dept_branch = KnowledgeBase.visibility == "department"
+        dept_branch = KnowledgeBase.visibility == KBVisibility.DEPARTMENT
         if dept_ids is None:
             # 不限部门（all 档/机器通道）：所有 department 库均可见
             clauses.append(dept_branch)
@@ -152,12 +153,12 @@ class KnowledgeBaseRepository:
         if not ids:
             return []
         stmt = select(KnowledgeBase.id).where(
-            KnowledgeBase.status == "active", KnowledgeBase.id.in_(ids)
+            KnowledgeBase.status == KBStatus.ACTIVE, KnowledgeBase.id.in_(ids)
         )
-        clauses = [KnowledgeBase.visibility == "public"]
+        clauses = [KnowledgeBase.visibility == KBVisibility.PUBLIC]
         if owner is not None:
             clauses.append(KnowledgeBase.owner == owner)
-        dept_branch = KnowledgeBase.visibility == "department"
+        dept_branch = KnowledgeBase.visibility == KBVisibility.DEPARTMENT
         if dept_ids is None:
             # 不限部门（all 档/机器通道）：所有 department 库均可见
             clauses.append(dept_branch)
@@ -215,7 +216,7 @@ class KnowledgeBaseRepository:
         kb = await self.session.get(KnowledgeBase, kb_id)
         if kb is None:
             return None
-        kb.status = "deleted"
+        kb.status = KBStatus.DELETED
         kb.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         return kb

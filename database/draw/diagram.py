@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.chat import ChatMessageStatus, SessionStatus
 from entity.draw.diagram import DrawDiagramVersion, DrawMessage, DrawSession
 from utils.page import paginate
 
@@ -45,7 +46,7 @@ class DrawSessionRepository:
             select(DrawSession)
             .where(
                 DrawSession.user_id == user_id,
-                DrawSession.status != "deleted",
+                DrawSession.status != SessionStatus.DELETED,
             )
             .order_by(
                 func.coalesce(
@@ -155,8 +156,8 @@ class DrawMessageRepository:
         """启动清扫：把残留的 generating 消息统一置为 failed，返回影响行数。"""
         stmt = (
             update(DrawMessage)
-            .where(DrawMessage.status == "generating")
-            .values(status="failed", error="服务重启，生成任务中断")
+            .where(DrawMessage.status == ChatMessageStatus.GENERATING)
+            .values(status=ChatMessageStatus.FAILED, error="服务重启，生成任务中断")
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

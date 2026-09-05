@@ -22,6 +22,7 @@ from agent.constants.enums.chat import ChatMessageStatus, ChatRole
 from agent.constants.enums.story import StoryMessageKind, StoryTaskStatus, StoryTaskType
 from agent.prompts.story import CARD_DATA_KEY
 from core.config_snapshot import CFG
+from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
 from database.story.project import ProjectRepository
 from database.story.session import (
@@ -137,7 +138,7 @@ class ArtGenerationService:
         project = await ProjectRepository(db).get(story_session.project_id)
         if (
             project is None
-            or project.status == "deleted"
+            or project.status == StoryProjectStatus.DELETED
             or project.user_id != ctx.user_id
         ):
             bad_except(f"消息不存在: {message_id.hex}")

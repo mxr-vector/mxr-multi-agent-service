@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.menu import MenuRepository
 from database.system.role import RoleRepository
@@ -28,7 +29,7 @@ class RoleService:
         role_key: str,
         data_scope: str = "all",
         sort_order: int = 0,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> dict:
         """创建角色并返回其数据；role_key 必须全局唯一。"""

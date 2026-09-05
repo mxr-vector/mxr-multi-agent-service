@@ -35,6 +35,16 @@ class ChatMessageStatus(str, Enum):
     FAILED = "failed"
 
 
+class SessionStatus(str, Enum):
+    """会话状态（rag.chat_sessions / draw.draw_sessions.status 取值）。
+
+    常态为 active；历史软删遗留的 deleted 行读侧一律按不存在处理。
+    """
+
+    ACTIVE = "active"
+    DELETED = "deleted"
+
+
 class SseEvent(str, Enum):
     """SSE 流式问答事件名（帧的 event 字段取值）。"""
 

@@ -3,7 +3,8 @@
 
 消息角色 / 消息状态 / SSE 事件复用 agent.constants.enums.chat 中的
 ChatRole / ChatMessageStatus / SseEvent（取值语义完全一致，不重复定义）；
-本模块仅维护剧本域特有的取值（会话类型 / 消息产物类型 / 任务类型与状态）。
+本模块仅维护剧本域特有的取值（会话类型 / 消息产物类型 / 任务类型与状态 /
+项目与关键帧状态）。
 """
 
 from enum import Enum
@@ -51,3 +52,28 @@ class StoryTaskStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class StoryProjectStatus(str, Enum):
+    """项目生命周期（story_projects.status 取值）。
+
+    删除采用软删除（DELETED，不参与列表与校验）；ARCHIVED 为归档态。
+    """
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
+
+
+class StoryKeyframeStatus(str, Enum):
+    """关键帧生命周期（story_keyframes.status 取值，业务层白名单校验）。
+
+    draft（默认）→ generating（生成中）→ done（完成）/ failed（异常）；
+    archived（归档后不参与导出）。
+    """
+
+    DRAFT = "draft"
+    GENERATING = "generating"
+    DONE = "done"
+    FAILED = "failed"
+    ARCHIVED = "archived"

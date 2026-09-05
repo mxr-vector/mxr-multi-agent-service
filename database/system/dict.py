@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.system import RecordStatus
 from entity.system.dict import DictData, DictType
 from utils.page import paginate
 from utils.keyword import ilike_pattern
@@ -28,7 +29,7 @@ class DictTypeRepository:
         self,
         name: str,
         type: str,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> DictType:
         """插入一条字典类型，id 由数据库 uuidv7() 生成。"""
@@ -121,7 +122,7 @@ class DictDataRepository:
         value: str,
         sort_order: int = 0,
         is_default: bool = False,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> DictData:
         """插入一条字典数据，id 由数据库 uuidv7() 生成。"""

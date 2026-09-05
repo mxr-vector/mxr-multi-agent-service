@@ -28,6 +28,7 @@ from agent.constants.enums.story import StoryMessageKind, StoryTaskStatus, Story
 from agent.prompts.story import CARD_DATA_KEY, HISTORY_EMPTY, SCRIPT_SYSTEM_PROMPT
 from agent.skills.loader import get_style, load_skill_excerpt
 from core.config_snapshot import CFG
+from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
 from database.story.project import ProjectRepository
 from database.story.session import (
@@ -394,7 +395,7 @@ class StoryGenerationService:
             project = await ProjectRepository(db).get(task.project_id)
             if (
                 project is None
-                or project.status == "deleted"
+                or project.status == StoryProjectStatus.DELETED
                 or project.user_id != ctx.user_id
             ):
                 bad_except(f"生成任务不存在: {task_id.hex}")

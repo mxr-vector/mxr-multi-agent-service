@@ -22,6 +22,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.dept import DeptRepository
 from database.system.user import UserRepository
@@ -81,7 +82,7 @@ async def aggregate_data_scope(session: AsyncSession, user_id: uuid.UUID) -> str
     stmt = (
         select(Role.data_scope)
         .join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user_id, Role.status == "active")
+        .where(UserRole.user_id == user_id, Role.status == RecordStatus.ACTIVE)
     )
     result = await session.execute(stmt)
     scopes = [row[0] for row in result.all()]
@@ -115,7 +116,7 @@ async def get_user_context(request: Request) -> UserContext:
         user = await UserRepository(session).get(user_id)
         # 已删除与已禁用（status != 'active'）同文案拒绝：不向调用方暴露
         # 账号是否存在，防用户名枚举（与 /auth/me 语义一致）
-        if user is None or user.status != "active":
+        if user is None or user.status != RecordStatus.ACTIVE:
             bad_except("用户不存在或已被删除")
         data_scope = await aggregate_data_scope(session, user_id)
         return UserContext(
@@ -148,7 +149,7 @@ async def is_admin(ctx: UserContext) -> bool:
             .join(UserRole, UserRole.role_id == Role.id)
             .where(
                 UserRole.user_id == uuid.UUID(ctx.user_id),
-                Role.status == "active",
+                Role.status == RecordStatus.ACTIVE,
                 Role.role_key == _ADMIN_ROLE_KEY,
             )
             .limit(1)

@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.chat import ChatMessageStatus
+from agent.constants.enums.story import StoryTaskStatus
 from entity.story.session import StoryGenerationTask, StoryMessage, StorySession
 from utils.page import paginate
 
@@ -133,7 +135,7 @@ class MessageRepository:
         image_file: str | None = None,
         prompt: str | None = None,
         params: dict | None = None,
-        status: str = "done",
+        status: str = ChatMessageStatus.DONE,
         error: str | None = None,
     ) -> StoryMessage:
         """插入消息；id 与 sequence 由应用端生成/分配。"""
@@ -205,8 +207,8 @@ class MessageRepository:
         """
         stmt = (
             update(StoryMessage)
-            .where(StoryMessage.status == "generating")
-            .values(status="failed", error="服务重启导致生成中断")
+            .where(StoryMessage.status == ChatMessageStatus.GENERATING)
+            .values(status=ChatMessageStatus.FAILED, error="服务重启导致生成中断")
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0
@@ -230,7 +232,11 @@ class GenerationTaskRepository:
     """生成任务持久层：任务创建、状态流转与项目级在途检查。"""
 
     # 在途状态集合（互斥检查口径）
-    RUNNING_STATUSES = ("pending", "queued", "generating")
+    RUNNING_STATUSES = (
+        StoryTaskStatus.PENDING,
+        StoryTaskStatus.QUEUED,
+        StoryTaskStatus.GENERATING,
+    )
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -248,7 +254,7 @@ class GenerationTaskRepository:
         prompt: str | None = None,
         negative_prompt: str | None = None,
         params: dict | None = None,
-        status: str = "pending",
+        status: str = StoryTaskStatus.PENDING,
     ) -> StoryGenerationTask:
         """插入生成任务；id 由应用端生成。"""
         row = StoryGenerationTask(
@@ -295,7 +301,7 @@ class GenerationTaskRepository:
             update(StoryGenerationTask)
             .where(StoryGenerationTask.status.in_(self.RUNNING_STATUSES))
             .values(
-                status="failed",
+                status=StoryTaskStatus.FAILED,
                 error_message="服务重启导致生成中断",
                 finished_at=datetime.now(timezone.utc),
             )
@@ -377,7 +383,7 @@ if __name__ == "__main__":
                 seq = await message_repo.next_sequence(session_id)
                 msg = await message_repo.create(
                     uuid7(), session_id, "assistant", seq,
-                    kind="script", content=f"剧本片段{i}", status="done",
+                    kind="script", content=f"剧本片段{i}", status=ChatMessageStatus.DONE,
                 )
                 await session_repo.touch(row, message_delta=1, message_at=msg.created_at)
             assert row.message_count == 2 and row.last_message_at is not None
@@ -395,16 +401,16 @@ if __name__ == "__main__":
             task = await task_repo.create(
                 task_id, project_id, "script", session_id=session_id, prompt="p"
             )
-            assert task.status == "pending"
+            assert task.status == StoryTaskStatus.PENDING
             assert await task_repo.has_running(project_id) is True
             await task_repo.update_fields(
                 task,
-                {"status": "generating", "progress": 50, "started_at": datetime.now(timezone.utc)},
+                {"status": StoryTaskStatus.GENERATING, "progress": 50, "started_at": datetime.now(timezone.utc)},
             )
             await task_repo.update_fields(
                 task,
                 {
-                    "status": "succeeded",
+                    "status": StoryTaskStatus.SUCCEEDED,
                     "progress": 100,
                     "result_text": "全文",
                     "finished_at": datetime.now(timezone.utc),

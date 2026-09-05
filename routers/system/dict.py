@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
+from agent.constants.enums.system import RecordStatus
 from service.system.dict import DictDataService, DictTypeService
 from utils.response import R
 from utils.user_context import require_admin
@@ -23,7 +24,7 @@ class DictTypeCreate(BaseModel):
 
     name: str
     type: str
-    status: str = "active"
+    status: str = RecordStatus.ACTIVE
     remark: Optional[str] = None
 
 
@@ -44,7 +45,7 @@ class DictDataCreate(BaseModel):
     value: str
     sort_order: int = 0
     is_default: bool = False
-    status: str = "active"
+    status: str = RecordStatus.ACTIVE
     remark: Optional[str] = None
 
 

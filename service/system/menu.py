@@ -1,5 +1,6 @@
 import uuid
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.menu import MenuRepository
 from database.system.role_menu import RoleMenuRepository
@@ -31,7 +32,7 @@ class MenuService:
         perms: str | None = None,
         visible: bool = True,
         sort_order: int = 0,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
     ) -> dict:
         """创建菜单并返回其数据；校验 menu_type 合法、父节点存在。"""
         if menu_type not in _MENU_TYPES:

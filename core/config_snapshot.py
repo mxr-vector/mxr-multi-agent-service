@@ -20,6 +20,7 @@ import asyncio
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.config import ConfigRepository
 from database.system.model_config import ModelConfigRepository
@@ -187,7 +188,7 @@ async def _load_model_roles() -> tuple[str, ...]:
     """
     from service.system.dict import DictDataService
 
-    rows = await DictDataService().list_by_type(MODEL_TYPES_DICT_KEY, status="active")
+    rows = await DictDataService().list_by_type(MODEL_TYPES_DICT_KEY, status=RecordStatus.ACTIVE)
     roles = tuple(row["value"] for row in rows)
     if not roles:
         raise ValueError(

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.dict import DictDataRepository, DictTypeRepository
 from exception.bad_except import bad_except
@@ -22,7 +23,7 @@ class DictTypeService:
         self,
         name: str,
         type: str,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> dict:
         """创建字典类型并返回其数据；type 键必须全局唯一。"""
@@ -132,7 +133,7 @@ class DictDataService:
         value: str,
         sort_order: int = 0,
         is_default: bool = False,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> dict:
         """创建字典数据并返回其数据；dict_type 必须已存在。"""

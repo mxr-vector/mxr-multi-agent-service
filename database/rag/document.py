@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.rag import DocumentStatus
 from entity.rag.document import Document
 from utils.page import paginate
 
@@ -52,7 +53,7 @@ class DocumentRepository:
         folder_id: uuid.UUID | None = None,
         valid_from: datetime | None = None,
         valid_until: datetime | None = None,
-        status: str = "pending",
+        status: str = DocumentStatus.PENDING,
         version: int = 1,
         dept_id: str = "",
     ) -> Document:
@@ -117,7 +118,7 @@ class DocumentRepository:
         stmt = (
             select(Document)
             .where(Document.knowledge_base_id == knowledge_base_id)
-            .where(Document.status != "deleted")
+            .where(Document.status != DocumentStatus.DELETED)
         )
         if status is not None:
             stmt = stmt.where(Document.status == status)
@@ -134,7 +135,7 @@ class DocumentRepository:
             .select_from(Document)
             .where(
                 Document.knowledge_base_id == knowledge_base_id,
-                Document.status != "deleted",
+                Document.status != DocumentStatus.DELETED,
             )
         )
         result = await self.session.execute(stmt)
@@ -151,7 +152,7 @@ class DocumentRepository:
             select(Document)
             .where(Document.knowledge_base_id == knowledge_base_id)
             .where(Document.source_uri == source_uri)
-            .where(Document.status != "deleted")
+            .where(Document.status != DocumentStatus.DELETED)
             .order_by(Document.version.desc())
             .limit(1)
         )
@@ -191,7 +192,7 @@ class DocumentRepository:
         doc.content_hash = content_hash
         if doc_type is not None:
             doc.doc_type = doc_type
-        doc.status = "pending"
+        doc.status = DocumentStatus.PENDING
         doc.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         return doc
@@ -212,7 +213,7 @@ class DocumentRepository:
         """
         stmt = (
             update(Document)
-            .where(Document.id == doc_id, Document.status != "reindexing")
+            .where(Document.id == doc_id, Document.status != DocumentStatus.REINDEXING)
             .values(status=status, updated_at=datetime.now(timezone.utc))
         )
         result = await self.session.execute(stmt)
@@ -234,8 +235,8 @@ class DocumentRepository:
         """启动清扫：把残留的 reindexing 文档置为 failed，返回影响行数。"""
         stmt = (
             update(Document)
-            .where(Document.status == "reindexing")
-            .values(status="failed", updated_at=datetime.now(timezone.utc))
+            .where(Document.status == DocumentStatus.REINDEXING)
+            .values(status=DocumentStatus.FAILED, updated_at=datetime.now(timezone.utc))
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

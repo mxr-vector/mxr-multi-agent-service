@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent.constants.enums.rag import DocumentStatus, KBStatus
 from database.postgre_client import get_session
 from database.qdrant_client import QdrantManager, SPARSE_VECTOR_NAME
 from entity.rag.chunks import Chunk
@@ -56,7 +57,7 @@ async def list_kbs() -> None:
         kbs = (
             (
                 await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.status != "deleted")
+                    select(KnowledgeBase).where(KnowledgeBase.status != KBStatus.DELETED)
                 )
             )
             .scalars()
@@ -68,7 +69,7 @@ async def list_kbs() -> None:
                     await session.execute(
                         select(Document.id).where(
                             Document.knowledge_base_id == kb.id,
-                            Document.status != "deleted",
+                            Document.status != DocumentStatus.DELETED,
                         )
                     )
                 )
@@ -106,7 +107,7 @@ async def migrate_kb(kb_id: str, batch_size: int, encoder: str) -> None:
                 await session.execute(
                     select(Document.id).where(
                         Document.knowledge_base_id == kb_uuid,
-                        Document.status != "deleted",
+                        Document.status != DocumentStatus.DELETED,
                     )
                 )
             )

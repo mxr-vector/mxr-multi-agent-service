@@ -5,6 +5,7 @@ from typing import Sequence
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.chat import ChatMessageStatus, SessionStatus
 from entity.rag.chat import ChatMessage, ChatSession
 from utils.page import paginate
 
@@ -48,7 +49,7 @@ class ChatSessionRepository:
             select(ChatSession)
             .where(
                 ChatSession.user_id == user_id,
-                ChatSession.status != "deleted",
+                ChatSession.status != SessionStatus.DELETED,
             )
             .order_by(
                 func.coalesce(
@@ -114,13 +115,13 @@ class ChatSessionRepository:
             .select_from(ChatSession)
             .where(
                 ChatSession.user_id == user_id,
-                ChatSession.status != "deleted",
+                ChatSession.status != SessionStatus.DELETED,
             )
         )
         message_count = await self.session.scalar(
             select(func.coalesce(func.sum(ChatSession.message_count), 0)).where(
                 ChatSession.user_id == user_id,
-                ChatSession.status != "deleted",
+                ChatSession.status != SessionStatus.DELETED,
             )
         )
         return {
@@ -248,8 +249,8 @@ class ChatMessageRepository:
         """启动清扫：把残留的 generating 消息统一置为 failed，返回影响行数。"""
         stmt = (
             update(ChatMessage)
-            .where(ChatMessage.status == "generating")
-            .values(status="failed", error="服务重启，生成任务中断")
+            .where(ChatMessage.status == ChatMessageStatus.GENERATING)
+            .values(status=ChatMessageStatus.FAILED, error="服务重启，生成任务中断")
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

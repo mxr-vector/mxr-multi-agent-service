@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.system import RecordStatus
 from entity.system.user import User
 from utils.page import paginate
 from utils.keyword import ilike_pattern
@@ -31,7 +32,7 @@ class UserRepository:
         email: str | None = None,
         phone: str | None = None,
         avatar: str | None = None,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> User:
         """插入一条用户（password 为 service 层算好的 bcrypt 哈希），id 由数据库 uuidv7() 生成。"""

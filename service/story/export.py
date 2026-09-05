@@ -12,6 +12,7 @@ import uuid
 
 from uuid_utils.compat import uuid7
 
+from agent.constants.enums.story import StoryKeyframeStatus
 from database.postgre_client import get_session
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
@@ -99,7 +100,7 @@ class ExportService:
             keyframes_payload: list[dict] = []
             for row in kf_sel_rows:
                 keyframe = keyframes_map.get(row.asset_id)
-                if keyframe is None or keyframe.status == "archived":
+                if keyframe is None or keyframe.status == StoryKeyframeStatus.ARCHIVED:
                     continue
                 kf_data = keyframe.to_dict()
                 kf_data["characters"] = kfc_by_keyframe.get(keyframe.id, [])

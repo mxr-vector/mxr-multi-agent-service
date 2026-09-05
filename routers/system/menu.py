@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Body, Path, Query
 from pydantic import BaseModel
 
+from agent.constants.enums.system import RecordStatus
 from service.system.menu import MenuService
 from utils.response import R
 from utils.user_context import require_admin
@@ -30,7 +31,7 @@ class MenuCreate(BaseModel):
     perms: Optional[str] = None
     visible: bool = True
     sort_order: int = 0
-    status: str = "active"
+    status: str = RecordStatus.ACTIVE
 
 
 class MenuUpdate(BaseModel):

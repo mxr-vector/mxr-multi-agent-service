@@ -1,5 +1,6 @@
 import uuid
 
+from agent.constants.enums.rag import DocumentStatus
 from database.postgre_client import get_session
 from database.rag.chunks import ChunkRepository
 from database.rag.document import DocumentRepository
@@ -58,7 +59,7 @@ class ChunkService:
     ) -> None:
         """分块只读链路的可见性收口：文档须存在且其归属知识库对当前上下文可见。"""
         doc = await DocumentRepository(session).get(document_id)
-        if doc is None or doc.status == "deleted":
+        if doc is None or doc.status == DocumentStatus.DELETED:
             bad_except(f"文档不存在: {document_id}")
         kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id)
         await assert_kb_visible(kb, ctx, doc.knowledge_base_id)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 
+from agent.constants.enums.system import RecordStatus
 from database.postgre_client import get_session
 from database.system.dept import DeptRepository
 from database.system.role import RoleRepository
@@ -33,7 +34,7 @@ class UserService:
         email: str | None = None,
         phone: str | None = None,
         avatar: str | None = None,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> dict:
         """

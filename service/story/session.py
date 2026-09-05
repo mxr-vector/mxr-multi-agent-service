@@ -17,6 +17,7 @@ import uuid
 from uuid_utils.compat import uuid7
 
 from agent.constants.enums.story import StorySessionType
+from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
 from database.story.project import ProjectRepository
 from database.story.session import (
@@ -97,7 +98,7 @@ class StorySessionService:
         project = await ProjectRepository(session).get(project_id)
         if (
             project is None
-            or project.status == "deleted"
+            or project.status == StoryProjectStatus.DELETED
             or project.user_id != ctx.user_id
         ):
             bad_except("项目不存在")
@@ -110,7 +111,7 @@ class StorySessionService:
         if row is None:
             bad_except(f"会话不存在: {session_id.hex}")
         project = await ProjectRepository(session).get(row.project_id)
-        if project is None or project.status == "deleted" or project.user_id != ctx.user_id:
+        if project is None or project.status == StoryProjectStatus.DELETED or project.user_id != ctx.user_id:
             bad_except(f"会话不存在: {session_id.hex}")
         return row, project
 

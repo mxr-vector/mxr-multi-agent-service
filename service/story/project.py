@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from uuid_utils.compat import uuid7
 
+from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
 from database.story.project import (
     KeyframeRepository,
@@ -33,7 +34,9 @@ from utils.id import format_id
 from utils.logger import logger
 
 # 项目状态白名单（业务层校验，数据库无 CHECK）
-_PROJECT_STATUS = {"active", "archived"}
+_PROJECT_STATUS = frozenset(
+    s.value for s in StoryProjectStatus if s != StoryProjectStatus.DELETED
+)
 
 # 项目可更新字段白名单
 _PROJECT_UPDATABLE = {"title", "description", "cover_image", "status"}
@@ -57,7 +60,7 @@ class ProjectService:
         project = await ProjectRepository(session).get(project_id)
         if (
             project is None
-            or project.status == "deleted"
+            or project.status == StoryProjectStatus.DELETED
             or project.user_id != ctx.user_id
         ):
             bad_except("项目不存在")
@@ -245,6 +248,6 @@ class ProjectService:
         async with get_session() as session:
             project = await self._assert_owned(session, project_id, ctx)
             await ProjectRepository(session).update_fields(
-                project, {"status": "deleted"}
+                project, {"status": StoryProjectStatus.DELETED}
             )
             await session.commit()

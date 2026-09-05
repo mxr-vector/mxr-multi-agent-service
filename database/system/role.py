@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.constants.enums.system import RecordStatus
 from entity.system.role import Role
 from utils.page import paginate
 from utils.keyword import ilike_pattern
@@ -30,7 +31,7 @@ class RoleRepository:
         role_key: str,
         data_scope: str = "all",
         sort_order: int = 0,
-        status: str = "active",
+        status: str = RecordStatus.ACTIVE,
         remark: str | None = None,
     ) -> Role:
         """插入一条角色，id 由数据库 uuidv7() 生成。"""

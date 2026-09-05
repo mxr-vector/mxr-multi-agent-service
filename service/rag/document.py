@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
+from agent.constants.enums.rag import DocumentStatus, KBStatus
 from database.postgre_client import get_session
 from database.rag.chunks import ChunkRepository
 from database.rag.document import DocumentRepository
@@ -115,7 +116,7 @@ class DocumentService:
                 logger.info(f"[RAG] 文档未变化，跳过重新切块: {effective_source_uri}")
                 return existing.to_dict()
 
-            if existing is not None and existing.status == "reindexing":
+            if existing is not None and existing.status == DocumentStatus.REINDEXING:
                 # 后台向量化作业正在搬运该文档的分块，此时插入新版本块集
                 # 会被作业的旧版本清理误删（数据丢失），拒绝重传直至同步完成
                 bad_except("文档正在向量化中，请稍后再试")
@@ -168,7 +169,7 @@ class DocumentService:
                     )
                     if existing is None:
                         raise
-                    if existing.status == "reindexing":
+                    if existing.status == DocumentStatus.REINDEXING:
                         bad_except("文档正在向量化中，请稍后再试")
                     logger.warning(
                         f"[RAG] 并发上传同源文件命中唯一约束，回落版本替换: "
@@ -338,7 +339,7 @@ class DocumentService:
             chunk_repo = ChunkRepository(session)
 
             doc = await doc_repo.get(doc_id)
-            if doc is None or doc.status == "deleted":
+            if doc is None or doc.status == DocumentStatus.DELETED:
                 bad_except(f"文档不存在: {doc_id}")
 
             kb = await kb_repo.get(doc.knowledge_base_id)
@@ -351,7 +352,7 @@ class DocumentService:
 
             # 并发拦截：条件 UPDATE 原子判定 + 置 reindexing，
             # 消除「读-判-写」窗口内的双触发竞态
-            if not await doc_repo.set_status_if_not_reindexing(doc.id, "reindexing"):
+            if not await doc_repo.set_status_if_not_reindexing(doc.id, DocumentStatus.REINDEXING):
                 bad_except("文档正在同步中，请稍后再试")
             await session.commit()
             return doc.to_dict()
@@ -428,7 +429,7 @@ class DocumentService:
                     )
                     await chunk_repo.delete_excluding_version(doc.id, doc.version)
 
-                await doc_repo.set_status(doc, "active")
+                await doc_repo.set_status(doc, DocumentStatus.ACTIVE)
                 await session.commit()
                 logger.info(
                     f"[RAG] 已向量化 {len(ids)} 个叶块到集合: {kb.qdrant_collection}"
@@ -441,7 +442,7 @@ class DocumentService:
                     doc_repo = DocumentRepository(session)
                     doc = await doc_repo.get(doc_id)
                     if doc is not None:
-                        await doc_repo.set_status(doc, "failed")
+                        await doc_repo.set_status(doc, DocumentStatus.FAILED)
                         await session.commit()
             except Exception as inner:
                 logger.error(f"[RAG] 回写 failed 状态失败: {doc_id}: {inner}")
@@ -463,14 +464,14 @@ class DocumentService:
             kb_cache: dict[uuid.UUID, bool] = {}
             items = []
             for doc_id, kb_id, status in rows:
-                if status == "deleted":
+                if status == DocumentStatus.DELETED:
                     continue
                 visible = kb_cache.get(kb_id)
                 if visible is None:
                     kb = await kb_repo.get(kb_id)
                     visible = (
                         kb is not None
-                        and kb.status != "deleted"
+                        and kb.status != KBStatus.DELETED
                         and await self._kb_visible(kb, flt, ctx)
                     )
                     kb_cache[kb_id] = visible
@@ -514,9 +515,9 @@ class DocumentService:
             chunk_repo = ChunkRepository(session)
 
             doc = await doc_repo.get(doc_id)
-            if doc is None or doc.status == "deleted":
+            if doc is None or doc.status == DocumentStatus.DELETED:
                 bad_except(f"文档不存在: {doc_id}")
-            if doc.status == "reindexing":
+            if doc.status == DocumentStatus.REINDEXING:
                 bad_except("文档正在同步中，请稍后再试")
 
             kb = await kb_repo.get(doc.knowledge_base_id)
@@ -535,7 +536,7 @@ class DocumentService:
                 )
 
             await chunk_repo.delete_by_document(doc.id)
-            await doc_repo.set_status(doc, "deleted")
+            await doc_repo.set_status(doc, DocumentStatus.DELETED)
             await kb_repo.adjust_counts(
                 kb, doc_delta=-1, chunk_delta=-current_leaf_count
             )
@@ -555,7 +556,7 @@ class DocumentService:
         async with get_session() as session:
             repo = DocumentRepository(session)
             doc = await repo.get(doc_id)
-            if doc is None or doc.status == "deleted":
+            if doc is None or doc.status == DocumentStatus.DELETED:
                 bad_except(f"文档不存在: {doc_id}")
             kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id)
             await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
@@ -615,7 +616,7 @@ class DocumentService:
         async with get_session() as session:
             repo = DocumentRepository(session)
             doc = await repo.get(doc_id)
-            if doc is None or doc.status == "deleted":
+            if doc is None or doc.status == DocumentStatus.DELETED:
                 bad_except(f"文档不存在: {doc_id}")
             kb = await KnowledgeBaseRepository(session).get(doc.knowledge_base_id)
             await assert_kb_visible(kb, ctx, doc.knowledge_base_id)
