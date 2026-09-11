@@ -10,6 +10,12 @@ ChatRole / ChatMessageStatus / SseEvent（取值语义完全一致，不重复�
 from enum import Enum
 
 
+class StoryNode(str, Enum):
+    """剧本创作图节点名（同时用于节点注册与边的引用，必须保持一致）。"""
+
+    COMPOSE = "compose"
+
+
 class StorySessionType(str, Enum):
     """生成会话类型（story_sessions.type 取值）。"""
 

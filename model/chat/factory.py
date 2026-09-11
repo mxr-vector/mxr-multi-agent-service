@@ -28,9 +28,15 @@ def _build_chat_model(
     reasoning_effort: str | None,
     max_tokens: int,
     timeout: int | None,
+    stream_chunk_timeout: float | None,
     max_retries: int | None,
 ) -> ChatOpenAI:
     """按配置指纹构造 chat model 实例（指纹相同即复用，见模块 docstring）。"""
+    extra: dict = {}
+    if stream_chunk_timeout is not None:
+        # 显式覆盖 chunk 间隔超时（0 = 关闭）；缺省不传，由 langchain-openai
+        # 按 env（LANGCHAIN_OPENAI_STREAM_CHUNK_TIMEOUT_S）/120s 处理
+        extra["stream_chunk_timeout"] = stream_chunk_timeout
     return ChatOpenAI(
         model=model_name,
         base_url=api_url,
@@ -44,17 +50,28 @@ def _build_chat_model(
         # 外部 chat API 卡死不返回时按超时中断，避免 respond 节点无限等待。
         timeout=timeout,
         max_retries=max_retries,
+        **extra,
     )
 
 
 def build_chat_model(
-    temperature: float = 0.7, reasoning_effort: str | None = None
+    temperature: float = 0.7,
+    reasoning_effort: str | None = None,
+    max_tokens: int | None = None,
+    timeout: int | None = None,
+    stream_chunk_timeout: float | None = None,
 ) -> ChatOpenAI:
     """按 ENV 构造指向 vLLM 的 OpenAI 兼容 chat model；reasoning_effort 控制思考强度。
 
     reasoning_effort 为 None 或 'off' 时重置为 None（不下发该参数）关闭思考；
     其余取值（low/medium/high 等）透传给模型开启对应思考强度。
     思考模式与否均支持工具调用（tool_choice / function_calling）。
+    max_tokens 缺省用全局配置 CHAT_MAX_OUTPUT_TOKENS；强制深度思考的模型
+    （thinking token 与正文共享输出预算）等场景可显式覆盖放大。
+    timeout 缺省用全局配置 chat.timeout；长上下文生成（强制深度思考下首个
+    chunk 延迟可超全局读超时）等场景可显式覆盖放大。
+    stream_chunk_timeout 覆盖 SDK 的 chunk 间隔超时（缺省 env/120s，显式值
+    生效、0 关闭）；长上下文生成场景与 timeout 同步放大。
     """
     effort = (
         None
@@ -68,7 +85,8 @@ def build_chat_model(
         api_key=chat.api_key,
         temperature=temperature,
         reasoning_effort=effort,
-        max_tokens=CFG.chat_max_output_tokens,
-        timeout=chat.timeout,
+        max_tokens=max_tokens or CFG.chat_max_output_tokens,
+        timeout=timeout or chat.timeout,
+        stream_chunk_timeout=stream_chunk_timeout,
         max_retries=chat.max_retries,
     )

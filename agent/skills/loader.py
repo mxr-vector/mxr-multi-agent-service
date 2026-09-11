@@ -1,24 +1,25 @@
 """
 agent/skills 技能包只读 loader 与剧本生成风格注册表（story-ai-workspace）。
 
-技能包（agent/skills/<name>/SKILL.md + references/）是静态知识资产：
-本模块只读加载并按节裁剪注入生成提示词，绝不执行技能包内脚本。
+技能包（agent/skills/<name>/SKILL.md + references/）是静态知识资产：本模块
+只读加载技能包文本文件，供生成模型经 skill_read 工具按需读取——渐进披露：
+模型生成前先阅读 SKILL.md 全文，再按 SKILL.md 内的指引读取 references 参考
+资料；绝不执行技能包内脚本，绝不越出技能包目录读取。
 
-风格注册表把"用户可见的视频风格"绑定到技能知识源与画幅预设：
+风格注册表把"用户可见的视频风格"绑定到技能知识源、画幅预设与可读文件清单：
 - generic       → seedance-storyboard-generator（通用短剧，风格开放）
 - shangmeiying  → smy-seedance-storyboard-main（上美影动画，风格锁定）
 - handdrawn     → story-handdrawn-remotion-main（手绘日记）
 story-handdrawn-video-main 与 remotion 版同属手绘家族且为脚本链路变体，
 不单独暴露（并入手绘日记知识源）。
 
-注入策略：SKILL.md 全文过长（500+ 行），按"前言 + 命中标题的整节"裁剪——
-各风格声明必选节关键词（叙事格式/风格块与色盘/人物小传与资产提示词），
-未命中关键词的节（质量自检清单等）不进提示词。
+可读文件清单为逐风格评估结论（内容创作相关全纳入，工程实现类剔除，如
+handdrawn 的 Remotion 组件 API 不入清单）：注册表内显式维护（相对路径,
+一句话用途），经 readable_file_hint 注入提示词，read_skill_file 按技能包
+目录边界 + 后缀白名单双重校验读取。
 """
 
-import re
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 from exception.bad_except import bad_except
@@ -27,29 +28,23 @@ from utils.logger import logger
 # 技能包根目录（agent/skills/）
 SKILLS_ROOT = Path(__file__).resolve().parent
 
-# 各风格注入 SKILL.md 时命中的标题关键词（标题含任一关键词即整节注入）
-_DEFAULT_SECTIONS = ("剧本", "资产")
-_STYLE_SECTIONS: dict[str, tuple[str, ...]] = {
-    # 通用短剧：剧本格式 + 资产提示词规则
-    "generic": _DEFAULT_SECTIONS,
-    # 上美影：风格声明（前言自带）+ 制作参数（色盘声明）+ 剧本 + 资产
-    "shangmeiying": ("风格声明", "制作参数", *_DEFAULT_SECTIONS),
-    # 手绘日记：一句一拍叙事 + 风格 DNA（五色限定/墨色轮廓/安全边距）
-    # + 场景语法版式约定 + 视觉规划（无传统剧本节，前言承担风格描述）
-    "handdrawn": ("风格 DNA", "场景语法", "视觉规划", "写 story", "故事忠实度"),
-}
+# 可读文件后缀白名单（技能包内文本资料；图片/脚本等工程资源不可读）
+_READABLE_SUFFIXES = (".md", ".txt")
+# 单次读取字符上限（防御异常大文件挤爆输入预算；远超现存最大 reference 体积）
+_READ_MAX_CHARS = 256 * 1024
 
 
 @dataclass(frozen=True)
 class StyleEntry:
-    """注册表条目：风格 key → 技能知识源 + 画幅预设 + 注入节关键词。"""
+    """注册表条目：风格 key → 技能知识源 + 画幅预设 + 可读文件清单。"""
 
     key: str
     name: str
     description: str
     skill_dir: str
     aspect_ratios: tuple[str, ...]
-    section_keywords: tuple[str, ...] = field(default=())
+    # 可读文件清单：(技能包内相对路径, 一句话用途)；顺序即提示词清单顺序
+    readable_files: tuple[tuple[str, str], ...] = field(default=())
 
 
 STYLE_REGISTRY: dict[str, StyleEntry] = {
@@ -62,7 +57,14 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             "△剧本+人物小传+资产出图提示词",
             skill_dir="seedance-storyboard-generator",
             aspect_ratios=("16:9", "9:16", "4:3"),
-            section_keywords=_STYLE_SECTIONS["generic"],
+            readable_files=(
+                ("SKILL.md", "技能主文档：完整工作流、剧本格式规范与资产出图提示词规则（生成前必读）"),
+                ("references/好剧本.md", "优秀剧本范例（核心梗/故事梗概/一句话卖点的结构示范）"),
+                ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板"),
+                ("references/分镜优化与声音设计.md", "分镜优化与声音设计进阶指南"),
+                ("references/优化分镜.md", "分镜优化速查"),
+                ("references/故事转视频脚本-转换工具.md", "剧本转视频脚本的转换工具说明"),
+            ),
         ),
         StyleEntry(
             key="shangmeiying",
@@ -71,7 +73,16 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             "剧组色盘声明，国风短剧专用",
             skill_dir="smy-seedance-storyboard-main",
             aspect_ratios=("9:16", "16:9", "4:3"),
-            section_keywords=_STYLE_SECTIONS["shangmeiying"],
+            readable_files=(
+                ("SKILL.md", "技能主文档：上美影工作流、剧本格式与资产提示词规则（生成前必读）"),
+                ("references/上美影风格指南.md", "风格唯一权威定义：风格块/色盘/造型规范/资产模板（涉风格内容均以此为准）"),
+                ("references/上美影原始提示词.txt", "上美影原始 Midjourney 实测提示词素材"),
+                ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板（含上美影国风动画模板）"),
+                ("references/好剧本.md", "优秀剧本范例（核心梗/故事梗概/一句话卖点的结构示范）"),
+                ("references/分镜优化与声音设计.md", "分镜优化与声音设计进阶指南"),
+                ("references/优化分镜.md", "分镜优化速查"),
+                ("references/故事转视频脚本-转换工具.md", "剧本转视频脚本的转换工具说明"),
+            ),
         ),
         StyleEntry(
             key="handdrawn",
@@ -80,7 +91,11 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             "竖屏叙事，适合生活叙事/绘本/教学小品",
             skill_dir="story-handdrawn-remotion-main",
             aspect_ratios=("3:4", "9:16"),
-            section_keywords=_STYLE_SECTIONS["handdrawn"],
+            readable_files=(
+                ("SKILL.md", "技能主文档：手绘日记风格 DNA、一句一拍叙事规范与视觉规划（生成前必读）"),
+                ("references/prompt-recipes.md", "apiz nano-banana-2 生图 prompt 配方与硬规则（style_lock/角色锁定/安全边距）"),
+                ("references/pipeline.md", "制作管线详解（三种输入模式、一句一拍叙事布局展开）"),
+            ),
         ),
     )
 }
@@ -108,68 +123,57 @@ def list_styles() -> list[dict]:
     ]
 
 
-@lru_cache(maxsize=8)
-def _read_skill_file(skill_dir: str, filename: str) -> str:
-    """读取技能包内文本文件（只读缓存）；缺失告警并返回空串。
+def readable_file_hint(style: StyleEntry) -> str:
+    """生成注入提示词的可读文件清单文本（`- path — 用途` 行式）。"""
+    return "\n".join(f"- {path} — {usage}" for path, usage in style.readable_files)
 
-    缺失静默返回空串会让部署漏拷技能包时表现为无日志的产出质量漂移，
-    故显式告警（不 fail-fast：技能缺失不应阻断已有功能的其余链路）。
+
+def read_skill_file(skill_dir: str, rel_path: str) -> str:
+    """读取技能包内文本文件（skill_read 工具的实现原语）。
+
+    三重校验：路径 resolve 后必须仍在技能包目录内（防 ../ 越界与绝对路径
+    逃逸）；后缀须在 .md/.txt 白名单（图片/脚本/配置不可读）；文件须存在。
+    不抛异常——错误以文本返回供模型阅读纠偏，不阻断生成流。
     """
-    path = SKILLS_ROOT / skill_dir / filename
-    if not path.is_file():
-        logger.warning(f"[SKILL] 技能包文件缺失: {path}（检查部署是否漏拷 agent/skills）")
-        return ""
-    return path.read_text(encoding="utf-8")
+    skill_root = (SKILLS_ROOT / skill_dir).resolve()
+    if not skill_root.is_dir():
+        logger.warning(f"[SKILL] 技能包目录缺失: {skill_root}（检查部署是否漏拷 agent/skills）")
+        return f"技能包不存在：{skill_dir}。"
+    target = (skill_root / (rel_path or "")).resolve()
+    if not target.is_relative_to(skill_root):
+        logger.warning(f"[SKILL] 拒绝越界读取: {skill_dir}/{rel_path}")
+        return f"读取被拒绝：{rel_path} 越出技能包目录。"
+    if target.suffix.lower() not in _READABLE_SUFFIXES:
+        return f"读取被拒绝：{rel_path} 不是可读的文本资料（仅支持 .md/.txt）。"
+    if not target.is_file():
+        return f"文件不存在：{rel_path}。请从技能包文件清单中选择。"
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning(f"[SKILL] 文件读取失败 {skill_dir}/{rel_path}: {exc}")
+        return f"文件读取失败：{rel_path}。"
+    if len(text) > _READ_MAX_CHARS:
+        return text[:_READ_MAX_CHARS] + f"\n\n（内容过长已截断，仅显示前 {_READ_MAX_CHARS} 字符）"
+    return text
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-_FENCE_RE = re.compile(r"^\s*```")
-
-
-@lru_cache(maxsize=8)
-def _split_sections(text: str) -> "list[tuple[str, str]]":
-    """把 markdown 拆为（标题, 节全文）列表；首个标题前的前言标题为空串。
-
-    代码围栏（```）内的 `# ` 行是注释而非标题，须跳过以免误切段边界。
-    """
-    sections: "list[tuple[str, str]]" = []
-    current_title = ""
-    lines: "list[str]" = []
-    in_fence = False
-    for line in text.splitlines():
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            lines.append(line)
-            continue
-        if not in_fence:
-            match = _HEADING_RE.match(line)
-            if match:
-                sections.append((current_title, "\n".join(lines)))
-                current_title = match.group(2).strip()
-                lines = [line]
-                continue
-        lines.append(line)
-    sections.append((current_title, "\n".join(lines)))
-    return sections
-
-
-@lru_cache(maxsize=8)
-def load_skill_excerpt(skill_dir: str, keywords: tuple[str, ...]) -> str:
-    """加载技能 SKILL.md 并按关键词裁剪：前言 + 标题命中关键词的整节。
-
-    命中节保留其全部子节（叙事格式规范是连贯整体，不做更深切分）。
-    """
-    text = _read_skill_file(skill_dir, "SKILL.md")
-    if not text:
-        return ""
-    parts: list[str] = []
-    for title, body in _split_sections(text):
-        if not title:
-            # 前言（含 frontmatter 之后的风格总述）始终注入
-            parts.append(body)
-        elif any(keyword in title for keyword in keywords):
-            parts.append(body)
-    excerpt = "\n\n".join(part for part in parts if part.strip())
-    if not excerpt:
-        bad_except(f"技能 {skill_dir} 未命中任何注入节（keywords={keywords}）")
-    return excerpt
+if __name__ == "__main__":
+    # 冒烟：三风格清单枚举 + 正常读取 + 越界/后缀/不存在三类拒绝（纯文件读取，无需配置快照）
+    assert [s["key"] for s in list_styles()] == ["generic", "shangmeiying", "handdrawn"]
+    style = get_style("shangmeiying")
+    logger.info("可读文件清单：\n" + readable_file_hint(style))
+    for path, _usage in style.readable_files:
+        text = read_skill_file(style.skill_dir, path)
+        assert text and not text.startswith("读取被拒绝"), f"正常读取失败: {path}"
+        logger.info(f"读取 OK：{path}（{len(text)} 字符）")
+    assert "越出技能包目录" in read_skill_file(style.skill_dir, "../../env/.env.development")
+    assert "越出技能包目录" in read_skill_file(style.skill_dir, "/etc/hostname")
+    assert "不是可读的文本资料" in read_skill_file(style.skill_dir, "SKILL.md.bak")
+    assert "文件不存在" in read_skill_file(style.skill_dir, "references/不存在.md")
+    try:
+        get_style("nope")
+    except Exception as exc:
+        logger.info(f"未注册风格拒绝：{exc}")
+    else:
+        raise AssertionError("未注册风格未被拒绝")
+    logger.info("loader 冒烟通过")

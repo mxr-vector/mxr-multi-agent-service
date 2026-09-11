@@ -1,15 +1,19 @@
 """
-剧本生成业务层：SSE 流式剧本生成编排（story-ai-workspace）。
+剧本生成业务层：SSE 流式剧本生成（story-ai-workspace）。
 
-对齐 service/rag/chat.py 的编排范式：
+AI 编排（系统提示装配、生成模型装配、技能工具循环、预算守卫、漏读纠正）
+收敛在 LangGraph 创作图 agent/graph/story/graph.py（见 design D9）；本层
+只做业务收口（对齐 service/rag/chat.py 的消费范式）：
 - 写库时序（崩溃可恢复）：生成任务（pending）→ user 消息（制作参数快照）→
   assistant 占位（generating）→ 流结束更新终态（done/stopped/failed）；
-- 帧协议复用 chat 的 SseEvent（think/answer/done/error），剧本文本走 answer 帧，
-  结构化角色卡随 done 帧 meta 一次下发（D2，卡片无需逐 token 流式）；
+- 帧协议复用 chat 的 SseEvent（think/answer/done/error）：图经 stream_mode
+  "custom" 外发 think/answer 事件，本层映射 SSE 帧（answer 帧与累积文本
+  单点收口）；结构化角色卡随 done 帧 meta 一次下发（D2，卡片无需逐 token 流式）；
+- 图终态（answer + skill_audit）经 stream_mode "updates" 回传；审计随任务
+  终态并入 params（成功/取消/失败均落，失败路径也含失败前已读文件清单）；
 - 互斥双保险：会话级（内存注册表）+ 项目级（story_generation_tasks 在途检查）；
 - 双轨契约（D4）：模型全文经 split_dual_track 剥离角色卡；成功路径落库
-  剧本消息 + 每角色一条角色卡消息，并把制作参数回写项目（参数记忆）；
-- 历史上下文按 token 预算从最旧裁剪（对齐 chat_graph 的预算口径）。
+  剧本消息 + 每角色一条角色卡消息，并把制作参数回写项目（参数记忆）。
 """
 
 import asyncio
@@ -24,11 +28,15 @@ from agent.constants.enums.chat import (
     ChatRole,
     SseEvent,
 )
-from agent.constants.enums.story import StoryMessageKind, StoryTaskStatus, StoryTaskType
-from agent.prompts.story import CARD_DATA_KEY, HISTORY_EMPTY, SCRIPT_SYSTEM_PROMPT
-from agent.skills.loader import get_style, load_skill_excerpt
+from agent.constants.enums.story import (
+    StoryMessageKind,
+    StoryProjectStatus,
+    StoryTaskStatus,
+    StoryTaskType,
+)
+from agent.prompts.story import CARD_DATA_KEY
+from agent.skills.loader import get_style
 from core.config_snapshot import CFG
-from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
 from database.story.project import ProjectRepository
 from database.story.session import (
@@ -37,7 +45,6 @@ from database.story.session import (
     SessionRepository,
 )
 from exception.bad_except import bad_except
-from model.chat.factory import build_chat_model
 from service.story.contract import split_dual_track
 from service.story.session import (
     StorySessionService,
@@ -48,37 +55,15 @@ from service.story.session import (
 from utils.logger import logger
 from utils.page import build_page_result
 from utils.stream_runtime import sse_frame, spawn_side_task
-from utils.token_count import count_tokens
 
-# 输入预算安全边际（覆盖估算偏差，对齐 chat_graph）
-_INPUT_BUDGET_SAFETY_MARGIN = 0.10
 # 历史拼装最多取最近 N 条消息
 _HISTORY_MAX_MESSAGES = 8
 # 历史单条内容截断（角色卡/剧本全文入历史时防止单条独占预算）
 _HISTORY_ITEM_MAX_CHARS = 4000
-# 历史文本行级固定开销（行分隔/角色标记）
-_LINE_FIXED_TOKENS = 2
-
-
-def _trim_history_lines(lines: list[str], budget: int, model_name: str) -> str:
-    """历史行按预算从最旧丢弃（对齐 chat_graph._trim_text_lines_to_budget）。"""
-    if budget <= 0 or not lines:
-        return ""
-    acc = 0
-    kept: list[str] = []
-    for line in reversed(lines):
-        cost = count_tokens(model_name, line) + _LINE_FIXED_TOKENS
-        if acc + cost > budget:
-            break
-        acc += cost
-        kept.append(line)
-    if len(kept) < len(lines):
-        logger.debug(f"[STORY] 历史预算裁剪：{len(lines)} → {len(kept)} 行")
-    return "\n".join(reversed(kept))
 
 
 class StoryGenerationService:
-    """剧本生成业务层：互斥校验、写库时序、模型流式与双轨落库。"""
+    """剧本生成业务层：互斥校验、写库时序、消费创作图事件与双轨落库。"""
 
     def __init__(self) -> None:
         self._session_service = StorySessionService()
@@ -179,7 +164,7 @@ class StoryGenerationService:
                     assistant_message_id=assistant_message.id,
                     gen_task_id=gen_task.id,
                     idea=idea,
-                    style=style,
+                    style_key=style.key,
                     params_snapshot=params_snapshot,
                     history_lines=history_lines,
                 )
@@ -211,16 +196,21 @@ class StoryGenerationService:
         assistant_message_id: uuid.UUID,
         gen_task_id: uuid.UUID,
         idea: str,
-        style,
+        style_key: str,
         params_snapshot: dict,
         history_lines: list[str],
     ) -> None:
-        """生成协程：模型流式 → answer 帧；终态落库并发收尾帧。"""
+        """图执行协程：astream 事件映射为 SSE 帧入队，终态落库并发收尾帧。"""
+        # 局部导入：避免 service 层与 agent 图在模块加载期耦合（对齐 chat）
+        from agent.graph.story.graph import story_graph
+
         session_hex = session_id.hex
         event_id = 0
         answer_parts: list[str] = []
         started_at = time.monotonic()
-        model_name = CFG.chat.model_name
+        # 技能调用审计：图经 custom audit 事件增量回传（含失败前已读文件），
+        # 随任务终态并入 params（成功/取消/失败均落），日志兜底
+        skill_audit = {"tool_rounds": 0, "files_read": [], "skipped_skill_read": False}
 
         def _put(event: SseEvent, data) -> None:
             nonlocal event_id
@@ -234,6 +224,23 @@ class StoryGenerationService:
                     await GenerationTaskRepository(db).update_fields(row, fields)
                     await db.commit()
 
+        async def _update_task_params(fields: dict) -> None:
+            """把技能审计并入任务 params 后更新（读改写，单事务）。"""
+            async with get_session() as db:
+                row = await GenerationTaskRepository(db).get(gen_task_id)
+                if row is not None:
+                    await GenerationTaskRepository(db).update_fields(
+                        row,
+                        {
+                            **fields,
+                            "params": {
+                                **(row.params or {}),
+                                "skill_audit": skill_audit,
+                            },
+                        },
+                    )
+                    await db.commit()
+
         try:
             await _update_task(
                 {
@@ -241,50 +248,52 @@ class StoryGenerationService:
                     "started_at": datetime.now(timezone.utc),
                 }
             )
-            # 系统提示装配：技能节选 + 参数 + 历史（按输入预算裁剪）
-            excerpt = load_skill_excerpt(style.skill_dir, style.section_keywords)
-            params_hint = "\n".join(
-                f"- {key}: {value}" for key, value in params_snapshot.items() if value
+            # 首帧回传 session_id（自动建会话场景前端由此拿到会话 id，对齐 chat）
+            _put(
+                SseEvent.THINK,
+                {"text": "正在阅读技能文档...", "session_id": session_hex},
             )
-            context_window = CFG.chat.context_window
-            budget = (
-                context_window
-                - CFG.chat_max_output_tokens
-                - int(context_window * _INPUT_BUDGET_SAFETY_MARGIN)
-            )
-            fixed_cost = count_tokens(
-                model_name,
-                SCRIPT_SYSTEM_PROMPT.format(
-                    style_name=style.name,
-                    skill_excerpt=excerpt,
-                    params_hint=params_hint,
-                    history_block="",
-                    idea_block=idea,
-                ),
-            )
-            history_block = _trim_history_lines(
-                history_lines, budget - fixed_cost, model_name
-            ) or (HISTORY_EMPTY if not history_lines else "")
-            system_prompt = SCRIPT_SYSTEM_PROMPT.format(
-                style_name=style.name,
-                skill_excerpt=excerpt,
-                params_hint=params_hint,
-                history_block=history_block or HISTORY_EMPTY,
-                idea_block=idea,
-            )
-            _put(SseEvent.THINK, {"text": "正在创作剧本...", "session_id": session_hex})
-
-            model = build_chat_model()
-            async for chunk in model.astream(
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": idea},
-                ]
+            graph = story_graph.get()
+            graph_input = {
+                "idea": idea,
+                "style_key": style_key,
+                "params_snapshot": params_snapshot,
+                "history_lines": history_lines,
+            }
+            config = {"configurable": {"session_id": session_hex}}
+            async for mode, payload in graph.astream(
+                graph_input, config, stream_mode=["custom", "updates"]
             ):
-                delta = chunk.content if isinstance(chunk.content, str) else ""
-                if delta:
-                    answer_parts.append(delta)
-                    _put(SseEvent.ANSWER, {"delta": delta})
+                if mode == "custom":
+                    # 图内 get_stream_writer 外发的编排事件：think/answer 映射
+                    # 为帧，audit 仅更新本地审计快照（不转发给前端）
+                    if not isinstance(payload, dict):
+                        continue
+                    kind = payload.get("type")
+                    if kind == "think":
+                        text = payload.get("text", "")
+                        if text:
+                            _put(
+                                SseEvent.THINK,
+                                {"text": text, "session_id": session_hex},
+                            )
+                    elif kind == "answer":
+                        delta = payload.get("delta", "")
+                        if delta:
+                            answer_parts.append(delta)
+                            _put(SseEvent.ANSWER, {"delta": delta})
+                    elif kind == "audit":
+                        audit = payload.get("skill_audit")
+                        if isinstance(audit, dict):
+                            skill_audit = audit
+                elif mode == "updates":
+                    # 终态回传：图返回的 skill_audit 以最后一次为准
+                    for update in (payload or {}).values():
+                        if not isinstance(update, dict):
+                            continue
+                        audit = update.get("skill_audit")
+                        if isinstance(audit, dict):
+                            skill_audit = audit
 
             full_text = "".join(answer_parts)
             duration_ms = round((time.monotonic() - started_at) * 1000)
@@ -299,7 +308,13 @@ class StoryGenerationService:
                 params_snapshot=params_snapshot,
                 duration_ms=duration_ms,
             )
-            await _update_task(
+            logger.info(
+                f"[STORY] 剧本生成完成 session={session_hex} "
+                f"rounds={skill_audit.get('tool_rounds')} "
+                f"files_read={skill_audit.get('files_read')} "
+                f"skipped_skill_read={skill_audit.get('skipped_skill_read')}"
+            )
+            await _update_task_params(
                 {
                     "status": StoryTaskStatus.SUCCEEDED.value,
                     "progress": 100,
@@ -333,7 +348,7 @@ class StoryGenerationService:
                 )
             )
             spawn_side_task(
-                _update_task(
+                _update_task_params(
                     {
                         "status": StoryTaskStatus.CANCELLED.value,
                         "finished_at": datetime.now(timezone.utc),
@@ -364,7 +379,7 @@ class StoryGenerationService:
                 )
             )
             spawn_side_task(
-                _update_task(
+                _update_task_params(
                     {
                         "status": StoryTaskStatus.FAILED.value,
                         "finished_at": datetime.now(timezone.utc),
