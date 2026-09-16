@@ -71,7 +71,7 @@ async function handleSave() {
       </template>
     </div>
 
-    <el-dialog v-model="previewVisible" title="剧本全文" width="720px" destroy-on-close>
+    <el-dialog v-model="previewVisible" title="剧本全文" width="720px" append-to-body destroy-on-close>
       <div class="preview-content">{{ message.content }}</div>
       <template #footer>
         <el-button @click="previewVisible = false">关闭</el-button>
@@ -79,7 +79,7 @@ async function handleSave() {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="saveVisible" title="存为剧本版本" width="420px" destroy-on-close>
+    <el-dialog v-model="saveVisible" title="存为剧本版本" width="420px" append-to-body destroy-on-close>
       <el-form label-width="88px">
         <el-form-item label="版本标题">
           <el-input v-model="saveTitle" placeholder="可选，如：AI 初稿" />

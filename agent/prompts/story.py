@@ -40,10 +40,12 @@ SCRIPT_SYSTEM_PROMPT = """你是一名专业的 AI 短剧编剧与视觉资产�
 2. 正文结束后，必须另起一行输出角色卡数据块，格式严格如下（标记行顶格、独占一行）：
 
 <<<STORY_CARDS>>>
-{{"characters": [{{"name": "角色名", "role_type": "protagonist/supporting/antagonist/npc/other 之一", "profile": {{"性格": "…", "身份": "…"}}, "visual_profile": {{"视觉形象": "…", "专属主色": "…", "专属纹样": "…"}}, "appearance_prompt": "图像模型可用的外观描述", "art_prompt": "完整角色立绘出图提示词（含上述风格块/色盘约束，纯白背景站姿）", "negative_prompt": "负向提示词"}}], "params": {{"aspect_ratio": "画幅", "episodes": 集数, "tone": "基调"}}}}
+{{"characters": [{{"name": "角色名", "role_type": "protagonist/supporting/antagonist/npc/other 之一", "profile": {{"性格": "…", "身份": "…"}}, "visual_profile": {{"视觉形象": "…", "专属主色": "…", "专属纹样": "…"}}, "appearance_prompt": "该角色的独特外观描述（身材体态/发型发色/面部五官/专属服饰与配饰细节）", "art_prompt": "完整角色立绘出图提示词：必须【主体先行】，开头直接描述该角色的独特外貌、专属服饰与姿态，严禁不同角色千人一面；随后再追加风格定义、专属主色与白底站姿约束", "negative_prompt": "负向提示词"}}], "params": {{"aspect_ratio": "画幅", "episodes": 集数, "tone": "基调"}}}}
 <<<END_STORY_CARDS>>>
 
-3. characters 数组须覆盖剧本中全部主要角色（1-8 个），art_prompt 必须可直接用于图像模型生成该角色的标准立绘。
+3. characters 数组须覆盖剧本中全部主要角色（1-8 个），且每个角色的提示词必须独立定制：
+   - art_prompt 必须严格遵循【主体先行】原则：开头必须是该角色独一无二的人物主体特征（姓名、身份、年龄体型、五官发型、标志性服饰材质与颜色、特征道具、站立姿态），让图像模型与读者一眼认出是哪位角色；
+   - 严禁把通用的大段风格咒语直接机械地复制粘贴在所有角色提示词的最开头，严禁不同角色使用相同或高度雷同的出图提示词。
 4. 除正文与该数据块外，不要输出任何其它说明文字。"""
 
 # 无历史（首轮生成）时的历史占位

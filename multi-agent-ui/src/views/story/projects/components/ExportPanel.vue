@@ -104,7 +104,7 @@ async function handleCopy(pkg: StoryExportPackageVO) {
     </el-table>
 
     <!-- 生成 -->
-    <el-dialog v-model="createVisible" title="生成导出包" width="520px" destroy-on-close>
+    <el-dialog v-model="createVisible" title="生成导出包" width="520px" append-to-body destroy-on-close>
       <el-form label-width="88px">
         <el-form-item label="名称">
           <el-input v-model="createForm.name" placeholder="缺省自动生成" />
@@ -124,6 +124,7 @@ async function handleCopy(pkg: StoryExportPackageVO) {
       v-model="viewVisible"
       :title="viewing?.name ?? '导出包'"
       width="760px"
+      append-to-body
       destroy-on-close
     >
       <div class="view-actions">

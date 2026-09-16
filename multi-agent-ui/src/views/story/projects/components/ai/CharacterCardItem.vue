@@ -283,7 +283,7 @@ const ROLE_LABEL: Record<string, string> = {
       </el-button>
     </div>
 
-    <el-dialog v-model="editVisible" title="编辑角色卡" width="560px" destroy-on-close>
+    <el-dialog v-model="editVisible" title="编辑角色卡" width="560px" append-to-body destroy-on-close>
       <el-form label-width="88px">
         <el-form-item label="角色名">
           <el-input v-model="editForm.name" />
@@ -310,7 +310,7 @@ const ROLE_LABEL: Record<string, string> = {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="artSpecVisible" title="生成立绘" width="360px" destroy-on-close>
+    <el-dialog v-model="artSpecVisible" title="生成立绘" width="360px" append-to-body destroy-on-close>
       <el-form label-width="72px">
         <el-form-item label="尺寸">
           <el-select v-model="artSize" clearable placeholder="跟随模型配置" style="width: 100%">

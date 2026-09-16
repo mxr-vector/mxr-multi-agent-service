@@ -268,6 +268,7 @@ function formatDuration(ms: number | null): string {
       v-model="playVisible"
       :title="playing?.title || '视频预览'"
       width="720px"
+      append-to-body
       destroy-on-close
     >
       <video
@@ -280,7 +281,7 @@ function formatDuration(ms: number | null): string {
     </el-dialog>
 
     <!-- 编辑 -->
-    <el-dialog v-model="editVisible" title="编辑视频登记" width="520px" destroy-on-close>
+    <el-dialog v-model="editVisible" title="编辑视频登记" width="520px" append-to-body destroy-on-close>
       <el-form label-width="88px">
         <el-form-item label="标题">
           <el-input v-model="editForm.title" />

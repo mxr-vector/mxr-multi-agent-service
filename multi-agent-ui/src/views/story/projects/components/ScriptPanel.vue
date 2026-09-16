@@ -157,7 +157,7 @@ async function handleEdit() {
     </el-table>
 
     <!-- 保存新版本 -->
-    <el-dialog v-model="saveVisible" title="保存新剧本版本" width="680px" destroy-on-close>
+    <el-dialog v-model="saveVisible" title="保存新剧本版本" width="680px" append-to-body destroy-on-close>
       <el-form label-width="88px">
         <el-form-item label="版本标题">
           <el-input v-model="saveForm.title" placeholder="可选，如：第二稿" />
@@ -185,6 +185,7 @@ async function handleEdit() {
       v-model="editVisible"
       :title="`编辑 v${editing?.version ?? ''}`"
       width="680px"
+      append-to-body
       destroy-on-close
     >
       <el-form label-width="88px">

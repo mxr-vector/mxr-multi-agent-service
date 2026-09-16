@@ -189,7 +189,7 @@ async function handleSaveArts() {
     </div>
 
     <!-- 添加出演 -->
-    <el-dialog v-model="addVisible" title="添加出演角色" width="560px" destroy-on-close>
+    <el-dialog v-model="addVisible" title="添加出演角色" width="560px" append-to-body destroy-on-close>
       <div v-loading="addLoading" class="library-list">
         <el-empty
           v-if="!library.length && !addLoading"

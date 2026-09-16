@@ -428,6 +428,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
       v-model="formVisible"
       :title="editing ? '编辑关键帧' : '新建关键帧'"
       width="720px"
+      append-to-body
       destroy-on-close
     >
       <el-form label-width="96px">
@@ -552,6 +553,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
       v-model="castVisible"
       :title="`出场角色 - ${castTarget?.name || '关键帧'}`"
       width="680px"
+      append-to-body
       destroy-on-close
     >
       <el-empty v-if="!castOptions.length" description="项目还没有出演角色" :image-size="80" />
@@ -596,7 +598,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
     </el-dialog>
 
     <!-- 导出选择 -->
-    <el-dialog v-model="selectionVisible" title="设置导出选中关键帧" width="560px" destroy-on-close>
+    <el-dialog v-model="selectionVisible" title="设置导出选中关键帧" width="560px" append-to-body destroy-on-close>
       <span class="panel-hint">勾选参与导出的关键帧（空选即清空选择）。</span>
       <el-checkbox-group v-model="selectedIds" class="selection-group">
         <el-checkbox v-for="keyframe in list" :key="keyframe.id" :value="keyframe.id">

@@ -59,6 +59,7 @@ async function handleSubmit() {
     v-model="dialogVisible"
     :title="record ? '编辑项目' : '新建项目'"
     width="560px"
+    append-to-body
     destroy-on-close
   >
     <el-form ref="formRef" :model="form" :rules="rules" label-width="88px">
