@@ -107,6 +107,7 @@ async function handleEdit() {
     ElMessage.success("剧本已更新");
     editVisible.value = false;
     await loadScripts();
+    emit("changed");
   } finally {
     editSubmitting.value = false;
   }

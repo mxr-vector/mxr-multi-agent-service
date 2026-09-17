@@ -342,7 +342,10 @@ class CharacterService:
         _assert_user_channel(ctx)
         async with get_session() as session:
             repo = CharacterRepository(session)
-            character = await self._assert_owned(repo, character_id, ctx)
+            # 行锁串行化：与 add_art/update 保持一致，防并发操作致计数与主图状态覆盖
+            character = await repo.get_for_update(character_id)
+            if character is None or character.user_id != ctx.user_id:
+                bad_except("角色不存在")
             art_repo = CharacterArtRepository(session)
             art = await art_repo.get(art_id)
             if art is None or art.character_id != character_id:
@@ -360,7 +363,10 @@ class CharacterService:
         _assert_user_channel(ctx)
         async with get_session() as session:
             repo = CharacterRepository(session)
-            character = await self._assert_owned(repo, character_id, ctx)
+            # 行锁串行化：与 add_art 保持一致，防并发上传/删除致计数与主图状态覆盖
+            character = await repo.get_for_update(character_id)
+            if character is None or character.user_id != ctx.user_id:
+                bad_except("角色不存在")
             art_repo = CharacterArtRepository(session)
             art = await art_repo.get(art_id)
             if art is None or art.character_id != character_id:

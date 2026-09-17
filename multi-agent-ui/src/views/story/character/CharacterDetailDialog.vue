@@ -131,6 +131,7 @@ async function handleSave() {
       style: form.style,
     });
     ElMessage.success("角色已保存");
+    await loadDetail(props.characterId);
     emit("changed");
   } finally {
     saving.value = false;

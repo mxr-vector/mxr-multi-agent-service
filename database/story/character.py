@@ -120,17 +120,25 @@ class CharacterRepository:
         await self.session.flush()
 
     async def keyframe_ref_count(self, character_id: uuid.UUID) -> int:
-        """删除守卫：角色被关键帧出场引用的数量。"""
-        from entity.story.project import StoryKeyframeCharacter
-
-        return (
-            await self.session.scalar(
-                select(func.count())
-                .select_from(StoryKeyframeCharacter)
-                .where(StoryKeyframeCharacter.character_id == character_id)
-            )
-            or 0
+        """删除守卫：角色被未删除项目关键帧出场引用的数量。"""
+        from agent.constants.enums.story import StoryProjectStatus
+        from entity.story.project import (
+            StoryKeyframe,
+            StoryKeyframeCharacter,
+            StoryProject,
         )
+
+        stmt = (
+            select(func.count())
+            .select_from(StoryKeyframeCharacter)
+            .join(StoryKeyframe, StoryKeyframe.id == StoryKeyframeCharacter.keyframe_id)
+            .join(StoryProject, StoryProject.id == StoryKeyframe.project_id)
+            .where(
+                StoryKeyframeCharacter.character_id == character_id,
+                StoryProject.status != StoryProjectStatus.DELETED,
+            )
+        )
+        return await self.session.scalar(stmt) or 0
 
 
 class CharacterArtRepository:

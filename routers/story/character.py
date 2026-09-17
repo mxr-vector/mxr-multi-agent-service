@@ -6,7 +6,7 @@
 """
 
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, Path, Query, UploadFile
 from pydantic import BaseModel
@@ -31,12 +31,24 @@ _casting_service = CastingService()
 # 出演角色排序上限（防异常大列表）
 _CAST_SORT_MAX = 200
 
+CharacterRoleType = Literal["protagonist", "supporting", "antagonist", "npc", "other"]
+CharacterArtType = Literal[
+    "turnaround",
+    "front_bust",
+    "full_body",
+    "half_body",
+    "face",
+    "action",
+    "reference",
+    "other",
+]
+
 
 class CharacterCreateRequest(BaseModel):
     """创建角色请求体：名称必填，人设/风格为结构化 JSON。"""
 
     name: str
-    role_type: Optional[str] = None
+    role_type: Optional[CharacterRoleType] = None
     profile: dict = {}
     style: dict = {}
     appearance_prompt: Optional[str] = None
@@ -48,7 +60,7 @@ class CharacterUpdateRequest(BaseModel):
     """更新角色请求体：仅显式传入的白名单字段生效（可传 null 清空文本字段）。"""
 
     name: Optional[str] = None
-    role_type: Optional[str] = None
+    role_type: Optional[CharacterRoleType] = None
     profile: Optional[dict] = None
     style: Optional[dict] = None
     appearance_prompt: Optional[str] = None
@@ -129,7 +141,7 @@ async def upload_art(
     character_id: uuid.UUID = Path(...),
     file: UploadFile = File(..., description="立绘图片（png/jpg/jpeg/webp）"),
     name: Optional[str] = Form(default=None, description="立绘名（如常服正面）"),
-    art_type: str = Form(
+    art_type: CharacterArtType = Form(
         default="full_body",
         description="立绘类型：turnaround(三视图)/front_bust(正面半身特写)/"
         "full_body/half_body/face/action/reference/other",

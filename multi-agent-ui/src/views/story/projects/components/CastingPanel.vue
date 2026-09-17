@@ -82,13 +82,16 @@ async function handleAdd() {
     ElMessage.warning("请先勾选角色");
     return;
   }
-  for (const characterId of picked.value) {
-    await projectApi.addCasting(props.projectId, characterId);
+  try {
+    for (const characterId of picked.value) {
+      await projectApi.addCasting(props.projectId, characterId);
+    }
+    ElMessage.success("出演登记完成");
+    addVisible.value = false;
+  } finally {
+    await loadCasting();
+    emit("changed");
   }
-  ElMessage.success("出演登记完成");
-  addVisible.value = false;
-  await loadCasting();
-  emit("changed");
 }
 
 // —— 移除 ——

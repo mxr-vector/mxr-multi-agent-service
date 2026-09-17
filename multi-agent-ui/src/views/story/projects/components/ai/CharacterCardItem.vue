@@ -266,9 +266,14 @@ const ROLE_LABEL: Record<string, string> = {
     </div>
 
     <div class="card-actions">
-      <el-button size="small" link type="primary" @click="copyArtPrompt">复制出图提示词</el-button>
       <el-button size="small" link @click="openEdit">编辑</el-button>
-      <el-button size="small" link :loading="!!artTask && artTask.status === 'generating'" @click="openArtSpec">
+      <el-button size="small" link type="primary" @click="copyArtPrompt">复制出图提示词</el-button>
+      <el-button
+        size="small"
+        link
+        :loading="!!artTask && ['pending', 'queued', 'generating'].includes(artTask.status)"
+        @click="openArtSpec"
+      >
         生成立绘
       </el-button>
       <el-button
@@ -287,6 +292,15 @@ const ROLE_LABEL: Record<string, string> = {
       <el-form label-width="88px">
         <el-form-item label="角色名">
           <el-input v-model="editForm.name" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="editForm.role_type" clearable placeholder="请选择角色类型" style="width: 100%">
+            <el-option label="主角" value="protagonist" />
+            <el-option label="配角" value="supporting" />
+            <el-option label="反派" value="antagonist" />
+            <el-option label="NPC" value="npc" />
+            <el-option label="其他" value="other" />
+          </el-select>
         </el-form-item>
         <el-form-item label="人设">
           <el-input v-model="profileText" type="textarea" :rows="4" placeholder="JSON 对象，如 {性格：勇敢}" />

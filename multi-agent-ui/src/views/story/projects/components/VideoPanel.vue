@@ -65,6 +65,39 @@ const uploadForm = reactive({
   remark: "",
 });
 
+// —— 封面上传/替换 ——
+const coverInput = ref<HTMLInputElement>();
+const pendingCoverVideo = ref<StoryVideoVO | null>(null);
+const uploadingCoverId = ref<string | null>(null);
+
+function openCoverPicker(video: StoryVideoVO) {
+  pendingCoverVideo.value = video;
+  coverInput.value?.click();
+}
+
+async function onCoverPicked(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  const video = pendingCoverVideo.value;
+  pendingCoverVideo.value = null;
+  if (!file || !video) return;
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!["png", "jpg", "jpeg", "webp"].includes(ext)) {
+    ElMessage.error("仅支持 png/jpg/jpeg/webp 图片");
+    return;
+  }
+  uploadingCoverId.value = video.id;
+  try {
+    await videoApi.uploadCover(video.id, file);
+    ElMessage.success("封面已更新");
+    await loadVideos();
+    emit("changed");
+  } finally {
+    uploadingCoverId.value = null;
+  }
+}
+
 function openVideoPicker() {
   uploadInput.value?.click();
 }
@@ -191,6 +224,13 @@ function formatDuration(ms: number | null): string {
         style="display: none"
         @change="onVideoPicked"
       />
+      <input
+        ref="coverInput"
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp"
+        style="display: none"
+        @change="onCoverPicked"
+      />
       <div class="upload-fields">
         <el-input
           v-model="uploadForm.title"
@@ -234,7 +274,18 @@ function formatDuration(ms: number | null): string {
               fit="cover"
               class="cover-image"
             />
-            <div v-else class="cover-placeholder">无封面</div>
+            <div v-else class="cover-placeholder">
+              <span>无封面</span>
+              <el-button
+                size="small"
+                link
+                type="primary"
+                class="cover-upload-link"
+                @click.stop="openCoverPicker(video)"
+              >
+                上传封面
+              </el-button>
+            </div>
             <div class="play-mask">播放</div>
           </div>
           <div class="video-body">
@@ -250,7 +301,20 @@ function formatDuration(ms: number | null): string {
             </div>
             <div class="video-actions">
               <el-button size="small" link @click="openEdit(video)">编辑</el-button>
-              <el-button size="small" link @click="handleSetProjectCover(video)">
+              <el-button
+                size="small"
+                link
+                :loading="uploadingCoverId === video.id"
+                @click="openCoverPicker(video)"
+              >
+                {{ video.cover_file ? "换封面" : "传封面" }}
+              </el-button>
+              <el-button
+                size="small"
+                link
+                :disabled="!video.cover_file"
+                @click="handleSetProjectCover(video)"
+              >
                 设为项目封面
               </el-button>
               <el-button size="small" link type="danger" @click="handleDelete(video)">

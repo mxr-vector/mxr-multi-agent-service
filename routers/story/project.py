@@ -11,7 +11,6 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
 
-from agent.constants.enums.story import StoryProjectStatus
 from service.story.project import ProjectService
 from utils.page import build_page_result
 from utils.response import R
@@ -35,7 +34,7 @@ class ProjectUpdateRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     cover_image: Optional[str] = None
-    status: Optional[str] = None  # 'active'/'archived'
+    status: Optional[Literal["active", "archived"]] = None  # 'active'/'archived'
 
 
 @router.get("/projects")
@@ -43,7 +42,7 @@ async def list_projects(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     keyword: Optional[str] = Query(default=None, description="标题模糊检索"),
-    status: Optional[StoryProjectStatus] = Query(
+    status: Optional[Literal["active", "archived"]] = Query(
         default=None,
         description="按状态过滤（仅 active/archived；软删项目列表不可见）",
     ),

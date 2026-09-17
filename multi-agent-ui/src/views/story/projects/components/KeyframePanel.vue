@@ -5,7 +5,6 @@
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
-  characterApi,
   collectPages,
   keyframeApi,
   projectApi,
@@ -63,6 +62,7 @@ async function onImagePicked(event: Event) {
     await keyframeApi.uploadImage(keyframe.id, file);
     ElMessage.success(keyframe.image_file ? "关键帧图片已替换" : "关键帧图片已上传");
     await loadKeyframes();
+    emit("changed");
   } finally {
     uploadingImageId.value = null;
   }
@@ -266,14 +266,7 @@ async function openCastDialog(keyframe: StoryKeyframeVO) {
   const options: CastOption[] = [];
   for (const casting of res.data ?? []) {
     const hit = existing.get(casting.id);
-    let arts: StoryCharacterArtVO[] = [];
-    try {
-      const detail = await characterApi.detail(casting.id);
-      arts = detail.data?.arts ?? [];
-    } catch {
-      arts = [];
-    }
-    if (token !== castDialogToken) return;
+    const arts: StoryCharacterArtVO[] = casting.arts ?? [];
     options.push({
       character_id: casting.id,
       name: casting.name,
@@ -306,6 +299,7 @@ async function handleCastSubmit() {
     ElMessage.success("出场角色已更新");
     castVisible.value = false;
     await loadKeyframes();
+    emit("changed");
   } finally {
     castSubmitting.value = false;
   }
@@ -331,6 +325,8 @@ async function handleSelectionSubmit() {
     await keyframeApi.setSelection(props.projectId, selectedIds.value);
     ElMessage.success("导出选择已保存");
     selectionVisible.value = false;
+    await loadKeyframes();
+    emit("changed");
   } finally {
     selectionSubmitting.value = false;
   }

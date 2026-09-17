@@ -36,7 +36,7 @@ class ScriptGenerateRequest(BaseModel):
     idea: str = Field(max_length=4000)
     style_key: str
     aspect_ratio: Optional[str] = None
-    episodes: Optional[int] = None
+    episodes: Optional[int] = Field(default=None, ge=1, le=100)
     tone: Optional[str] = None
 
 

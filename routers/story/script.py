@@ -3,7 +3,7 @@
 """
 
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
@@ -23,7 +23,7 @@ class ScriptSaveRequest(BaseModel):
 
     content: str
     title: Optional[str] = None
-    source: str = "user"  # 'ai'/'user'/'upload'
+    source: Literal["ai", "user", "upload"] = "user"
     set_current: bool = False  # 首版无需指定，自动成为当前版本
 
 

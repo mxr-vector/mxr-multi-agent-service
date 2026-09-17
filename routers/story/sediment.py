@@ -6,7 +6,7 @@
 """
 
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Path
 from pydantic import BaseModel
@@ -33,7 +33,9 @@ class CardEditRequest(BaseModel):
     """角色卡编辑请求体：仅显式传入的白名单字段生效。"""
 
     name: Optional[str] = None
-    role_type: Optional[str] = None
+    role_type: Optional[
+        Literal["protagonist", "supporting", "antagonist", "npc", "other"]
+    ] = None
     profile: Optional[dict] = None
     visual_profile: Optional[dict] = None
     appearance_prompt: Optional[str] = None
@@ -55,7 +57,7 @@ class CharacterSedimentRequest(BaseModel):
     - mode='merge' 并入 character_id 指向的既有角色（仅新增立绘与出演登记）。
     """
 
-    mode: str = "new"
+    mode: Literal["new", "merge"] = "new"
     character_id: Optional[uuid.UUID] = None
 
 

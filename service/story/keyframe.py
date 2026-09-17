@@ -352,7 +352,11 @@ class KeyframeService:
         char_repo = CharacterRepository(session)
         art_repo = CharacterArtRepository(session)
         normalized: list[dict] = []
+        seen_chars: set[uuid.UUID] = set()
         for entry in entries:
+            if entry.character_id in seen_chars:
+                bad_except("同一角色不能在关键帧中重复出场")
+            seen_chars.add(entry.character_id)
             character = await char_repo.get(entry.character_id)
             if character is None or character.user_id != ctx.user_id:
                 bad_except("角色不存在")
