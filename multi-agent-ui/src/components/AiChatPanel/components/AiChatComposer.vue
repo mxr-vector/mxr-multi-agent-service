@@ -5,7 +5,7 @@
         v-for="question in quickQuestions"
         :key="question"
         class="afc-quick__btn"
-        @click="emit('send', question)"
+        @click="onSend(question)"
       >
         {{ question }}
       </button>
@@ -56,6 +56,21 @@
         </div>
       </div>
     </div>
+    <div class="afc-file-upload">
+      <el-upload
+        :show-file-list="false"
+        :before-upload="handleFileUpload"
+        :accept="COMMON_FILE_ACCEPT"
+        :disabled="isLoading || parsingFile"
+      >
+        <el-button size="small" :loading="parsingFile" class="afc-upload-btn">
+          <template #icon>
+            <el-icon><Paperclip /></el-icon>
+          </template>
+          {{ parsingFile ? "解析中..." : "上传文档" }}
+        </el-button>
+      </el-upload>
+    </div>
   </div>
 
   <Transition name="afc-fade">
@@ -80,7 +95,31 @@
     </div>
   </Transition>
 
-  <footer class="afc-footer">
+  <Transition name="afc-fade">
+    <div v-if="attachedFile" class="afc-quote-preview afc-attached-file">
+      <div class="afc-quote-preview__header">
+        <el-icon :size="12">
+          <Document />
+        </el-icon>
+        <span>参考文档：{{ attachedFile.filename }}（{{ attachedFile.char_count }} 字）</span>
+        <button class="afc-quote-preview__close" title="移除该文档" @click="attachedFile = null">
+          <el-icon :size="12">
+            <Close />
+          </el-icon>
+        </button>
+      </div>
+      <div class="afc-file-snippet">
+        {{ attachedFile.content.slice(0, 160) }}{{ attachedFile.content.length > 160 ? "..." : "" }}
+      </div>
+    </div>
+  </Transition>
+
+  <footer
+    class="afc-footer"
+    @paste="handlePaste"
+    @drop.prevent="handleDrop"
+    @dragover.prevent
+  >
     <el-select
       v-if="reasoningOptions.length"
       :model-value="reasoningEffort"
@@ -111,7 +150,7 @@
       class="afc-input"
       resize="none"
       @update:model-value="emit('update:inputText', $event)"
-      @keydown.enter.exact.prevent="emit('send')"
+      @keydown.enter.exact.prevent="onSend()"
       @keydown.shift.enter.exact="() => {}"
     />
     <el-button
@@ -127,9 +166,9 @@
     <el-button
       v-else
       class="afc-send-btn"
-      :disabled="!inputText.trim()"
+      :disabled="!canSend"
       circle
-      @click="emit('send')"
+      @click="onSend()"
     >
       <el-icon :size="16">
         <Promotion />
@@ -145,12 +184,22 @@ import {
   ChatLineSquare,
   Close,
   DataBoard,
+  Document,
   MagicStick,
+  Paperclip,
   Promotion,
   VideoPause,
 } from "@element-plus/icons-vue";
-import { computed, nextTick, onMounted } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
+import { ElMessage } from "element-plus";
 import { MdPreview } from "@/utils/md-editor-v3";
+import {
+  commonFileApi,
+  COMMON_FILE_ACCEPT,
+  COMMON_FILE_EXTENSIONS,
+  validateCommonFile,
+  type ParsedDocumentVO,
+} from "@/api/common";
 import type { ChatMessage, KnowledgeLoadStatus, KnowledgeOption } from "../types";
 
 const props = defineProps<{
@@ -183,6 +232,75 @@ const emit = defineEmits<{
   (e: "remove-selected-db", id: string): void;
   (e: "knowledge-dropdown-open"): void;
 }>();
+
+const parsingFile = ref(false);
+const attachedFile = ref<ParsedDocumentVO | null>(null);
+
+const canSend = computed(() => !!props.inputText.trim() || !!attachedFile.value);
+
+async function handleFileUpload(rawFile: File) {
+  const err = validateCommonFile(rawFile);
+  if (err) {
+    ElMessage.error(err);
+    return false;
+  }
+  parsingFile.value = true;
+  try {
+    const res = await commonFileApi.parse(rawFile);
+    const parsed = res.data;
+    if (!parsed?.content) {
+      ElMessage.warning(`文档「${rawFile.name}」解析结果为空`);
+      return false;
+    }
+    attachedFile.value = parsed;
+    ElMessage.success(
+      `已解析「${parsed.filename}」（共 ${parsed.char_count} 字），发送时将一并作为参考内容提交`
+    );
+  } catch {
+    // 错误已被响应拦截器处理
+  } finally {
+    parsingFile.value = false;
+  }
+  return false;
+}
+
+function handlePaste(event: ClipboardEvent) {
+  const files = event.clipboardData?.files;
+  if (files && files.length > 0) {
+    const file = files[0];
+    const name = file.name.toLowerCase();
+    if (COMMON_FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+      event.preventDefault();
+      handleFileUpload(file);
+    }
+  }
+}
+
+function handleDrop(event: DragEvent) {
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) {
+    const file = files[0];
+    const name = file.name.toLowerCase();
+    if (COMMON_FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+      event.preventDefault();
+      handleFileUpload(file);
+    }
+  }
+}
+
+function onSend(quickText?: string) {
+  if (props.isLoading) return;
+  const baseText = (quickText ?? props.inputText).trim();
+  if (!baseText && !attachedFile.value) return;
+
+  let fullText = baseText;
+  if (attachedFile.value) {
+    const docBlock = `【参考文档：${attachedFile.value.filename}】\n${attachedFile.value.content}`;
+    fullText = baseText ? `${baseText}\n\n---\n${docBlock}` : `请阅读并分析以下参考文档：\n\n${docBlock}`;
+    attachedFile.value = null;
+  }
+  emit("send", fullText);
+}
 
 const knowledgeNoDataText = computed(() => {
   if (props.knowledgeLoadStatus === "idle") return "点击后加载知识库";

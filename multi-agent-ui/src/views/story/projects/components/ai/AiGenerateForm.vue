@@ -2,8 +2,16 @@
 /**
  * 生成表单：风格/画幅/集数/基调 + 需求输入 + 发送/停止（纯展示，状态由父级持有）。
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { ElMessage } from "element-plus";
+import { Paperclip } from "@element-plus/icons-vue";
 import type { StoryGeneratePayload, StoryStyleVO } from "@/api/story";
+import {
+  commonFileApi,
+  COMMON_FILE_ACCEPT,
+  COMMON_FILE_EXTENSIONS,
+  validateCommonFile,
+} from "@/api/common";
 import { useDictStore } from "@/stores/dictStore";
 
 const form = defineModel<StoryGeneratePayload>({ required: true });
@@ -17,6 +25,64 @@ const emit = defineEmits<{
   (e: "send"): void;
   (e: "stop"): void;
 }>();
+
+const parsingFile = ref(false);
+
+async function handleFileUpload(rawFile: File) {
+  const err = validateCommonFile(rawFile);
+  if (err) {
+    ElMessage.error(err);
+    return false;
+  }
+  parsingFile.value = true;
+  try {
+    const res = await commonFileApi.parse(rawFile);
+    const parsed = res.data;
+    if (!parsed?.content) {
+      ElMessage.warning(`文档「${rawFile.name}」解析结果为空`);
+      return false;
+    }
+    const header = `【参考文档：${parsed.filename}】\n`;
+    if (!form.value.idea || !form.value.idea.trim()) {
+      form.value.idea = `${header}${parsed.content}`;
+    } else {
+      form.value.idea = `${form.value.idea.trim()}\n\n${header}${parsed.content}`;
+    }
+    ElMessage.success(`已提取「${parsed.filename}」内容（共 ${parsed.char_count} 字）至需求输入框`);
+    if (form.value.idea.length > 20000) {
+      ElMessage.warning(`当前内容共 ${form.value.idea.length} 字，超出 20000 字上限，请适当删减`);
+    }
+  } catch {
+    // 错误已被响应拦截器处理
+  } finally {
+    parsingFile.value = false;
+  }
+  return false;
+}
+
+function handlePaste(event: ClipboardEvent) {
+  const files = event.clipboardData?.files;
+  if (files && files.length > 0) {
+    const file = files[0];
+    const name = file.name.toLowerCase();
+    if (COMMON_FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+      event.preventDefault();
+      handleFileUpload(file);
+    }
+  }
+}
+
+function handleDrop(event: DragEvent) {
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) {
+    const file = files[0];
+    const name = file.name.toLowerCase();
+    if (COMMON_FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+      event.preventDefault();
+      handleFileUpload(file);
+    }
+  }
+}
 
 const dictStore = useDictStore();
 dictStore.ensureLoaded();
@@ -145,20 +211,48 @@ function onStyleChange() {
         </el-option>
       </el-select>
     </div>
-    <div class="input-row">
+    <div
+      class="input-row"
+      @paste="handlePaste"
+      @drop.prevent="handleDrop"
+      @dragover.prevent
+    >
       <el-input
         v-model="form.idea"
         type="textarea"
         :rows="3"
+        :maxlength="20000"
+        show-word-limit
         :disabled="generating"
-        placeholder="描述你的故事设定/需求，如题材、主人公、核心冲突…"
+        placeholder="描述你的故事设定/需求（支持直接粘贴文字或文档文件，也可拖拽文件至此）…"
       />
     </div>
     <div class="action-row">
-      <el-button v-if="!generating" type="primary" size="small" @click="emit('send')">
-        生成剧本
-      </el-button>
-      <el-button v-else type="warning" size="small" @click="emit('stop')">停止生成</el-button>
+      <div class="action-left">
+        <el-upload
+          :show-file-list="false"
+          :before-upload="handleFileUpload"
+          :accept="COMMON_FILE_ACCEPT"
+          :disabled="generating || parsingFile"
+        >
+          <el-button
+            size="small"
+            :loading="parsingFile"
+            class="upload-btn"
+          >
+            <template #icon>
+              <el-icon><Paperclip /></el-icon>
+            </template>
+            {{ parsingFile ? "解析中..." : "上传参考文档" }}
+          </el-button>
+        </el-upload>
+      </div>
+      <div class="action-right">
+        <el-button v-if="!generating" type="primary" size="small" @click="emit('send')">
+          生成剧本
+        </el-button>
+        <el-button v-else type="warning" size="small" @click="emit('stop')">停止生成</el-button>
+      </div>
     </div>
   </div>
 </template>
@@ -208,6 +302,19 @@ function onStyleChange() {
 }
 .action-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+}
+.action-left {
+  display: flex;
+  align-items: center;
+}
+.action-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.upload-btn {
+  font-size: 12px;
 }
 </style>

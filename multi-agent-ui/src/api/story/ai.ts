@@ -266,7 +266,17 @@ export const storyAiApi = {
       const contentType = response.headers.get("content-type") ?? "";
       if (!contentType.includes("text/event-stream")) {
         const result = (await response.json().catch(() => null)) as ApiResult | null;
-        throw new Error(result?.msg || `HTTP error! status: ${response.status}`);
+        let errMsg = result?.msg || `HTTP error! status: ${response.status}`;
+        if (Array.isArray(result?.data) && result.data.length > 0) {
+          const detail = (result.data as Array<{ loc?: string; msg?: string }>)
+            .map((d) => d.msg || `${d.loc}: ${d.msg}`)
+            .filter(Boolean)
+            .join("; ");
+          if (detail && !errMsg.includes(detail)) {
+            errMsg = `${errMsg} (${detail})`;
+          }
+        }
+        throw new Error(errMsg);
       }
       const reader = response.body?.getReader();
       if (!reader) throw new Error("无法获取响应流");

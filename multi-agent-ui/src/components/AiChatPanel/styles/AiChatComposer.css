@@ -292,3 +292,46 @@
   transform: scale(1.08) !important;
   box-shadow: 0 4px 14px rgba(239, 68, 68, 0.45) !important;
 }
+
+/* ── 文档上传按钮与附件预览 ── */
+.afc-file-upload {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.afc-upload-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  transition: all 0.18s;
+}
+
+.afc-upload-btn:hover {
+  border-color: #93c5fd;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.afc-attached-file {
+  background: #f0fdf4;
+  border-left-color: #10b981;
+}
+
+.afc-attached-file .afc-quote-preview__header {
+  color: #059669;
+}
+
+.afc-file-snippet {
+  font-size: 0.74rem;
+  color: #64748b;
+  line-height: 1.45;
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-height: 56px;
+  overflow-y: auto;
+}

@@ -58,7 +58,16 @@ service.interceptors.response.use(
     // 未设置状态码则默认成功状态
     const code: number = res.data.code || 200;
     // 获取错误信息
-    const msg: string = errorCode[code] || res.data.msg || errorCode["default"];
+    let msg: string = errorCode[code] || res.data.msg || errorCode["default"];
+    if (code === 422 && Array.isArray(res.data?.data) && res.data.data.length > 0) {
+      const detail = (res.data.data as Array<{ loc?: string; msg?: string }>)
+        .map((d) => d.msg || `${d.loc}: ${d.msg}`)
+        .filter(Boolean)
+        .join("; ");
+      if (detail && !msg.includes(detail)) {
+        msg = `${msg} (${detail})`;
+      }
+    }
     // 二进制数据（文件下载等）直接返回
     if (res.config.responseType === "blob" || res.config.responseType === "arraybuffer") {
       return res.data;

@@ -7,6 +7,45 @@ from utils.response import R
 from utils.logger import logger
 
 
+def _format_validation_error(err: dict) -> str:
+    """对常见 Pydantic 校验错误进行友好中文转换"""
+    err_type = err.get("type", "")
+    loc_parts = err.get("loc", [])
+    field_name = str(loc_parts[-1]) if loc_parts else "参数"
+    ctx = err.get("ctx", {})
+
+    field_labels = {
+        "idea": "创作需求/提示词",
+        "title": "标题",
+        "content": "内容",
+        "description": "描述",
+        "style_key": "视频风格",
+        "aspect_ratio": "画幅",
+        "episodes": "集数",
+        "tone": "基调",
+        "prompt": "提示词",
+        "name": "名称",
+    }
+    label = field_labels.get(field_name, field_name)
+
+    if err_type == "string_too_long":
+        max_len = ctx.get("max_length")
+        return f"{label}超出最大长度限制（最多 {max_len} 字）"
+    elif err_type == "string_too_short":
+        min_len = ctx.get("min_length")
+        return f"{label}长度不足（至少 {min_len} 字）"
+    elif err_type == "missing":
+        return f"缺少必填项 {label}"
+    elif err_type == "greater_than_equal":
+        ge = ctx.get("ge")
+        return f"{label}必须大于等于 {ge}"
+    elif err_type == "less_than_equal":
+        le = ctx.get("le")
+        return f"{label}必须小于等于 {le}"
+    raw_msg = err.get("msg", "")
+    return f"{label}: {raw_msg}" if label else raw_msg
+
+
 def register_exception(app):
     """注册全局异常处理
 
@@ -33,13 +72,17 @@ def register_exception(app):
     ):
         logger.warning(f"参数验证失败: {exc.errors()}")
         # 只回 loc+msg：errors() 内含用户原始输入回显与内部字段结构，不外发
-        detail = [
-            {"loc": ".".join(str(p) for p in err.get("loc", [])), "msg": err.get("msg")}
-            for err in exc.errors()
-        ]
+        detail = []
+        friendly_reasons = []
+        for err in exc.errors():
+            loc_str = ".".join(str(p) for p in err.get("loc", []))
+            detail.append({"loc": loc_str, "msg": err.get("msg")})
+            friendly_reasons.append(_format_validation_error(err))
+
+        err_summary = f": {'; '.join(friendly_reasons[:2])}" if friendly_reasons else ""
         return JSONResponse(
             status_code=422,
-            content=R.fail(msg="参数验证失败", data=detail).model_dump(),
+            content=R.fail(msg=f"参数验证失败{err_summary}", data=detail).model_dump(),
         )
 
     @app.exception_handler(AssertionError)

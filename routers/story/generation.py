@@ -31,9 +31,9 @@ class ScriptGenerateRequest(BaseModel):
     - episodes/tone 可选，随制作参数快照落库并回写项目。
     """
 
-    # idea 不参与历史裁剪（idea_block 恒全量发送），必须限制长度防超长输入
-    # 击穿输入预算致上游 400 且单请求 token 成本不可控
-    idea: str = Field(max_length=4000)
+    # idea 不参与历史裁剪（idea_block 恒全量发送），限制合理长度上限防超长输入
+    # 击穿输入预算致上游 400 且单请求 token 成本不可控；支持丰富的故事设定与长提示词
+    idea: str = Field(max_length=20000, description="创作需求/提示词")
     style_key: str
     aspect_ratio: Optional[str] = None
     episodes: Optional[int] = Field(default=None, ge=1, le=100)

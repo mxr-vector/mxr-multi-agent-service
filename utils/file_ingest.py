@@ -250,6 +250,36 @@ _PARSERS = {
     "csv": _parse_csv,
 }
 
+SUPPORTED_DOCUMENT_EXTENSIONS = (
+    ".pdf",
+    ".md",
+    ".markdown",
+    ".docx",
+    ".xlsx",
+    ".xls",
+    ".txt",
+    ".csv",
+)
+
+
+def extract_text_from_file(filename: str, data: bytes) -> str:
+    """从文件中提取纯文本内容（通用无分块解析，适用于通用问答附件、剧本参考文档等场景）。
+
+    支持类型：pdf, docx, markdown, text, csv, excel (xlsx/xls)。
+    """
+    doc_type = detect_doc_type(filename)
+    parser = _PARSERS.get(doc_type)
+    if not parser:
+        bad_except(f"不支持的文件类型: {filename}")
+    try:
+        full_text, _, _ = parser(data)
+    except BadException:
+        raise
+    except Exception as exc:
+        logger.warning(f"文件解析失败 [{filename}] doc_type={doc_type}: {exc!r}")
+        bad_except(f"文件已损坏或与扩展名不符: {filename}")
+    return full_text
+
 
 # ---------- 语义切分（semantic 策略） ----------
 # 句子边界：换行与中英文句末标点（保留标点，空句剔除）

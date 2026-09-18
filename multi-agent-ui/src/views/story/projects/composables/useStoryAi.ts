@@ -156,6 +156,10 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       ElMessage.warning("请先描述创作需求");
       return;
     }
+    if (idea.length > 20000) {
+      ElMessage.warning(`创作需求长度（${idea.length}字）已超出上限（20000字），请适当精简`);
+      return;
+    }
     if (!form.value.style_key) {
       ElMessage.warning("请先选择视频风格");
       return;
@@ -202,6 +206,10 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
         // 请求层失败（非 SSE 响应/reader 异常）：与 onComplete 同口径复位，
         // 否则 streaming 滞留 true锁死输入框，只能手动点停止才能解锁
         finishStream();
+        // 若尚未收到任何生成内容就失败，恢复输入框内容，避免用户输入的提示词丢失
+        if (parts.length === 0 && !form.value.idea) {
+          form.value.idea = idea;
+        }
         ElMessage.error(error.message || "生成失败");
         await loadMessages();
       },
