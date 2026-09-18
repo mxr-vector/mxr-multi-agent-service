@@ -19,9 +19,20 @@ export const useDictStore = defineStore("dict", () => {
   /** 拉取全部启用的字典类型及各自的字典项；失败保持空词典但标记已加载 */
   async function loadAll() {
     try {
+      // 优先通过单次聚合接口拉取全量字典映射（避免 1+N 次网络请求）
+      const mapRes = await dictDataApi.getAllMap("active");
+      if (mapRes.data && typeof mapRes.data === "object") {
+        dictMap.value = mapRes.data;
+        return;
+      }
+    } catch {
+      // 聚合接口不可用时继续尝试逐类型拉取降级
+    }
+
+    try {
       const typeRes = await dictTypeApi.list({ size: 200, status: "active" });
       const types = typeRes.data?.items ?? [];
-      const dataLists = await Promise.all(types.map((t) => dictDataApi.listByType(t.type)));
+      const dataLists = await Promise.all(types.map((t) => dictDataApi.listByType(t.type, "active")));
       const map: Record<string, DictData[]> = {};
       types.forEach((t, i) => {
         map[t.type] = (dataLists[i].data ?? []).filter((d) => d.status === "active");

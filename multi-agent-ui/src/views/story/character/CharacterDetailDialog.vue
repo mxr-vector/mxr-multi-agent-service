@@ -12,6 +12,7 @@ import {
   type StoryRoleType,
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
+import { useDictStore } from "@/stores/dictStore";
 import KeyValueEditor from "./KeyValueEditor.vue";
 
 const props = defineProps<{
@@ -29,6 +30,9 @@ const dialogVisible = computed({
   set: (value) => emit("update:visible", value),
 });
 
+const dictStore = useDictStore();
+dictStore.ensureLoaded();
+
 const ROLE_TYPE_OPTIONS: { value: StoryRoleType; label: string }[] = [
   { value: "protagonist", label: "主角" },
   { value: "supporting", label: "配角" },
@@ -39,6 +43,12 @@ const ROLE_TYPE_OPTIONS: { value: StoryRoleType; label: string }[] = [
 const ROLE_LABEL: Record<string, string> = Object.fromEntries(
   ROLE_TYPE_OPTIONS.map((item) => [item.value, item.label])
 );
+
+const roleOptions = computed(() => {
+  const options = dictStore.getOptions("story_role_type");
+  if (options && options.length > 0) return options;
+  return ROLE_TYPE_OPTIONS;
+});
 
 // 立绘类型：三视图与正面半身特写为外部视频生成的必备参考图
 const ART_TYPE_OPTIONS: { value: StoryArtType; label: string }[] = [
@@ -200,7 +210,7 @@ async function handleDeleteArt(artId: string) {
                 <div class="detail-name">
                   {{ detail.name }}
                   <el-tag v-if="detail.role_type" size="small" type="info">
-                    {{ ROLE_LABEL[detail.role_type] ?? detail.role_type }}
+                    {{ dictStore.getLabel("story_role_type", detail.role_type) || (ROLE_LABEL[detail.role_type] ?? detail.role_type) }}
                   </el-tag>
                 </div>
                 <div class="detail-sub">立绘 {{ detail.arts.length }} 张</div>
@@ -212,7 +222,7 @@ async function handleDeleteArt(artId: string) {
             <el-form-item label="角色分类">
               <el-select v-model="form.role_type" clearable placeholder="未设置">
                 <el-option
-                  v-for="option in ROLE_TYPE_OPTIONS"
+                  v-for="option in roleOptions"
                   :key="option.value"
                   :label="option.label"
                   :value="option.value"

@@ -40,6 +40,8 @@ export const DICT_DATA_URL = {
   byId: (id: string) => `${BASE}/dict-data/${id}`,
   /** 按类型键取全量字典项（下拉框数据源） */
   byType: (dictType: string) => `${BASE}/dict-data/type/${dictType}`,
+  /** 全量字典聚合映射（单次拉取） */
+  all: `${BASE}/dict-data/all`,
 } as const;
 
 /** 参数配置管理接口地址 */

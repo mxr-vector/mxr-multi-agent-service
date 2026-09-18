@@ -7,6 +7,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { StoryCharacterPayload, StoryCharacterVO, StoryRoleType } from "@/api/story";
+import { useDictStore } from "@/stores/dictStore";
 import KeyValueEditor from "./KeyValueEditor.vue";
 
 const props = defineProps<{
@@ -25,6 +26,9 @@ const dialogVisible = computed({
   set: (value) => emit("update:visible", value),
 });
 
+const dictStore = useDictStore();
+dictStore.ensureLoaded();
+
 const ROLE_TYPE_OPTIONS: { value: StoryRoleType; label: string }[] = [
   { value: "protagonist", label: "主角" },
   { value: "supporting", label: "配角" },
@@ -32,6 +36,12 @@ const ROLE_TYPE_OPTIONS: { value: StoryRoleType; label: string }[] = [
   { value: "npc", label: "NPC" },
   { value: "other", label: "其他" },
 ];
+
+const roleOptions = computed(() => {
+  const options = dictStore.getOptions("story_role_type");
+  if (options && options.length > 0) return options;
+  return ROLE_TYPE_OPTIONS;
+});
 
 const formRef = ref<FormInstance>();
 const form = reactive({
@@ -92,7 +102,7 @@ async function handleSubmit() {
       <el-form-item label="角色分类">
         <el-select v-model="form.role_type" clearable placeholder="默认分类（跨项目可不同）">
           <el-option
-            v-for="option in ROLE_TYPE_OPTIONS"
+            v-for="option in roleOptions"
             :key="option.value"
             :label="option.label"
             :value="option.value"

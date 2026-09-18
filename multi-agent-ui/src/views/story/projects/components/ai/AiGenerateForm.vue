@@ -4,6 +4,7 @@
  */
 import { computed } from "vue";
 import type { StoryGeneratePayload, StoryStyleVO } from "@/api/story";
+import { useDictStore } from "@/stores/dictStore";
 
 const form = defineModel<StoryGeneratePayload>({ required: true });
 
@@ -17,10 +18,78 @@ const emit = defineEmits<{
   (e: "stop"): void;
 }>();
 
+const dictStore = useDictStore();
+dictStore.ensureLoaded();
+
+/** 风格专属推荐基调映射表（结合各技能包权威定义，用于下拉高频置顶） */
+const STYLE_TONES_MAP: Record<string, string[]> = {
+  shangmeiying: ["仙气", "禅意", "史诗", "悲壮", "苍凉", "神性", "诡秘", "诙谐"],
+  generic: ["史诗", "空灵", "治愈", "悬疑", "热血", "庄严", "幽默", "科幻"],
+  handdrawn: ["温馨", "治愈", "童趣", "幽默", "怀旧", "轻松"],
+};
+
+/** 通用基调备选列表（字典离线时的兜底数据） */
+const DEFAULT_TONES = [
+  "史诗",
+  "空灵",
+  "治愈",
+  "仙气",
+  "禅意",
+  "悬疑",
+  "热血",
+  "悲壮",
+  "苍凉",
+  "庄严",
+  "温馨",
+  "幽默",
+  "神性",
+  "诡秘",
+  "科幻",
+  "童趣",
+  "怀旧",
+];
+
 /** 当前风格可用画幅（注册表预设；未选风格时为空） */
 const aspectOptions = computed(
   () => props.styles.find((s) => s.key === form.value.style_key)?.aspect_ratios ?? []
 );
+
+interface ToneOptionItem {
+  label: string;
+  value: string;
+  remark?: string | null;
+}
+
+/** 从字典 story_tone 获取基调，按当前选择的风格智能高频置顶 */
+const toneOptions = computed<ToneOptionItem[]>(() => {
+  const dictItems = dictStore.getOptions("story_tone");
+  let items: ToneOptionItem[] = [];
+
+  if (dictItems && dictItems.length > 0) {
+    items = dictItems.map((d) => ({
+      label: d.label,
+      value: d.value,
+      remark: d.remark,
+    }));
+  } else {
+    items = DEFAULT_TONES.map((t) => ({ label: t, value: t }));
+  }
+
+  // 若当前已选定风格，将该风格推荐的基调优先排在前面
+  const preferred = form.value.style_key ? STYLE_TONES_MAP[form.value.style_key] : null;
+  if (preferred && preferred.length > 0) {
+    const high = items.filter((item) => preferred.includes(item.value));
+    const rest = items.filter((item) => !preferred.includes(item.value));
+    items = [...high, ...rest];
+  }
+
+  // 若用户已填写了不在预设列表中的自定义基调，追加保留展示
+  if (form.value.tone && !items.some((item) => item.value === form.value.tone)) {
+    items = [{ label: form.value.tone, value: form.value.tone, remark: "自定义" }, ...items];
+  }
+
+  return items;
+});
 
 /** 切换风格时画幅回落到该风格首选 */
 function onStyleChange() {
@@ -53,7 +122,28 @@ function onStyleChange() {
         placeholder="集数"
         class="episodes-input"
       />
-      <el-input v-model="form.tone" size="small" placeholder="基调" class="tone-input" />
+      <el-select
+        v-model="form.tone"
+        placeholder="基调"
+        size="small"
+        clearable
+        filterable
+        allow-create
+        default-first-option
+        class="tone-select"
+      >
+        <el-option
+          v-for="t in toneOptions"
+          :key="t.value"
+          :value="t.value"
+          :label="t.label"
+        >
+          <div class="tone-option-item">
+            <span>{{ t.label }}</span>
+            <span v-if="t.remark" class="tone-option-desc">{{ t.remark }}</span>
+          </div>
+        </el-option>
+      </el-select>
     </div>
     <div class="input-row">
       <el-input
@@ -91,15 +181,30 @@ function onStyleChange() {
   min-width: 96px;
 }
 .aspect-select {
+  min-width: 80px;
   max-width: 88px;
 }
 .episodes-input {
   width: 92px;
 }
-.tone-input {
+.tone-select {
   flex: 1;
-  min-width: 72px;
+  min-width: 88px;
   max-width: 110px;
+}
+.tone-option-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.tone-option-desc {
+  font-size: 11px;
+  color: #8c939d;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .action-row {
   display: flex;

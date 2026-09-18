@@ -174,6 +174,14 @@ class DictDataRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_all(self, status: str = "") -> list[DictData]:
+        """全量查询字典数据（按 dict_type, sort_order 升序），status 非空时按状态过滤。"""
+        stmt = select(DictData).order_by(DictData.dict_type, DictData.sort_order)
+        if status:
+            stmt = stmt.where(DictData.status == status)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def get(self, dict_data_id: uuid.UUID) -> DictData | None:
         """按 id 获取单条字典数据，不存在返回 None。"""
         return await self.session.get(DictData, dict_data_id)

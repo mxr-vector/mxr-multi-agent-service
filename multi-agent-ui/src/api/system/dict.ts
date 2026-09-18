@@ -136,8 +136,18 @@ export const dictDataApi = {
   },
 
   /** 按类型键取全量字典项（sort_order 升序），供下拉框消费 */
-  listByType(dictType: string) {
-    return request.get<DictData[], ApiResult<DictData[]>>(DICT_DATA_URL.byType(dictType));
+  listByType(dictType: string, status?: string) {
+    return request.get<DictData[], ApiResult<DictData[]>>(DICT_DATA_URL.byType(dictType), {
+      params: status ? { status } : undefined,
+    });
+  },
+
+  /** 全量获取所有字典类型的字典项映射（单次请求） */
+  getAllMap(status?: string) {
+    return request.get<Record<string, DictData[]>, ApiResult<Record<string, DictData[]>>>(
+      DICT_DATA_URL.all,
+      { params: status ? { status } : undefined }
+    );
   },
 
   /** 按 id 获取字典数据 */

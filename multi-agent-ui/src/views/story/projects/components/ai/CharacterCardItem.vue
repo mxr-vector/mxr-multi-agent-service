@@ -233,7 +233,7 @@ async function saveToLibrary() {
   }
 }
 
-/** 角色类型展示名 */
+/** 角色类型展示名兜底映射 */
 const ROLE_LABEL: Record<string, string> = {
   protagonist: "主角",
   supporting: "配角",
@@ -241,6 +241,13 @@ const ROLE_LABEL: Record<string, string> = {
   npc: "NPC",
   other: "其他",
 };
+
+/** 从字典获取角色类型选项列表，兜底用本地映射 */
+const roleTypeOptions = computed(() => {
+  const options = dictStore.getOptions("story_role_type");
+  if (options && options.length > 0) return options;
+  return Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }));
+});
 </script>
 
 <template>
@@ -248,7 +255,7 @@ const ROLE_LABEL: Record<string, string> = {
     <div class="card-head">
       <span class="card-title">👤 {{ card.name }}</span>
       <el-tag v-if="card.role_type" size="small" type="info">
-        {{ ROLE_LABEL[card.role_type] ?? card.role_type }}
+        {{ dictStore.getLabel("story_role_type", card.role_type) || (ROLE_LABEL[card.role_type] ?? card.role_type) }}
       </el-tag>
       <el-tag v-if="sedimentedId" size="small" type="success">已入库</el-tag>
     </div>
@@ -295,11 +302,12 @@ const ROLE_LABEL: Record<string, string> = {
         </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="editForm.role_type" clearable placeholder="请选择角色类型" style="width: 100%">
-            <el-option label="主角" value="protagonist" />
-            <el-option label="配角" value="supporting" />
-            <el-option label="反派" value="antagonist" />
-            <el-option label="NPC" value="npc" />
-            <el-option label="其他" value="other" />
+            <el-option
+              v-for="opt in roleTypeOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="人设">
