@@ -55,9 +55,17 @@ class CharacterSedimentRequest(BaseModel):
 
     - mode='new' 新建角色库角色；
     - mode='merge' 并入 character_id 指向的既有角色（仅新增立绘与出演登记）。
+    - art_message_ids: 指定收编的立绘消息列表，缺省为收编全部未沉淀立绘。
     """
 
     mode: Literal["new", "merge"] = "new"
+    character_id: Optional[uuid.UUID] = None
+    art_message_ids: Optional[list[uuid.UUID]] = None
+
+
+class ArtSedimentRequest(BaseModel):
+    """单个立绘沉淀请求体：可指定归属的角色 id，缺省时自动关联角色卡或同名角色。"""
+
     character_id: Optional[uuid.UUID] = None
 
 
@@ -110,6 +118,19 @@ async def save_character(
     """角色卡存入角色库（单事务：建角色/并入 + 立绘收编 + 自动出演登记）。"""
     return R.success(
         data=await _sediment_service.save_character(
-            ctx, message_id, payload.mode, payload.character_id
+            ctx, message_id, payload.mode, payload.character_id, payload.art_message_ids
         )
     )
+
+
+@router.post("/messages/{message_id}/save-art")
+async def save_art(
+    message_id: uuid.UUID = Path(...),
+    payload: ArtSedimentRequest = Body(default=ArtSedimentRequest()),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """单个立绘消息存入角色库（可指定角色或自动归属关联角色卡）。"""
+    return R.success(
+        data=await _sediment_service.save_art(ctx, message_id, payload.character_id)
+    )
+

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 // Element Plus 全局默认本地化为中文（影响分页、日期选择器、MessageBox 等内置文案）
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import AiChat from "./components/AiChatPanel/AiChat.vue";
@@ -53,5 +53,10 @@ input {
 
 button {
   cursor: pointer;
+}
+
+/* 图片大图预览器强制置顶，避免被局部 tab 列表、导航栏或侧边栏遮挡 */
+.el-image-viewer__wrapper {
+  z-index: 3000 !important;
 }
 </style>

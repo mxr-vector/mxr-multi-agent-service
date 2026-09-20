@@ -6,6 +6,7 @@ import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { exportApi, type StoryExportPackageVO } from "@/api/story";
 import { formatDateTime } from "@/utils/format";
+import { copyToClipboard } from "@/utils/clipboard";
 
 const props = defineProps<{
   projectId: string;
@@ -62,10 +63,10 @@ function openView(pkg: StoryExportPackageVO) {
 
 async function handleCopy(pkg: StoryExportPackageVO) {
   const text = pkg.copy_text ?? pkg.prompt_text;
-  try {
-    await navigator.clipboard.writeText(text);
+  const ok = await copyToClipboard(text);
+  if (ok) {
     ElMessage.success("已复制到剪贴板");
-  } catch {
+  } else {
     ElMessage.error("复制失败，请在查看弹窗中手动选择复制");
   }
 }

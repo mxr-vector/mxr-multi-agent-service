@@ -6,8 +6,8 @@
  * CharacterCardItem；art 消息（图片/失败）为单块简单呈现，内联渲染。
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { ElMessageBox } from "element-plus";
-import { characterApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { characterApi, storyAiApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
 import { useStoryAi } from "../../composables/useStoryAi";
 import AiGenerateForm from "./AiGenerateForm.vue";
 import ScriptCard from "./ScriptCard.vue";
@@ -39,29 +39,70 @@ async function findSameName(name: string): Promise<{ id: string; name: string } 
   }
 }
 
-onMounted(() => {
-  ai.init();
+onMounted(async () => {
+  await ai.init();
+  scrollToBottom(true);
 });
 
-/** 产物变更后：刷新会话消息 + 通知父级刷新项目 */
+// 消息流容器引用与滚动控制
+const streamRef = ref<HTMLElement | null>(null);
+
+/** 判断当前滚动条是否接近底部（用于决定流式增量时是否自动跟滚，避免打断用户往上浏览历史） */
+function isNearBottom(threshold = 120): boolean {
+  const el = streamRef.value;
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+
+/**
+ * 滚动到底部。
+ * @param force 为 true 时强制滚到底部（切换会话、主动发起生成等）；为 false 时仅在接近底部时自动跟滚。
+ */
+function scrollToBottom(force = false) {
+  nextTick(() => {
+    const el = streamRef.value;
+    if (!el) return;
+    if (force || isNearBottom()) {
+      el.scrollTop = el.scrollHeight;
+    }
+  });
+}
+
+/** 产物变更后：静默刷新会话消息 + 通知父级刷新项目，保持当前滚动条位置不发生漂移 */
 async function onCardChanged() {
+  const el = streamRef.value;
+  const prevScrollTop = el?.scrollTop;
   await ai.refresh();
+  await nextTick();
+  if (el && typeof prevScrollTop === "number") {
+    el.scrollTop = prevScrollTop;
+  }
   emit("changed");
 }
 
-// 消息流/流式文本变化时滚动到底部
-const streamRef = ref<HTMLElement | null>(null);
+/** 流式生成文本更新时，仅在用户处于底部附近时自动跟滚 */
 watch(
-  () => [ai.messages.value.length, ai.streamText.value],
-  async () => {
-    await nextTick();
-    streamRef.value?.scrollTo({ top: streamRef.value.scrollHeight });
+  () => ai.streamText.value,
+  () => {
+    if (ai.streaming.value) {
+      scrollToBottom(false);
+    }
   }
 );
 
-async function handleCreateSession() {
-  const name = await promptSessionTitle();
-  await ai.createSession(name ?? undefined);
+/** 生成结束时，若用户在底部则对齐到底部 */
+watch(
+  () => ai.streaming.value,
+  (streaming, prev) => {
+    if (!streaming && prev) {
+      scrollToBottom(false);
+    }
+  }
+);
+
+async function handleSwitchSession(id: string) {
+  await ai.switchSession(id);
+  scrollToBottom(true);
 }
 
 /** 会话标题输入（可取消） */
@@ -78,6 +119,14 @@ async function promptSessionTitle(): Promise<string | null> {
   }
 }
 
+async function handleCreateSession() {
+  const name = await promptSessionTitle();
+  const res = await ai.createSession(name ?? undefined);
+  if (res) {
+    scrollToBottom(true);
+  }
+}
+
 async function handleRemoveSession() {
   if (!ai.activeSession.value) return;
   try {
@@ -90,6 +139,12 @@ async function handleRemoveSession() {
     return;
   }
   await ai.removeSession(ai.activeSession.value.id);
+  scrollToBottom(true);
+}
+
+function handleSend() {
+  scrollToBottom(true);
+  void ai.send(() => emit("changed"));
 }
 
 function isUser(message: StoryMessageVO) {
@@ -104,6 +159,35 @@ function userParamsSummary(message: StoryMessageVO): string {
     .map(String);
   if (typeof params.episodes === "number") parts.push(`${params.episodes}集`);
   return parts.join(" · ");
+}
+
+/** 判断立绘是否已存入角色库 */
+function isArtSedimented(message: StoryMessageVO): boolean {
+  return !!(message.params ?? {})["sedimented_character_id"];
+}
+
+const savingArtId = ref<string | null>(null);
+
+/** 单个立绘存入角色库 */
+async function handleSaveSingleArt(message: StoryMessageVO) {
+  if (savingArtId.value) return;
+  savingArtId.value = message.id;
+  try {
+    const res = await storyAiApi.saveArt(message.id);
+    if (!message.params) {
+      message.params = {};
+    }
+    const char = res.data?.character as Record<string, unknown> | undefined;
+    message.params.sedimented_character_id = String(char?.id ?? "1");
+    ElMessage.success(
+      `立绘已成功存入角色库${char?.name ? `（角色「${String(char.name)}」）` : ""}`
+    );
+    await onCardChanged();
+  } catch {
+    // 错误由拦截器统一提示
+  } finally {
+    savingArtId.value = null;
+  }
 }
 
 defineExpose({
@@ -121,7 +205,7 @@ defineExpose({
         size="small"
         placeholder="选择会话"
         class="session-select"
-        @change="(id: string) => ai.switchSession(id)"
+        @change="handleSwitchSession"
       >
         <el-option
           v-for="session in ai.sessions.value"
@@ -174,8 +258,24 @@ defineExpose({
                 :preview-src-list="[storyFileUrl(message.image_file)]"
                 fit="contain"
                 class="art-image"
+                preview-teleported
               />
-              <div class="art-caption">{{ message.content }}（已生成，随角色卡"存入角色库"收编）</div>
+              <div class="art-meta-row">
+                <div class="art-caption">{{ message.content }}</div>
+                <div class="art-actions">
+                  <el-tag v-if="isArtSedimented(message)" size="small" type="success">已入库</el-tag>
+                  <el-button
+                    v-else
+                    size="small"
+                    type="primary"
+                    link
+                    :loading="savingArtId === message.id"
+                    @click="handleSaveSingleArt(message)"
+                  >
+                    存入角色库
+                  </el-button>
+                </div>
+              </div>
             </template>
             <el-alert
               v-else-if="message.status === 'failed'"
@@ -206,7 +306,7 @@ defineExpose({
     </div>
 
     <!-- 生成表单 -->
-    <AiGenerateForm v-model="ai.form.value" :styles="ai.styles.value" :generating="ai.streaming.value" @send="ai.send(() => emit('changed'))" @stop="ai.stop()" />
+    <AiGenerateForm v-model="ai.form.value" :styles="ai.styles.value" :generating="ai.streaming.value" @send="handleSend" @stop="ai.stop()" />
   </div>
 </template>
 
@@ -271,10 +371,26 @@ defineExpose({
   max-height: 260px;
   border-radius: 8px;
 }
+.art-meta-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .art-caption {
-  margin-top: 6px;
-  font-size: 11px;
-  color: #7d879a;
+  font-size: 12px;
+  color: #4b5563;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.art-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .msg-text {
   font-size: 13px;

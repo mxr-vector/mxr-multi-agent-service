@@ -5,6 +5,7 @@
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { storyAiApi, type StoryMessageVO } from "@/api/story";
+import { copyToClipboard } from "@/utils/clipboard";
 
 const props = defineProps<{
   message: StoryMessageVO;
@@ -21,8 +22,12 @@ const saveCurrent = ref(false);
 const saving = ref(false);
 
 async function copyContent() {
-  await navigator.clipboard.writeText(props.message.content ?? "");
-  ElMessage.success("剧本全文已复制");
+  const ok = await copyToClipboard(props.message.content ?? "");
+  if (ok) {
+    ElMessage.success("剧本全文已复制");
+  } else {
+    ElMessage.error("复制失败，请手动选择复制");
+  }
 }
 
 async function handleSave() {

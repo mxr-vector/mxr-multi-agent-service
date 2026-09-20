@@ -157,10 +157,12 @@ const toneOptions = computed<ToneOptionItem[]>(() => {
   return items;
 });
 
-/** 切换风格时画幅回落到该风格首选 */
+/** 切换风格时画幅回落到该风格首选（默认优先 16:9） */
 function onStyleChange() {
   if (!aspectOptions.value.includes(form.value.aspect_ratio ?? "")) {
-    form.value.aspect_ratio = aspectOptions.value[0] ?? null;
+    form.value.aspect_ratio = aspectOptions.value.includes("16:9")
+      ? "16:9"
+      : aspectOptions.value[0] ?? null;
   }
 }
 </script>

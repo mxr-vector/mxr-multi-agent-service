@@ -13,6 +13,7 @@ import {
 } from "@/api/story";
 import { readCard } from "../../composables/useStoryAi";
 import { useDictStore } from "@/stores/dictStore";
+import { copyToClipboard } from "@/utils/clipboard";
 
 const props = defineProps<{
   message: StoryMessageVO;
@@ -108,8 +109,12 @@ async function handleEditSave() {
 // ---------- 出图提示词复制（外部出图通道） ----------
 async function copyArtPrompt() {
   if (!card.value?.art_prompt) return;
-  await navigator.clipboard.writeText(card.value.art_prompt);
-  ElMessage.success("出图提示词已复制，可粘贴到外部绘图工具出图后回传上传");
+  const ok = await copyToClipboard(card.value.art_prompt);
+  if (ok) {
+    ElMessage.success("出图提示词已复制，可粘贴到外部绘图工具出图后回传上传");
+  } else {
+    ElMessage.error("复制失败，请手动选择复制");
+  }
 }
 
 // ---------- 内部生成立绘（任务轮询） ----------
@@ -136,7 +141,15 @@ const artQuality = ref("");
 
 function openArtSpec() {
   if (!card.value) return;
-  artSize.value = "";
+  // 默认生成人物立绘提示词比例应为 16:9，优先预填横版 1536x1024 档位
+  const opt169 = imageSizeOptions.value.find(
+    (o) =>
+      o.value === "1536x1024" ||
+      o.label.includes("1536x1024") ||
+      o.label.includes("横版") ||
+      o.value.includes("16_9")
+  );
+  artSize.value = opt169 ? opt169.value : "1536x1024";
   artQuality.value = "";
   artSpecVisible.value = true;
 }
@@ -176,6 +189,21 @@ function pollTask() {
         if (res.data.status === "succeeded") {
           ElMessage.success("立绘生成完成");
           emit("changed");
+          // 给用户选择是否立即存入角色库
+          try {
+            await ElMessageBox.confirm(
+              `角色「${card.value?.name || "角色"}」的立绘已生成完成，是否立即存入角色库？`,
+              "存入角色库确认",
+              {
+                confirmButtonText: "立即存入角色库",
+                cancelButtonText: "暂不存入",
+                type: "success",
+              }
+            );
+            await saveToLibrary();
+          } catch {
+            ElMessage.info("已生成，您也可以随时在立绘下方点击「存入角色库」进行收编");
+          }
         } else {
           ElMessage.error(`立绘生成失败：${res.data.error_message ?? "未知原因"}`);
         }
@@ -224,6 +252,11 @@ async function saveToLibrary() {
   saving.value = true;
   try {
     const res = await storyAiApi.saveCharacter(props.message.id, mode, characterId);
+    if (!props.message.params) {
+      props.message.params = {};
+    }
+    const charId = String((res.data.character as Record<string, unknown> | undefined)?.id ?? "");
+    props.message.params.sedimented_character_id = charId;
     ElMessage.success(
       `已存入角色库（立绘收编 ${res.data.saved_art_count} 张${res.data.casting_added ? "，已登记出演本项目" : ""}）`
     );

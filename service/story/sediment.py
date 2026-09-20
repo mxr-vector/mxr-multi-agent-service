@@ -177,11 +177,13 @@ class SedimentService:
         message_id: uuid.UUID,
         mode: str,
         character_id: uuid.UUID | None,
+        art_message_ids: list[uuid.UUID] | None = None,
     ) -> dict:
         """角色卡"存入角色库"：单事务完成建角色/并入 + 立绘收编 + 出演登记。
 
         mode='new' 新建角色（同名由前端先行提示选择）；mode='merge' 并入
         character_id 指向的既有角色（仅新增立绘与出演登记，不改人设）。
+        art_message_ids 可指定要收编的立绘消息列表，缺省为收编全部未沉淀立绘。
         """
         if not ctx.user_id:
             bad_except("角色沉淀仅支持用户通道调用")
@@ -230,6 +232,9 @@ class SedimentService:
             # service/story/project.py 的 _rollback_keyframe_moves 范式，
             # 避免留下无 DB 引用的孤儿文件）
             art_messages = await self._collect_art_messages(db, message_id)
+            if art_message_ids is not None:
+                wanted_ids = {mid.hex for mid in art_message_ids}
+                art_messages = [m for m in art_messages if m.id.hex in wanted_ids]
             made_primary = not any(
                 art.is_primary for art in await art_repo.list_by_character(character.id)
             )
@@ -300,6 +305,155 @@ class SedimentService:
                 "mode": mode,
                 "character": character.to_dict(),
                 "saved_art_count": len(saved_arts),
+                "casting_added": casting_added,
+            }
+
+    async def save_art(
+        self,
+        ctx,
+        art_message_id: uuid.UUID,
+        character_id: uuid.UUID | None = None,
+    ) -> dict:
+        """单个立绘消息存入角色库：把立绘复制进角色目录并创建角色立绘记录。
+
+        若未传入 character_id，则尝试根据立绘消息绑定的角色卡自动处理：
+        1. 若关联的角色卡已沉淀，则直接存入该沉淀后的角色；
+        2. 若关联的角色卡未沉淀，但库中存在同名角色，则并入该角色；
+        3. 若角色库中不存在同名角色，则自动根据角色卡创建新角色并将当前立绘存入。
+        """
+        if not ctx.user_id:
+            bad_except("立绘沉淀仅支持用户通道调用")
+        async with get_session() as db:
+            _, project = await self._assert_message_owned(db, art_message_id, ctx)
+            message_repo = MessageRepository(db)
+            art_message = await message_repo.get_for_update(art_message_id)
+            if art_message is None:
+                bad_except(f"立绘消息不存在: {art_message_id.hex}")
+            if art_message.kind != StoryMessageKind.ART.value:
+                bad_except("该消息不是立绘消息")
+            if art_message.status != ChatMessageStatus.DONE.value or not art_message.image_file:
+                bad_except("立绘尚未完成生成或文件缺失")
+            if (art_message.params or {}).get(_SEDIMESTED_KEY):
+                bad_except("该立绘已存入角色库，请勿重复操作")
+
+            char_repo = CharacterRepository(db)
+            art_repo = CharacterArtRepository(db)
+            asset_repo = ProjectAssetRepository(db)
+
+            # 寻找关联的角色卡消息
+            card_message_id_raw = (art_message.params or {}).get("card_message_id")
+            card_message = None
+            card_data: dict = {}
+            if card_message_id_raw:
+                try:
+                    card_message = await message_repo.get_for_update(
+                        uuid.UUID(str(card_message_id_raw))
+                    )
+                    if card_message:
+                        card_data = self._load_card(card_message)
+                except Exception:
+                    pass
+
+            target_char = None
+            if character_id is not None:
+                target_char = await char_repo.get_for_update(character_id)
+                if target_char is None or target_char.user_id != ctx.user_id:
+                    bad_except("指定的目标角色不存在")
+            elif card_message:
+                sedimented_char_id = (card_message.params or {}).get(_SEDIMESTED_KEY)
+                if sedimented_char_id:
+                    try:
+                        target_char = await char_repo.get_for_update(
+                            uuid.UUID(str(sedimented_char_id))
+                        )
+                    except Exception:
+                        pass
+                if target_char is None and card_data.get("name"):
+                    existing_chars, _ = await char_repo.list(
+                        ctx.user_id, page=1, size=20, keyword=card_data["name"]
+                    )
+                    match = next((c for c in existing_chars if c.name == card_data["name"]), None)
+                    if match:
+                        target_char = await char_repo.get_for_update(match.id)
+                    else:
+                        # 自动以角色卡创建新角色
+                        target_char = await char_repo.create(
+                            character_id=uuid7(),
+                            user_id=ctx.user_id,
+                            name=str(card_data["name"]).strip(),
+                            role_type=card_data.get("role_type"),
+                            profile=card_data.get("profile") or {},
+                            style=card_data.get("visual_profile") or {},
+                            appearance_prompt=card_data.get("appearance_prompt"),
+                            negative_prompt=card_data.get("negative_prompt"),
+                        )
+                        # 标记角色卡也已沉淀
+                        card_message.params = {
+                            **(card_message.params or {}),
+                            _SEDIMESTED_KEY: target_char.id.hex,
+                        }
+                        await message_repo.update_fields(card_message, {})
+            else:
+                bad_except("未找到关联的角色信息，请先指定目标角色")
+
+            if target_char is None:
+                bad_except("未能关联或创建角色库角色")
+
+            copied_files: "list[str]" = []
+            try:
+                image_file = await self._copy_into_character_dir(
+                    art_message.image_file, ctx.user_id, target_char
+                )
+                copied_files.append(image_file)
+                existing_arts = await art_repo.list_by_character(target_char.id)
+                made_primary = not any(a.is_primary for a in existing_arts)
+
+                art = await art_repo.create(
+                    art_id=uuid7(),
+                    character_id=target_char.id,
+                    image_file=image_file,
+                    name=target_char.name,
+                    art_type="full_body",
+                    source="ai",
+                    prompt=art_message.prompt,
+                    negative_prompt=card_data.get("negative_prompt"),
+                    params={
+                        "source_message_id": art_message.id.hex,
+                        "generation_task_id": (art_message.params or {}).get(
+                            "generation_task_id"
+                        ),
+                    },
+                    is_primary=made_primary,
+                )
+                # 沉淀标记
+                art_message.params = {
+                    **(art_message.params or {}),
+                    _SEDIMESTED_KEY: target_char.id.hex,
+                }
+                await message_repo.update_fields(art_message, {})
+
+                target_char.art_count = len(await art_repo.list_by_character(target_char.id))
+                if not target_char.avatar_file:
+                    target_char.avatar_file = image_file
+
+                casting_added = False
+                if not await asset_repo.exists(project.id, "character", target_char.id):
+                    sort_order = await asset_repo.next_sort_order(project.id, "character")
+                    await asset_repo.add(
+                        uuid7(), project.id, "character", target_char.id, sort_order=sort_order
+                    )
+                    casting_added = True
+
+                await ProjectRepository(db).recount_assets(project)
+                await db.commit()
+            except BaseException:
+                for rel in copied_files:
+                    unlink_quietly(rel)
+                raise
+
+            return {
+                "character": target_char.to_dict(),
+                "art": art.to_dict(),
                 "casting_added": casting_added,
             }
 

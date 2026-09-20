@@ -360,11 +360,29 @@ export const storyAiApi = {
   /**
    * 角色卡存入角色库（单事务：建角色/并入 + 立绘收编 + 自动出演登记）。
    * 同名角色由调用方先行提示，mode='merge' 时须提供 character_id。
+   * 可通过 artMessageIds 选择要存入的立绘消息列表。
    */
-  saveCharacter(messageId: string, mode: "new" | "merge", characterId?: string) {
+  saveCharacter(
+    messageId: string,
+    mode: "new" | "merge",
+    characterId?: string,
+    artMessageIds?: string[]
+  ) {
     return request.post<
       { mode: string; character: Record<string, unknown>; saved_art_count: number; casting_added: boolean },
       ApiResult<{ mode: string; character: Record<string, unknown>; saved_art_count: number; casting_added: boolean }>
-    >(STORY_SAVE_CHARACTER_URL(messageId), { mode, character_id: characterId });
+    >(STORY_SAVE_CHARACTER_URL(messageId), {
+      mode,
+      character_id: characterId,
+      art_message_ids: artMessageIds,
+    });
+  },
+
+  /** 单个立绘消息存入角色库（可指定角色或自动关联角色卡/同名角色） */
+  saveArt(messageId: string, characterId?: string) {
+    return request.post<
+      { character: Record<string, unknown>; art: Record<string, unknown>; casting_added: boolean },
+      ApiResult<{ character: Record<string, unknown>; art: Record<string, unknown>; casting_added: boolean }>
+    >(`/story/messages/${messageId}/save-art`, { character_id: characterId });
   },
 }

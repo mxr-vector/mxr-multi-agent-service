@@ -52,23 +52,26 @@ const loading = ref(false);
 const notFound = ref(false);
 const project = ref<StoryProjectDetailVO | null>(null);
 
-async function loadProject() {
+async function loadProject(options?: { silent?: boolean }) {
   if (!projectId.value) return;
-  loading.value = true;
+  const showLoading = !project.value && !options?.silent;
+  if (showLoading) loading.value = true;
   try {
     const res = await projectApi.detail(projectId.value);
     project.value = res.data;
     notFound.value = false;
   } catch {
-    notFound.value = true;
-    project.value = null;
+    if (showLoading) {
+      notFound.value = true;
+      project.value = null;
+    }
   } finally {
-    loading.value = false;
+    if (showLoading) loading.value = false;
   }
 }
 
-onMounted(loadProject);
-watch(projectId, loadProject);
+onMounted(() => loadProject());
+watch(projectId, () => loadProject());
 
 function goBack() {
   router.push("/story/projects/index");
@@ -106,8 +109,10 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
                 <el-image
                   v-if="project.cover_image"
                   :src="storyFileUrl(project.cover_image)"
+                  :preview-src-list="[storyFileUrl(project.cover_image)]"
                   fit="cover"
                   class="cover-image"
+                  preview-teleported
                 />
                 <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
               </div>
@@ -308,5 +313,10 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
 }
 .workspace-tabs {
   margin-top: 12px;
+  position: relative;
+  z-index: 1;
+}
+:deep(.el-image-viewer__wrapper) {
+  z-index: 3000 !important;
 }
 </style>

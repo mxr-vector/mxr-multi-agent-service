@@ -291,8 +291,15 @@ async function handleDeleteArt(artId: string) {
               </span>
             </div>
             <div v-if="detail.arts.length" class="art-grid">
-              <div v-for="art in detail.arts" :key="art.id" class="art-item">
-                <el-image :src="storyFileUrl(art.image_file)" fit="cover" class="art-image" />
+              <div v-for="(art, artIdx) in detail.arts" :key="art.id" class="art-item">
+                <el-image
+                  :src="storyFileUrl(art.image_file)"
+                  :preview-src-list="detail.arts.map((a) => storyFileUrl(a.image_file))"
+                  :initial-index="artIdx"
+                  preview-teleported
+                  fit="cover"
+                  class="art-image"
+                />
                 <el-tag v-if="art.is_primary" class="art-badge" size="small" type="warning">
                   主立绘
                 </el-tag>

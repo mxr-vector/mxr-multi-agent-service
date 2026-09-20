@@ -37,7 +37,7 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
 
   // ---------- 生成表单（制作参数记忆） ----------
   const styles = ref<StoryStyleVO[]>([]);
-  const form = ref<StoryGeneratePayload>({ idea: "", style_key: "", aspect_ratio: null, episodes: null, tone: null });
+  const form = ref<StoryGeneratePayload>({ idea: "", style_key: "", aspect_ratio: "16:9", episodes: null, tone: null });
 
   // ---------- 流式状态 ----------
   const streaming = shallowRef(false);
@@ -58,12 +58,14 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     }
   }
 
-  async function loadMessages() {
+  async function loadMessages(silent = false) {
     if (!activeSessionId.value) {
       messages.value = [];
       return;
     }
-    loadingMessages.value = true;
+    if (!silent) {
+      loadingMessages.value = true;
+    }
     try {
       // 回放取末页（最新消息）：长会话若固定取升序首页，超页后新产物永不可见
       const first = await storyAiApi.messages(activeSessionId.value, 1, MESSAGE_PAGE_SIZE);
@@ -79,7 +81,9 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
         messages.value = first.data?.items ?? [];
       }
     } finally {
-      loadingMessages.value = false;
+      if (!silent) {
+        loadingMessages.value = false;
+      }
     }
   }
 
@@ -92,12 +96,13 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     const params = (saved?.production_params ?? {}) as Record<string, unknown>;
     if (savedKey && styles.value.some((s) => s.key === savedKey)) {
       form.value.style_key = savedKey;
-      form.value.aspect_ratio = (params.aspect_ratio as string) ?? null;
+      form.value.aspect_ratio = (params.aspect_ratio as string) ?? "16:9";
       form.value.episodes = (params.episodes as number) ?? null;
       form.value.tone = (params.tone as string) ?? null;
     } else if (styles.value.length && !form.value.style_key) {
       form.value.style_key = styles.value[0].key;
-      form.value.aspect_ratio = null;
+      const ratios = styles.value[0].aspect_ratios ?? [];
+      form.value.aspect_ratio = ratios.includes("16:9") ? "16:9" : ratios[0] ?? "16:9";
     }
     await loadSessions();
     const latest = await storyAiApi.latestSession(projectId.value).catch(() => null);
@@ -215,7 +220,7 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       },
       async () => {
         finishStream();
-        await loadMessages();
+        await loadMessages(true);
         onProjectChanged?.();
       }
     );
@@ -228,12 +233,12 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     streaming.value = false;
     streamText.value = "";
     await storyAiApi.stop(activeSessionId.value).catch(() => null);
-    await loadMessages();
+    await loadMessages(true);
   }
 
-  /** 会话消息刷新（卡片沉淀/立绘回填后由组件触发） */
+  /** 会话消息刷新（卡片沉淀/立绘回填后由组件触发，静默无感） */
   async function refresh() {
-    await loadMessages();
+    await loadMessages(true);
   }
 
   /** 项目切换/组件卸载时中止在途流，避免旧流增量写入新视图 */
