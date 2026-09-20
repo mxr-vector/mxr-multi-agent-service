@@ -34,6 +34,8 @@ export const STORY_AI_URL = {
   generateArt: (messageId: string) => `/story/messages/${messageId}/generate-art`,
   editCard: (messageId: string) => `/story/messages/${messageId}/card`,
   saveScript: (messageId: string) => `/story/messages/${messageId}/save-script`,
+  saveKeyframe: (messageId: string) => `/story/messages/${messageId}/save-keyframe`,
+  saveAllKeyframes: (sessionId: string) => `/story/sessions/${sessionId}/save-keyframes`,
 } as const;
 
 /** 角色沉淀地址（独立导出，避免对象字面量自引用） */
@@ -86,6 +88,20 @@ export interface StoryCharacterCard {
   negative_prompt: string | null;
 }
 
+/** 关键帧卡片数据（双轨输出契约） */
+export interface StoryKeyframeCard {
+  scene_no: number;
+  shot_no: number;
+  name: string;
+  camera_description: string | null;
+  scene_description: string | null;
+  visual_description: string | null;
+  lighting_description: string | null;
+  style_description: string | null;
+  prompt: string;
+  negative_prompt: string | null;
+}
+
 /** 视频风格（风格注册表条目） */
 export interface StoryStyleVO {
   key: string;
@@ -128,6 +144,7 @@ export interface StoryDonePayload {
   message_id: string;
   status: "done" | "stopped" | "failed";
   cards?: StoryCharacterCard[];
+  keyframes?: StoryKeyframeCard[];
   cards_ok?: boolean;
   cards_error?: string | null;
   params?: Record<string, unknown>;
@@ -384,5 +401,20 @@ export const storyAiApi = {
       { character: Record<string, unknown>; art: Record<string, unknown>; casting_added: boolean },
       ApiResult<{ character: Record<string, unknown>; art: Record<string, unknown>; casting_added: boolean }>
     >(`/story/messages/${messageId}/save-art`, { character_id: characterId });
+  },
+
+  /** 关键帧卡存入项目关键帧库 */
+  saveKeyframe(messageId: string) {
+    return request.post<Record<string, unknown>, ApiResult<Record<string, unknown>>>(
+      STORY_AI_URL.saveKeyframe(messageId)
+    );
+  },
+
+  /** 一键将当前会话中的全部关键帧存入项目关键帧库 */
+  saveAllKeyframes(sessionId: string) {
+    return request.post<
+      { saved_count: number; items: Record<string, unknown>[] },
+      ApiResult<{ saved_count: number; items: Record<string, unknown>[] }>
+    >(STORY_AI_URL.saveAllKeyframes(sessionId));
   },
 }

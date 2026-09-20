@@ -22,10 +22,11 @@ from uuid_utils.compat import uuid7
 
 from agent.constants.enums.chat import ChatMessageStatus
 from agent.constants.enums.story import StoryMessageKind
-from agent.prompts.story import CARD_DATA_KEY
+from agent.prompts.story import CARD_DATA_KEY, KEYFRAME_DATA_KEY
 from database.postgre_client import get_session
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
+    KeyframeRepository,
     ProjectAssetRepository,
     ProjectRepository,
     ScriptRepository,
@@ -43,6 +44,7 @@ from service.story.storage import (
 
 # 消息沉淀标记键（幂等守卫）
 _SEDIMESTED_KEY = "sedimented_character_id"
+_SEDIMENTED_KEYFRAME_KEY = "sedimented_keyframe_id"
 
 # 角色名长度上限（对齐 service/story/character.py 的 _CHARACTER_NAME_MAX，
 # 沉淀路径绕过 CharacterService 校验，需在此拦住超长 AI 产出）
@@ -495,3 +497,152 @@ class SedimentService:
             write_seq_file, resolve_upload_path(rel_dir), character.name, ext, content
         )
         return f"{rel_dir}/{filename}"
+
+    # ---------- 关键帧沉淀 ----------
+
+    def _load_keyframe(self, message: StoryMessage) -> dict:
+        """取关键帧数据（缺失/非关键帧消息拒绝）。"""
+        kf = (message.params or {}).get(KEYFRAME_DATA_KEY)
+        if message.kind != StoryMessageKind.KEYFRAME.value or not isinstance(kf, dict):
+            bad_except("该消息不是关键帧卡片")
+        return kf
+
+    async def save_keyframe(self, ctx, message_id: uuid.UUID) -> dict:
+        """关键帧卡'存入关键帧'：kind='keyframe' 消息 -> 项目 story_keyframes 资产。"""
+        if not ctx.user_id:
+            bad_except("关键帧沉淀仅支持用户通道调用")
+        async with get_session() as db:
+            message, project = await self._assert_message_owned(db, message_id, ctx)
+            kf = self._load_keyframe(message)
+            keyframe_repo = KeyframeRepository(db)
+            script_repo = ScriptRepository(db)
+            current_script = await script_repo.get_current(project.id)
+            script_id = current_script.id if current_script else None
+
+            scene_no = kf.get("scene_no")
+            shot_no = kf.get("shot_no")
+            existing = None
+            if scene_no is not None and shot_no is not None:
+                existing = await keyframe_repo.get_by_scene_shot(project.id, scene_no, shot_no)
+
+            kf_fields = {
+                "name": kf.get("name"),
+                "scene_description": kf.get("scene_description"),
+                "visual_description": kf.get("visual_description"),
+                "camera_description": kf.get("camera_description"),
+                "lighting_description": kf.get("lighting_description"),
+                "style_description": kf.get("style_description"),
+                "prompt": kf.get("prompt") or f"分镜镜头 {scene_no}-{shot_no}",
+                "negative_prompt": kf.get("negative_prompt"),
+                "script_id": script_id,
+            }
+
+            if existing is not None:
+                await keyframe_repo.update_fields(existing, kf_fields)
+                target_keyframe = existing
+            else:
+                target_keyframe = await keyframe_repo.create(
+                    keyframe_id=uuid7(),
+                    project_id=project.id,
+                    chapter_no=kf.get("chapter_no"),
+                    scene_no=scene_no,
+                    shot_no=shot_no,
+                    generation_task_id=self._gen_task_id(message),
+                    status="draft",
+                    **kf_fields,
+                )
+
+            # 打上已沉淀标记
+            message.params = {
+                **(message.params or {}),
+                _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                "is_sedimented": True,
+            }
+            await MessageRepository(db).update_fields(message, {})
+            project_repo = ProjectRepository(db)
+            await project_repo.recount_assets(project)
+            await db.commit()
+            return target_keyframe.to_dict()
+
+    async def save_all_keyframes(self, ctx, session_id: uuid.UUID) -> dict:
+        """当前会话中全部未沉淀的关键帧一键'存入关键帧'。"""
+        if not ctx.user_id:
+            bad_except("关键帧沉淀仅支持用户通道调用")
+        async with get_session() as db:
+            from service.story.session import StorySessionService
+
+            story_session, project = await StorySessionService()._assert_session_owned(
+                db, session_id, ctx
+            )
+            message_repo = MessageRepository(db)
+            keyframe_repo = KeyframeRepository(db)
+            script_repo = ScriptRepository(db)
+            current_script = await script_repo.get_current(project.id)
+            script_id = current_script.id if current_script else None
+
+            stmt = (
+                select(StoryMessage)
+                .where(
+                    StoryMessage.session_id == session_id,
+                    StoryMessage.kind == StoryMessageKind.KEYFRAME.value,
+                )
+                .order_by(StoryMessage.sequence.asc())
+            )
+            result = await db.execute(stmt)
+            messages = list(result.scalars().all())
+            saved_count = 0
+            saved_keyframes = []
+
+            for message in messages:
+                kf = (message.params or {}).get(KEYFRAME_DATA_KEY)
+                if not isinstance(kf, dict):
+                    continue
+                scene_no = kf.get("scene_no")
+                shot_no = kf.get("shot_no")
+                existing = None
+                if scene_no is not None and shot_no is not None:
+                    existing = await keyframe_repo.get_by_scene_shot(
+                        project.id, scene_no, shot_no
+                    )
+
+                kf_fields = {
+                    "name": kf.get("name"),
+                    "scene_description": kf.get("scene_description"),
+                    "visual_description": kf.get("visual_description"),
+                    "camera_description": kf.get("camera_description"),
+                    "lighting_description": kf.get("lighting_description"),
+                    "style_description": kf.get("style_description"),
+                    "prompt": kf.get("prompt") or f"分镜镜头 {scene_no}-{shot_no}",
+                    "negative_prompt": kf.get("negative_prompt"),
+                    "script_id": script_id,
+                }
+
+                if existing is not None:
+                    await keyframe_repo.update_fields(existing, kf_fields)
+                    target_keyframe = existing
+                else:
+                    target_keyframe = await keyframe_repo.create(
+                        keyframe_id=uuid7(),
+                        project_id=project.id,
+                        chapter_no=kf.get("chapter_no"),
+                        scene_no=scene_no,
+                        shot_no=shot_no,
+                        generation_task_id=self._gen_task_id(message),
+                        status="draft",
+                        **kf_fields,
+                    )
+
+                message.params = {
+                    **(message.params or {}),
+                    _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                    "is_sedimented": True,
+                }
+                await message_repo.update_fields(message, {})
+                saved_count += 1
+                saved_keyframes.append(target_keyframe.to_dict())
+
+            if saved_count > 0:
+                await ProjectRepository(db).recount_assets(project)
+                await db.commit()
+
+            return {"saved_count": saved_count, "items": saved_keyframes}

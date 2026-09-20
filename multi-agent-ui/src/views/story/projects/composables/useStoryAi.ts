@@ -10,6 +10,7 @@ import {
   storyAiApi,
   storyFileUrl,
   type StoryCharacterCard,
+  type StoryKeyframeCard,
   type StoryGeneratePayload,
   type StoryMessageVO,
   type StorySessionVO,
@@ -20,6 +21,12 @@ import {
 export function readCard(message: StoryMessageVO): StoryCharacterCard | null {
   const card = (message.params ?? {})["character_card"];
   return card && typeof card === "object" ? (card as StoryCharacterCard) : null;
+}
+
+/** 消息上的关键帧数据读取 */
+export function readKeyframe(message: StoryMessageVO): StoryKeyframeCard | null {
+  const kf = (message.params ?? {})["keyframe_data"];
+  return kf && typeof kf === "object" ? (kf as StoryKeyframeCard) : null;
 }
 
 /** 消息回放单页大小（与后端分页上限一致） */

@@ -34,7 +34,7 @@ from agent.constants.enums.story import (
     StoryTaskStatus,
     StoryTaskType,
 )
-from agent.prompts.story import CARD_DATA_KEY
+from agent.prompts.story import CARD_DATA_KEY, KEYFRAME_DATA_KEY
 from agent.skills.loader import get_style
 from core.config_snapshot import CFG
 from database.postgre_client import get_session
@@ -329,6 +329,7 @@ class StoryGenerationService:
                     "message_id": assistant_message_id.hex,
                     "status": ChatMessageStatus.DONE.value,
                     "cards": track.cards,
+                    "keyframes": track.keyframes,
                     "cards_ok": track.ok,
                     "cards_error": track.error,
                     "params": params_snapshot,
@@ -482,6 +483,31 @@ class StoryGenerationService:
                     await SessionRepository(db).touch(
                         story_session,
                         message_delta=len(track.cards),
+                        message_at=datetime.now(timezone.utc),
+                    )
+            # 关键帧逐条落库（kind='keyframe'，关键帧结构化数据挂 params）
+            if track.keyframes:
+                story_session = await SessionRepository(db).get(session_id)
+                for kf in track.keyframes:
+                    seq = await message_repo.next_sequence(session_id)
+                    await message_repo.create(
+                        message_id=uuid7(),
+                        session_id=session_id,
+                        role=ChatRole.ASSISTANT.value,
+                        sequence=seq,
+                        kind=StoryMessageKind.KEYFRAME.value,
+                        content=f"关键帧 {kf['scene_no']}-{kf['shot_no']}：{kf['name']}",
+                        prompt=kf.get("prompt"),
+                        params={
+                            KEYFRAME_DATA_KEY: kf,
+                            "generation_task_id": gen_task_id.hex,
+                            **params_snapshot,
+                        },
+                    )
+                if story_session is not None:
+                    await SessionRepository(db).touch(
+                        story_session,
+                        message_delta=len(track.keyframes),
                         message_at=datetime.now(timezone.utc),
                     )
             # 制作参数回写项目（再次生成时作默认值）+ 生成冗余计数同步

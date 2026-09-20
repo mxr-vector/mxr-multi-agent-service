@@ -12,6 +12,7 @@ import { useStoryAi } from "../../composables/useStoryAi";
 import AiGenerateForm from "./AiGenerateForm.vue";
 import ScriptCard from "./ScriptCard.vue";
 import CharacterCardItem from "./CharacterCardItem.vue";
+import KeyframeCardItem from "./KeyframeCardItem.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -190,6 +191,33 @@ async function handleSaveSingleArt(message: StoryMessageVO) {
   }
 }
 
+/** 未沉淀关键帧计数 */
+const unsavedKeyframeCount = computed(() => {
+  return ai.messages.value.filter(
+    (m) =>
+      m.kind === "keyframe" &&
+      !m.params?.["sedimented_keyframe_id"] &&
+      !m.params?.["is_sedimented"]
+  ).length;
+});
+
+const savingAllKeyframes = ref(false);
+
+/** 一键存入所有关键帧 */
+async function handleSaveAllKeyframes() {
+  if (!ai.activeSession.value || savingAllKeyframes.value) return;
+  savingAllKeyframes.value = true;
+  try {
+    const res = await storyAiApi.saveAllKeyframes(ai.activeSession.value.id);
+    ElMessage.success(`成功存入 ${res.data?.saved_count ?? 0} 个关键帧到项目`);
+    await onCardChanged();
+  } catch {
+    // 错误已由拦截器处理
+  } finally {
+    savingAllKeyframes.value = false;
+  }
+}
+
 defineExpose({
   /** 生成中标记（父级收起抽屉时提示） */
   isStreaming: computed(() => ai.streaming.value),
@@ -221,6 +249,15 @@ defineExpose({
       <el-button size="small" :disabled="!ai.activeSession.value" @click="handleRemoveSession">
         删除
       </el-button>
+      <el-button
+        v-if="unsavedKeyframeCount > 0"
+        size="small"
+        type="primary"
+        :loading="savingAllKeyframes"
+        @click="handleSaveAllKeyframes"
+      >
+        存入全部关键帧 ({{ unsavedKeyframeCount }})
+      </el-button>
     </div>
 
     <!-- 消息流 -->
@@ -247,6 +284,13 @@ defineExpose({
             v-else-if="message.kind === 'character'"
             :message="message"
             :find-same-name="findSameName"
+            @changed="onCardChanged"
+          />
+
+          <!-- 关键帧卡 -->
+          <KeyframeCardItem
+            v-else-if="message.kind === 'keyframe'"
+            :message="message"
             @changed="onCardChanged"
           />
 

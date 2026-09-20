@@ -134,3 +134,26 @@ async def save_art(
         data=await _sediment_service.save_art(ctx, message_id, payload.character_id)
     )
 
+
+@router.post("/messages/{message_id}/save-keyframe")
+async def save_keyframe(
+    message_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """关键帧卡存入项目的关键帧库（若已存在同场景-镜头则更新）。"""
+    return R.success(
+        data=await _sediment_service.save_keyframe(ctx, message_id)
+    )
+
+
+@router.post("/sessions/{session_id}/save-keyframes")
+async def save_all_keyframes(
+    session_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """一键将当前会话中的全部关键帧存入项目关键帧库。"""
+    return R.success(
+        data=await _sediment_service.save_all_keyframes(ctx, session_id)
+    )
+
+

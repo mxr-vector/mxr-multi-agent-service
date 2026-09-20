@@ -28,13 +28,101 @@ _DOUBLE_COMMA_RE = re.compile(r",\s*,+")
 
 @dataclass
 class DualTrack:
-    """双轨解析结果：script_text 始终可用；cards 为规范化角色卡列表。"""
+    """双轨解析结果：script_text 始终可用；cards 为角色卡列表；keyframes 为关键帧列表。"""
 
     script_text: str
     cards: list[dict] = field(default_factory=list)
+    keyframes: list[dict] = field(default_factory=list)
     params: dict = field(default_factory=dict)
     ok: bool = False
     error: str | None = None
+
+
+_MAX_KEYFRAMES = 50
+
+# 匹配类似: △ 【关键帧 1-1】[中景推近] 画面描述...
+_SCRIPT_KEYFRAME_RE = re.compile(
+    r"△\s*【关键帧\s*(\d+)[-–—_](\d+)】\s*(?:\[([^\]]+)\])?\s*([^\n\r]+)",
+    re.MULTILINE,
+)
+
+
+def _extract_keyframes_from_script(script_text: str) -> list[dict]:
+    """从剧本正文中按 △ 【关键帧 场次-镜头】正则兜底提取关键帧。"""
+    matches = _SCRIPT_KEYFRAME_RE.findall(script_text or "")
+    results = []
+    seen = set()
+    for m in matches:
+        try:
+            scene_no = int(m[0])
+            shot_no = int(m[1])
+        except (ValueError, TypeError):
+            continue
+        key = (scene_no, shot_no)
+        if key in seen:
+            continue
+        seen.add(key)
+        camera_desc = (m[2] or "").strip() or None
+        raw_desc = (m[3] or "").strip()
+        name = f"镜头 {scene_no}-{shot_no}"
+        visual_desc = raw_desc or None
+        prompt = f"{camera_desc}，{raw_desc}" if camera_desc else raw_desc
+        results.append({
+            "scene_no": scene_no,
+            "shot_no": shot_no,
+            "name": name,
+            "camera_description": camera_desc,
+            "scene_description": raw_desc,
+            "visual_description": visual_desc,
+            "lighting_description": None,
+            "style_description": None,
+            "prompt": prompt or f"分镜镜头 {scene_no}-{shot_no}",
+            "negative_prompt": None,
+        })
+    return results[:_MAX_KEYFRAMES]
+
+
+def _normalize_keyframe(item) -> dict | None:
+    """单关键帧规范化：scene_no/shot_no 转 int；prompt 保证有值。"""
+    if not isinstance(item, dict):
+        return None
+    try:
+        scene_no = int(item.get("scene_no")) if item.get("scene_no") is not None else 1
+    except (ValueError, TypeError):
+        scene_no = 1
+    try:
+        shot_no = int(item.get("shot_no")) if item.get("shot_no") is not None else 1
+    except (ValueError, TypeError):
+        shot_no = 1
+
+    def _as_str(value) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text or None
+
+    name = _as_str(item.get("name")) or f"镜头 {scene_no}-{shot_no}"
+    camera_desc = _as_str(item.get("camera_description"))
+    scene_desc = _as_str(item.get("scene_description"))
+    visual_desc = _as_str(item.get("visual_description"))
+    lighting_desc = _as_str(item.get("lighting_description"))
+    style_desc = _as_str(item.get("style_description"))
+    prompt = _as_str(item.get("prompt"))
+    if not prompt:
+        parts = [visual_desc, camera_desc, lighting_desc]
+        prompt = "，".join(p for p in parts if p) or f"分镜镜头 {scene_no}-{shot_no}"
+    negative_prompt = _as_str(item.get("negative_prompt"))
+
+    return {
+        "scene_no": scene_no,
+        "shot_no": shot_no,
+        "name": name,
+        "camera_description": camera_desc,
+        "scene_description": scene_desc,
+        "visual_description": visual_desc,
+        "lighting_description": lighting_desc,
+        "style_description": style_desc,
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+    }
 
 
 def _loads_tolerant(raw: str):
@@ -102,23 +190,29 @@ def _normalize_card(item) -> dict | None:
 
 
 def split_dual_track(full_text: str) -> DualTrack:
-    """剥离尾部角色卡 JSON 块，返回双轨解析结果（永不抛异常）。"""
+    """剥离尾部角色卡与关键帧 JSON 块，返回双轨解析结果（永不抛异常）。"""
     full_text = full_text or ""
     begin_index = full_text.rfind(CARDS_BEGIN)
     if begin_index < 0:
-        return DualTrack(script_text=full_text.strip(), error="未找到角色卡数据块")
+        script_text = full_text.strip()
+        keyframes = _extract_keyframes_from_script(script_text)
+        return DualTrack(
+            script_text=script_text,
+            keyframes=keyframes,
+            error="未找到结构化数据块",
+        )
     script_text = full_text[:begin_index].rstrip()
     end_index = full_text.find(CARDS_END, begin_index + len(CARDS_BEGIN))
     raw = full_text[begin_index + len(CARDS_BEGIN) : end_index if end_index > 0 else None]
     payload = _loads_tolerant(raw)
     if not isinstance(payload, dict):
+        keyframes = _extract_keyframes_from_script(script_text)
         return DualTrack(
             script_text=script_text,
-            error="角色卡数据块不是合法 JSON 对象",
+            keyframes=keyframes,
+            error="结构化数据块不是合法 JSON 对象",
         )
     cards: list[dict] = []
-    # characters 容错收敛：模型偶发输出单对象/非数组（如 {"name": ...} 或数字），
-    # 切片直接抛异常会击穿"永不抛异常"契约，把已完成剧本误判为 failed（D4）
     raw_cards = payload.get("characters")
     if isinstance(raw_cards, dict):
         raw_cards = [raw_cards]
@@ -128,6 +222,27 @@ def split_dual_track(full_text: str) -> DualTrack:
         card = _normalize_card(item)
         if card is not None:
             cards.append(card)
+
+    raw_keyframes = payload.get("keyframes")
+    keyframes: list[dict] = []
+    if isinstance(raw_keyframes, dict):
+        raw_keyframes = [raw_keyframes]
+    if isinstance(raw_keyframes, list):
+        for item in raw_keyframes[:_MAX_KEYFRAMES]:
+            kf = _normalize_keyframe(item)
+            if kf is not None:
+                keyframes.append(kf)
+    # 若 JSON 中未产出关键帧或为空，从剧本正文兜底提取
+    if not keyframes:
+        keyframes = _extract_keyframes_from_script(script_text)
+
     params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
-    error = None if cards else "角色卡数组为空或全部无效"
-    return DualTrack(script_text=script_text, cards=cards, params=params, ok=bool(cards), error=error)
+    error = None if (cards or keyframes) else "角色卡与关键帧数组均为空"
+    return DualTrack(
+        script_text=script_text,
+        cards=cards,
+        keyframes=keyframes,
+        params=params,
+        ok=bool(cards or keyframes),
+        error=error,
+    )

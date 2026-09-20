@@ -309,6 +309,21 @@ class KeyframeRepository:
             stmt = stmt.where(StoryKeyframe.id != exclude_id)
         return await self.session.scalar(stmt.limit(1)) is not None
 
+    async def get_by_scene_shot(
+        self,
+        project_id: uuid.UUID,
+        scene_no: int,
+        shot_no: int,
+    ) -> StoryKeyframe | None:
+        """按 (project_id, scene_no, shot_no) 查询关键帧。"""
+        stmt = select(StoryKeyframe).where(
+            StoryKeyframe.project_id == project_id,
+            StoryKeyframe.scene_no == scene_no,
+            StoryKeyframe.shot_no == shot_no,
+        )
+        result = await self.session.execute(stmt.limit(1))
+        return result.scalars().first()
+
     async def list_with_images(self, project_id: uuid.UUID) -> list[StoryKeyframe]:
         """项目下全部已带图片的关键帧（项目改名时迁移文件用）。"""
         stmt = select(StoryKeyframe).where(
