@@ -32,6 +32,7 @@ export const STORY_AI_URL = {
   projectTasks: (projectId: string) => `/story/projects/${projectId}/generation-tasks`,
   /** 立绘生成 / 角色卡编辑 / 剧本与角色沉淀 */
   generateArt: (messageId: string) => `/story/messages/${messageId}/generate-art`,
+  generateSessionArt: (sessionId: string) => `/story/sessions/${sessionId}/generate-art`,
   editCard: (messageId: string) => `/story/messages/${messageId}/card`,
   saveScript: (messageId: string) => `/story/messages/${messageId}/save-script`,
   saveKeyframe: (messageId: string) => `/story/messages/${messageId}/save-keyframe`,
@@ -352,6 +353,23 @@ export const storyAiApi = {
     return request.post<StoryGenerationTaskVO, ApiResult<StoryGenerationTaskVO>>(
       STORY_AI_URL.generateArt(messageId),
       { size, quality }
+    );
+  },
+
+  /** 会话中直接发起立绘生成任务 */
+  generateArtDirect(
+    sessionId: string,
+    payload: {
+      prompt: string;
+      name?: string;
+      card_message_id?: string;
+      size?: string;
+      quality?: string;
+    }
+  ) {
+    return request.post<StoryGenerationTaskVO, ApiResult<StoryGenerationTaskVO>>(
+      STORY_AI_URL.generateSessionArt(sessionId),
+      payload
     );
   },
 

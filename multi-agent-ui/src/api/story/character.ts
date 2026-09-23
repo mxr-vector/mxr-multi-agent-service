@@ -6,8 +6,9 @@ import { STORY_CHARACTER_URL } from "./index";
 // 类型定义（对齐后端 routers/story 契约，字段一律 snake_case）
 // ============================================================
 
-/** 角色立绘类型（三视图与正面半身特写为必备参考图） */
+/** 角色立绘类型（默认单图包含半身正面与三视图；亦兼容分立的三视图与正面半身特写） */
 export type StoryArtType =
+  | "character_sheet"
   | "turnaround"
   | "front_bust"
   | "full_body"

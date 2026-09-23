@@ -13,6 +13,7 @@ import {
   type StoryVideoVO,
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
+import Pagination from "@/components/ui/Pagination.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -24,12 +25,17 @@ const emit = defineEmits<{
 
 const loading = ref(false);
 const list = ref<StoryVideoVO[]>([]);
+const page = ref(1);
+const size = ref(12);
+const total = ref(0);
 const keyframeNames = ref<Record<string, string>>({});
 
 async function loadVideos() {
   loading.value = true;
   try {
-    list.value = await collectPages((params) => videoApi.list(props.projectId, params));
+    const res = await videoApi.list(props.projectId, { page: page.value, size: size.value });
+    list.value = res.data?.items ?? [];
+    total.value = res.data?.total ?? 0;
   } finally {
     loading.value = false;
   }
@@ -327,6 +333,16 @@ function formatDuration(ms: number | null): string {
       <el-empty v-else-if="!loading" description="还没有视频成品" :image-size="90" />
     </div>
 
+    <div v-if="total > 0" class="panel-pagination">
+      <Pagination
+        v-model:page="page"
+        v-model:size="size"
+        :total="total"
+        :page-sizes="[6, 12, 24, 48]"
+        @change="loadVideos"
+      />
+    </div>
+
     <!-- 播放 -->
     <el-dialog
       v-model="playVisible"
@@ -471,5 +487,10 @@ function formatDuration(ms: number | null): string {
   width: 100%;
   max-height: 420px;
   background: #000;
+}
+.panel-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

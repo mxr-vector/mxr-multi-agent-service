@@ -15,6 +15,7 @@ import {
   type StoryKeyframeVO,
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
+import Pagination from "@/components/ui/Pagination.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -34,6 +35,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 const loading = ref(false);
 const list = ref<StoryKeyframeVO[]>([]);
+const page = ref(1);
+const size = ref(20);
+const total = ref(0);
 
 // —— 关键帧图片上传 ——
 const imageInput = ref<HTMLInputElement>();
@@ -101,7 +105,9 @@ function clearCreateImage() {
 async function loadKeyframes() {
   loading.value = true;
   try {
-    list.value = await collectPages((params) => keyframeApi.list(props.projectId, params));
+    const res = await keyframeApi.list(props.projectId, { page: page.value, size: size.value });
+    list.value = res.data?.items ?? [];
+    total.value = res.data?.total ?? 0;
   } finally {
     loading.value = false;
   }
@@ -309,14 +315,22 @@ async function handleCastSubmit() {
 const selectionVisible = ref(false);
 const selectionSubmitting = ref(false);
 const selectedIds = ref<string[]>([]);
+const allKeyframesForSelection = ref<StoryKeyframeVO[]>([]);
+const loadingSelection = ref(false);
 
-function openSelection() {
-  // 回显已保存的导出选择（按导出顺序），避免重新打开保存即静默清空
-  selectedIds.value = list.value
-    .filter((keyframe) => keyframe.is_selected)
-    .sort((a, b) => a.selection_order - b.selection_order)
-    .map((keyframe) => keyframe.id);
+async function openSelection() {
   selectionVisible.value = true;
+  loadingSelection.value = true;
+  try {
+    const all = await collectPages((params) => keyframeApi.list(props.projectId, params));
+    allKeyframesForSelection.value = all;
+    selectedIds.value = all
+      .filter((keyframe) => keyframe.is_selected)
+      .sort((a, b) => a.selection_order - b.selection_order)
+      .map((keyframe) => keyframe.id);
+  } finally {
+    loadingSelection.value = false;
+  }
 }
 
 async function handleSelectionSubmit() {
@@ -388,9 +402,9 @@ function numbering(keyframe: StoryKeyframeVO): string {
           <el-tag size="small">{{ STATUS_LABEL[row.status] ?? row.status }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="正向提示词" min-width="200">
+      <el-table-column label="正向提示词" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">
-          <span class="prompt-brief">
+          <span class="prompt-brief" :title="row.prompt">
             {{ row.prompt.slice(0, 50) }}{{ row.prompt.length > 50 ? "…" : "" }}
           </span>
         </template>
@@ -418,6 +432,16 @@ function numbering(keyframe: StoryKeyframeVO): string {
         <el-empty description="还没有关键帧" :image-size="80" />
       </template>
     </el-table>
+
+    <div v-if="total > 0" class="panel-pagination">
+      <Pagination
+        v-model:page="page"
+        v-model:size="size"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        @change="loadKeyframes"
+      />
+    </div>
 
     <!-- 创建/编辑 -->
     <el-dialog
@@ -596,11 +620,13 @@ function numbering(keyframe: StoryKeyframeVO): string {
     <!-- 导出选择 -->
     <el-dialog v-model="selectionVisible" title="设置导出选中关键帧" width="560px" append-to-body destroy-on-close>
       <span class="panel-hint">勾选参与导出的关键帧（空选即清空选择）。</span>
-      <el-checkbox-group v-model="selectedIds" class="selection-group">
-        <el-checkbox v-for="keyframe in list" :key="keyframe.id" :value="keyframe.id">
-          {{ numbering(keyframe) }} {{ keyframe.name || "未命名" }}
-        </el-checkbox>
-      </el-checkbox-group>
+      <div v-loading="loadingSelection" style="min-height: 80px; max-height: 360px; overflow-y: auto;">
+        <el-checkbox-group v-model="selectedIds" class="selection-group">
+          <el-checkbox v-for="keyframe in allKeyframesForSelection" :key="keyframe.id" :value="keyframe.id">
+            {{ numbering(keyframe) }} {{ keyframe.name || "未命名" }}
+          </el-checkbox>
+        </el-checkbox-group>
+      </div>
       <template #footer>
         <el-button @click="selectionVisible = false">取消</el-button>
         <el-button type="primary" :loading="selectionSubmitting" @click="handleSelectionSubmit">
@@ -689,5 +715,10 @@ function numbering(keyframe: StoryKeyframeVO): string {
   margin-top: 10px;
   max-height: 320px;
   overflow: auto;
+}
+.panel-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

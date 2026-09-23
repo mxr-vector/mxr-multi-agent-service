@@ -10,6 +10,7 @@ import { copyToClipboard } from "@/utils/clipboard";
 
 const props = defineProps<{
   message: StoryMessageVO;
+  sessionId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -24,8 +25,16 @@ const isSedimented = computed(() => {
   return !!(params["sedimented_keyframe_id"] || params["is_sedimented"]);
 });
 
+/** 限制标签文本字数，超出截断并以悬浮提示展示完整内容 */
+function truncateTagText(text: string | null | undefined, maxChars = 10): string {
+  if (!text) return "";
+  const trimmed = text.trim();
+  return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars)}…` : trimmed;
+}
+
 const saving = ref(false);
 const expanded = ref(false);
+const generatingImage = ref(false);
 
 async function copyPrompt() {
   const promptText = kf.value?.prompt || props.message.prompt || "";
@@ -35,6 +44,36 @@ async function copyPrompt() {
     ElMessage.success("关键帧出图提示词已复制");
   } else {
     ElMessage.error("复制失败，请手动选择复制");
+  }
+}
+
+async function handleGenerateKeyframeImage() {
+  const sessionId = props.sessionId || props.message.session_id;
+  if (!sessionId) {
+    ElMessage.warning("缺少会话上下文，无法发起生图");
+    return;
+  }
+  const promptText = kf.value?.prompt || props.message.prompt || "";
+  if (!promptText) {
+    ElMessage.warning("该关键帧缺少出图提示词");
+    return;
+  }
+  generatingImage.value = true;
+  try {
+    const kfName = kf.value?.name
+      ? `关键帧：${kf.value.name}`
+      : `关键帧 ${kf.value?.scene_no ?? "?"}-${kf.value?.shot_no ?? "?"}`;
+    await storyAiApi.generateArtDirect(sessionId, {
+      prompt: promptText,
+      name: kfName,
+      size: "1536x1024",
+    });
+    ElMessage.success("已发起关键帧出图任务");
+    emit("changed");
+  } catch {
+    // 错误拦截器统一处理
+  } finally {
+    generatingImage.value = false;
   }
 }
 
@@ -68,7 +107,7 @@ async function handleSaveKeyframe() {
         <span class="card-badge">
           🎬 关键帧 {{ kf?.scene_no ?? "?" }}-{{ kf?.shot_no ?? "?" }}
         </span>
-        <span class="card-name">{{ kf?.name || "未命名镜头" }}</span>
+        <span class="card-name" :title="kf?.name || '未命名镜头'">{{ kf?.name || "未命名镜头" }}</span>
       </div>
       <div class="head-right">
         <el-tag v-if="isSedimented" size="small" type="success">已入库</el-tag>
@@ -85,14 +124,41 @@ async function handleSaveKeyframe() {
       </div>
     </div>
 
-    <!-- 标签特征 -->
-    <div class="card-tags">
-      <el-tag v-if="kf?.camera_description" size="small" effect="plain" type="info">
-        📷 {{ kf.camera_description }}
-      </el-tag>
-      <el-tag v-if="kf?.lighting_description" size="small" effect="plain" type="warning">
-        💡 {{ kf.lighting_description }}
-      </el-tag>
+    <!-- 标签特征：限制显示字数，鼠标悬停展示完整内容 -->
+    <div
+      v-if="kf?.camera_description || kf?.lighting_description || kf?.style_description"
+      class="card-tags"
+    >
+      <el-tooltip
+        v-if="kf?.camera_description"
+        :content="`镜头：${kf.camera_description}`"
+        placement="top"
+        :show-after="200"
+      >
+        <el-tag size="small" effect="plain" type="info" class="meta-tag">
+          📷 {{ truncateTagText(kf.camera_description, 10) }}
+        </el-tag>
+      </el-tooltip>
+      <el-tooltip
+        v-if="kf?.lighting_description"
+        :content="`光影：${kf.lighting_description}`"
+        placement="top"
+        :show-after="200"
+      >
+        <el-tag size="small" effect="plain" type="warning" class="meta-tag">
+          💡 {{ truncateTagText(kf.lighting_description, 10) }}
+        </el-tag>
+      </el-tooltip>
+      <el-tooltip
+        v-if="kf?.style_description"
+        :content="`风格：${kf.style_description}`"
+        placement="top"
+        :show-after="200"
+      >
+        <el-tag size="small" effect="plain" type="success" class="meta-tag">
+          🎨 {{ truncateTagText(kf.style_description, 10) }}
+        </el-tag>
+      </el-tooltip>
     </div>
 
     <!-- 核心视觉描述 -->
@@ -101,17 +167,40 @@ async function handleSaveKeyframe() {
       <span class="desc-text">{{ kf.visual_description }}</span>
     </div>
 
-    <!-- 剧情描述 -->
+    <!-- 剧情与完整描述（展开时展示） -->
     <div v-if="kf?.scene_description && expanded" class="desc-row">
       <span class="desc-label">剧情：</span>
       <span class="desc-text">{{ kf.scene_description }}</span>
+    </div>
+    <div v-if="kf?.camera_description && expanded" class="desc-row">
+      <span class="desc-label">镜头：</span>
+      <span class="desc-text">{{ kf.camera_description }}</span>
+    </div>
+    <div v-if="kf?.lighting_description && expanded" class="desc-row">
+      <span class="desc-label">光影：</span>
+      <span class="desc-text">{{ kf.lighting_description }}</span>
+    </div>
+    <div v-if="kf?.style_description && expanded" class="desc-row">
+      <span class="desc-label">风格：</span>
+      <span class="desc-text">{{ kf.style_description }}</span>
     </div>
 
     <!-- 提示词区域 -->
     <div v-if="kf?.prompt" class="prompt-box">
       <div class="prompt-head">
         <span class="prompt-title">🎨 出图提示词</span>
-        <el-button size="small" link type="primary" @click="copyPrompt">复制提示词</el-button>
+        <div class="prompt-head-actions">
+          <el-button size="small" link type="primary" @click="copyPrompt">复制提示词</el-button>
+          <el-button
+            size="small"
+            link
+            type="primary"
+            :loading="generatingImage"
+            @click="handleGenerateKeyframeImage"
+          >
+            生成图片
+          </el-button>
+        </div>
       </div>
       <div class="prompt-content" :class="{ clamp: !expanded }">
         {{ kf.prompt }}
@@ -138,6 +227,7 @@ async function handleSaveKeyframe() {
   padding: 10px 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .keyframe-card-item:hover {
@@ -150,12 +240,14 @@ async function handleSaveKeyframe() {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+  gap: 8px;
 }
 
 .head-left {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .card-badge {
@@ -165,12 +257,21 @@ async function handleSaveKeyframe() {
   background: #eff6ff;
   padding: 2px 6px;
   border-radius: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .card-name {
   font-size: 13px;
   font-weight: 600;
   color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.head-right {
+  flex-shrink: 0;
 }
 
 .card-tags {
@@ -178,6 +279,11 @@ async function handleSaveKeyframe() {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.meta-tag {
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .desc-row {
@@ -210,6 +316,12 @@ async function handleSaveKeyframe() {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
+}
+
+.prompt-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .prompt-title {

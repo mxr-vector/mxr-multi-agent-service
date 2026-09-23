@@ -6,6 +6,7 @@ import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { scriptApi, type StoryScriptVO } from "@/api/story";
 import { formatDateTime } from "@/utils/format";
+import Pagination from "@/components/ui/Pagination.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -23,12 +24,16 @@ const SOURCE_LABEL: Record<string, string> = {
 
 const loading = ref(false);
 const list = ref<StoryScriptVO[]>([]);
+const page = ref(1);
+const size = ref(10);
+const total = ref(0);
 
 async function loadScripts() {
   loading.value = true;
   try {
-    const res = await scriptApi.list(props.projectId, { page: 1, size: 100 });
+    const res = await scriptApi.list(props.projectId, { page: page.value, size: size.value });
     list.value = res.data?.items ?? [];
+    total.value = res.data?.total ?? 0;
   } finally {
     loading.value = false;
   }
@@ -157,6 +162,16 @@ async function handleEdit() {
       </template>
     </el-table>
 
+    <div v-if="total > 0" class="panel-pagination">
+      <Pagination
+        v-model:page="page"
+        v-model:size="size"
+        :total="total"
+        :page-sizes="[10, 20, 50]"
+        @change="loadScripts"
+      />
+    </div>
+
     <!-- 保存新版本 -->
     <el-dialog v-model="saveVisible" title="保存新剧本版本" width="680px" append-to-body destroy-on-close>
       <el-form label-width="88px">
@@ -218,5 +233,10 @@ async function handleEdit() {
 }
 .content-brief {
   color: #4b5563;
+}
+.panel-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

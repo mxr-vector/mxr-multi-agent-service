@@ -33,6 +33,7 @@ _CAST_SORT_MAX = 200
 
 CharacterRoleType = Literal["protagonist", "supporting", "antagonist", "npc", "other"]
 CharacterArtType = Literal[
+    "character_sheet",
     "turnaround",
     "front_bust",
     "full_body",
@@ -142,8 +143,8 @@ async def upload_art(
     file: UploadFile = File(..., description="立绘图片（png/jpg/jpeg/webp）"),
     name: Optional[str] = Form(default=None, description="立绘名（如常服正面）"),
     art_type: CharacterArtType = Form(
-        default="full_body",
-        description="立绘类型：turnaround(三视图)/front_bust(正面半身特写)/"
+        default="character_sheet",
+        description="立绘类型：character_sheet(半身正面+三视图)/turnaround(三视图)/front_bust(正面半身特写)/"
         "full_body/half_body/face/action/reference/other",
     ),
     ctx: UserContext = Depends(get_user_context),
@@ -165,8 +166,14 @@ async def upload_art(
     # 分块读取并即时校验（Content-Length 可伪造），超限在载入全量内存前即拒绝
     data = await read_upload_capped(file, ENV.upload_max_size_mb * 1024 * 1024)
 
+    # 默认使用原图片文件名（去除扩展名）作为立绘名称
+    file_stem = file.filename.rsplit(".", 1)[0].strip() if file.filename else None
+    effective_name = (name.strip() if name and name.strip() else None) or file_stem
+    if effective_name and len(effective_name) > 100:
+        effective_name = effective_name[:100]
+
     art = await _character_service.add_art(
-        ctx, character_id, file_data=data, ext=ext, name=name, art_type=art_type
+        ctx, character_id, file_data=data, ext=ext, name=effective_name, art_type=art_type
     )
     return R.success(data=art)
 

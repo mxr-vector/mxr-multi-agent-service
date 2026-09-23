@@ -55,8 +55,9 @@ _CHARACTER_UPDATABLE = {
 _CHARACTER_NAME_MAX = 100
 _ART_NAME_MAX = 100
 
-# 立绘类型白名单：三视图与正面半身特写为外部视频生成的必备参考图
+# 立绘类型白名单：默认单图包含半身正面与三视图；亦兼容分立的三视图与正面半身特写
 ART_TYPES = {
+    "character_sheet",  # 半身正面+三视图（一体化设定图）
     "turnaround",  # 三视图
     "front_bust",  # 正面半身特写
     "full_body",
@@ -67,8 +68,8 @@ ART_TYPES = {
     "other",
 }
 
-# 必备参考图类型（角色详情页完整性提示用）
-REQUIRED_ART_TYPES = ("turnaround", "front_bust")
+# 必备参考图类型（角色详情页完整性提示用：一体化设定图或分立三视图与正面半身）
+REQUIRED_ART_TYPES = ("character_sheet", "turnaround", "front_bust")
 
 
 def _assert_user_channel(ctx) -> None:
@@ -290,7 +291,7 @@ class CharacterService:
         file_data: bytes,
         ext: str,
         name: str | None = None,
-        art_type: str = "full_body",
+        art_type: str = "character_sheet",
     ) -> dict:
         """上传立绘：文件以 角色名_序号 原子命名存入角色名目录；首张自动设为主立绘并同步头像。"""
         _assert_user_channel(ctx)

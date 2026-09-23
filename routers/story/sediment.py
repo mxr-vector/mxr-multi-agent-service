@@ -9,7 +9,7 @@ import uuid
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Path
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from service.story.art import ArtGenerationService
 from service.story.sediment import SedimentService
@@ -25,6 +25,16 @@ _sediment_service = SedimentService()
 class ArtGenerateRequest(BaseModel):
     """立绘生成请求体：size/quality 缺省取 image 角色配置。"""
 
+    size: Optional[str] = None
+    quality: Optional[str] = None
+
+
+class DirectArtGenerateRequest(BaseModel):
+    """直接立绘生成请求体。"""
+
+    prompt: str = Field(..., min_length=1, max_length=4000, description="出图提示词")
+    name: Optional[str] = Field(default=None, description="角色名/立绘标题")
+    card_message_id: Optional[uuid.UUID] = Field(default=None, description="可选关联的角色卡消息 ID")
     size: Optional[str] = None
     quality: Optional[str] = None
 
@@ -79,6 +89,26 @@ async def generate_art(
     return R.success(
         data=await _art_service.start(
             ctx, message_id=message_id, size=payload.size, quality=payload.quality
+        )
+    )
+
+
+@router.post("/sessions/{session_id}/generate-art")
+async def generate_session_art(
+    session_id: uuid.UUID = Path(...),
+    payload: DirectArtGenerateRequest = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """直接在会话中根据提示词发起人物立绘生成任务。"""
+    return R.success(
+        data=await _art_service.start_direct(
+            ctx,
+            session_id=session_id,
+            prompt=payload.prompt,
+            name=payload.name,
+            card_message_id=payload.card_message_id,
+            size=payload.size,
+            quality=payload.quality,
         )
     )
 

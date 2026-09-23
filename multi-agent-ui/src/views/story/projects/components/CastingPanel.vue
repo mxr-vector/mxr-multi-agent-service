@@ -2,7 +2,7 @@
 /**
  * 出演角色面板：从角色库选入角色、排序、移除，以及项目选中立绘（导出使用）。
  */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   characterApi,
@@ -13,6 +13,7 @@ import {
   type StoryCastingVO,
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
+import Pagination from "@/components/ui/Pagination.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -30,6 +31,13 @@ interface CastItem {
 
 const loading = ref(false);
 const items = ref<CastItem[]>([]);
+const page = ref(1);
+const size = ref(10);
+const total = computed(() => items.value.length);
+const pagedItems = computed(() => {
+  const start = (page.value - 1) * size.value;
+  return items.value.slice(start, start + size.value);
+});
 // 选中立绘是否有改动（驱动保存按钮）
 const artDirty = ref(false);
 
@@ -151,7 +159,7 @@ async function handleSaveArts() {
 
     <div v-loading="loading" class="cast-list">
       <el-empty v-if="!items.length && !loading" description="还没有出演角色" :image-size="90" />
-      <div v-for="(item, index) in items" :key="item.character.id" class="cast-card">
+      <div v-for="(item, pagedIndex) in pagedItems" :key="item.character.id" class="cast-card">
         <div class="cast-head">
           <el-avatar :size="44" :src="storyFileUrl(item.character.avatar_file) || undefined">
             {{ item.character.name.slice(0, 1) }}
@@ -161,14 +169,19 @@ async function handleSaveArts() {
             <div class="cast-sub">立绘 {{ item.arts.length }} 张</div>
           </div>
           <div class="cast-actions">
-            <el-button size="small" link :disabled="index === 0" @click="move(index, -1)">
+            <el-button
+              size="small"
+              link
+              :disabled="(page - 1) * size + pagedIndex === 0"
+              @click="move((page - 1) * size + pagedIndex, -1)"
+            >
               上移
             </el-button>
             <el-button
               size="small"
               link
-              :disabled="index === items.length - 1"
-              @click="move(index, 1)"
+              :disabled="(page - 1) * size + pagedIndex === items.length - 1"
+              @click="move((page - 1) * size + pagedIndex, 1)"
             >
               下移
             </el-button>
@@ -189,6 +202,15 @@ async function handleSaveArts() {
           <span v-if="!item.arts.length" class="muted">该角色暂无立绘</span>
         </div>
       </div>
+    </div>
+
+    <div v-if="total > 0" class="panel-pagination">
+      <Pagination
+        v-model:page="page"
+        v-model:size="size"
+        :total="total"
+        :page-sizes="[5, 10, 20, 50]"
+      />
     </div>
 
     <!-- 添加出演 -->
@@ -306,5 +328,10 @@ async function handleSaveArts() {
 }
 .library-name {
   margin-left: 4px;
+}
+.panel-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

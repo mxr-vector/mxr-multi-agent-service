@@ -90,22 +90,59 @@ class ArtGenerationService:
                     bad_except("该角色卡缺少出图提示词，请先编辑补全")
                 if await GenerationTaskRepository(db).has_running(project.id):
                     bad_except("本项目已有生成任务进行中，请稍候")
+                
+                card_name = str(card.get("name") or "角色")
+                message_repo = MessageRepository(db)
+                art_msg_id = uuid7()
+                seq = await message_repo.next_sequence(session_id)
+                await message_repo.create(
+                    message_id=art_msg_id,
+                    session_id=session_id,
+                    role=ChatRole.ASSISTANT.value,
+                    sequence=seq,
+                    kind=StoryMessageKind.ART.value,
+                    status=ChatMessageStatus.GENERATING.value,
+                    content=f"立绘：{card_name}",
+                    prompt=prompt,
+                    params={
+                        "card_message_id": message_id.hex,
+                        "card_name": card_name,
+                        "size": size,
+                        "quality": quality,
+                        "source": "ai",
+                    },
+                )
                 gen_task = await GenerationTaskRepository(db).create(
                     task_id=uuid7(),
                     project_id=project.id,
                     task_type=StoryTaskType.CHARACTER_ART.value,
                     session_id=session_id,
-                    target_type=StoryMessageKind.CHARACTER.value,
-                    target_id=message_id,
+                    target_type=StoryMessageKind.ART.value,
+                    target_id=art_msg_id,
                     provider="image",
                     model=CFG.image.model_name,
                     prompt=prompt,
                     params={
+                        "art_message_id": art_msg_id.hex,
                         "card_message_id": message_id.hex,
                         "card": card,
                         "size": size,
                         "quality": quality,
                     },
+                )
+                art_msg = await message_repo.get(art_msg_id)
+                if art_msg:
+                    await message_repo.update_fields(
+                        art_msg,
+                        {
+                            "params": {
+                                **(art_msg.params or {}),
+                                "generation_task_id": gen_task.id.hex,
+                            }
+                        },
+                    )
+                await SessionRepository(db).touch(
+                    story_session, message_delta=1, message_at=datetime.now(timezone.utc)
                 )
                 await db.commit()
             except BaseException:
@@ -117,8 +154,9 @@ class ArtGenerationService:
                 gen_task_id=gen_task.id,
                 project_id=project.id,
                 session_id=session_id,
+                art_message_id=art_msg_id,
                 card_message_id=message_id,
-                card_name=str(card.get("name") or "角色"),
+                card_name=card_name,
                 prompt=prompt,
                 size=size,
                 quality=quality,
@@ -126,6 +164,151 @@ class ArtGenerationService:
         )
         register_generation(session_hex, run_task)
         return gen_task.to_dict()
+
+    async def start_direct(
+        self,
+        ctx,
+        session_id: uuid.UUID,
+        prompt: str,
+        name: str | None = None,
+        card_message_id: uuid.UUID | None = None,
+        size: str | None = None,
+        quality: str | None = None,
+    ) -> dict:
+        """直接在会话中根据提示词发起人物立绘生成任务。"""
+        if not ctx.user_id:
+            bad_except("立绘生成仅支持用户通道调用")
+        prompt = (prompt or "").strip()
+        if not prompt:
+            bad_except("出图提示词不能为空")
+        raw_name = (name or "").strip()
+        display_name = raw_name or "图像"
+        session_hex = session_id.hex
+
+        async with get_session() as db:
+            story_session, project = await self._assert_session_owned(db, session_id, ctx)
+            if await GenerationTaskRepository(db).has_running(project.id):
+                bad_except("本项目已有生成任务进行中，请稍候")
+            reserve_session(session_hex)
+            try:
+                message_repo = MessageRepository(db)
+                # 记录用户请求指令消息
+                user_seq = await message_repo.next_sequence(session_id)
+                user_content = (
+                    f"创建图片：{display_name}\n提示词：{prompt}"
+                    if raw_name
+                    else f"创建图片\n提示词：{prompt}"
+                )
+                await message_repo.create(
+                    message_id=uuid7(),
+                    session_id=session_id,
+                    role=ChatRole.USER.value,
+                    sequence=user_seq,
+                    kind=StoryMessageKind.GENERAL.value,
+                    content=user_content,
+                    prompt=prompt,
+                    params={
+                        "type": "create_art",
+                        "size": size,
+                        "quality": quality,
+                        "card_name": raw_name or "图片",
+                    },
+                )
+                # 预创建一条 generating 状态的 art 消息，使会话流中立即展示图片卡片
+                art_msg_id = uuid7()
+                art_seq = await message_repo.next_sequence(session_id)
+                art_content = (
+                    raw_name
+                    if (
+                        raw_name.startswith("立绘")
+                        or raw_name.startswith("关键帧")
+                        or raw_name.startswith("图片")
+                    )
+                    else f"图片：{display_name}"
+                )
+                await message_repo.create(
+                    message_id=art_msg_id,
+                    session_id=session_id,
+                    role=ChatRole.ASSISTANT.value,
+                    sequence=art_seq,
+                    kind=StoryMessageKind.ART.value,
+                    status=ChatMessageStatus.GENERATING.value,
+                    content=art_content,
+                    prompt=prompt,
+                    params={
+                        "card_message_id": card_message_id.hex if card_message_id else None,
+                        "card_name": raw_name or "图片",
+                        "size": size,
+                        "quality": quality,
+                        "source": "ai",
+                    },
+                )
+                gen_task = await GenerationTaskRepository(db).create(
+                    task_id=uuid7(),
+                    project_id=project.id,
+                    task_type=StoryTaskType.CHARACTER_ART.value,
+                    session_id=session_id,
+                    target_type=StoryMessageKind.ART.value,
+                    target_id=art_msg_id,
+                    provider="image",
+                    model=CFG.image.model_name,
+                    prompt=prompt,
+                    params={
+                        "art_message_id": art_msg_id.hex,
+                        "card_message_id": card_message_id.hex if card_message_id else None,
+                        "card_name": card_name,
+                        "size": size,
+                        "quality": quality,
+                    },
+                )
+                art_msg = await message_repo.get(art_msg_id)
+                if art_msg:
+                    await message_repo.update_fields(
+                        art_msg,
+                        {
+                            "params": {
+                                **(art_msg.params or {}),
+                                "generation_task_id": gen_task.id.hex,
+                            }
+                        },
+                    )
+                await SessionRepository(db).touch(
+                    story_session, message_delta=2, message_at=datetime.now(timezone.utc)
+                )
+                await db.commit()
+            except BaseException:
+                release_session(session_hex)
+                raise
+
+        run_task = asyncio.create_task(
+            self._run(
+                gen_task_id=gen_task.id,
+                project_id=project.id,
+                session_id=session_id,
+                art_message_id=art_msg_id,
+                card_message_id=card_message_id,
+                card_name=card_name,
+                prompt=prompt,
+                size=size,
+                quality=quality,
+            )
+        )
+        register_generation(session_hex, run_task)
+        return gen_task.to_dict()
+
+    async def _assert_session_owned(self, db, session_id: uuid.UUID, ctx):
+        """会话须存在且所属项目归属当前用户，返回 (会话, 项目)。"""
+        story_session = await SessionRepository(db).get(session_id)
+        if story_session is None:
+            bad_except(f"会话不存在: {session_id.hex}")
+        project = await ProjectRepository(db).get(story_session.project_id)
+        if (
+            project is None
+            or project.status == StoryProjectStatus.DELETED
+            or project.user_id != ctx.user_id
+        ):
+            bad_except(f"会话不存在: {session_id.hex}")
+        return story_session, project
 
     async def _assert_message_owned(self, db, message_id: uuid.UUID, ctx):
         """消息须存在且所属项目归属当前用户，返回 (消息, 会话, 项目)。"""
@@ -149,7 +332,8 @@ class ArtGenerationService:
         gen_task_id: uuid.UUID,
         project_id: uuid.UUID,
         session_id: uuid.UUID,
-        card_message_id: uuid.UUID,
+        art_message_id: uuid.UUID | None,
+        card_message_id: uuid.UUID | None,
         card_name: str,
         prompt: str,
         size: str | None,
@@ -207,25 +391,49 @@ class ArtGenerationService:
                     )
                     return
                 message_repo = MessageRepository(db)
-                seq = await message_repo.next_sequence(session_id)
-                await message_repo.create(
-                    message_id=uuid7(),
-                    session_id=session_id,
-                    role=ChatRole.ASSISTANT.value,
-                    sequence=seq,
-                    kind=StoryMessageKind.ART.value,
-                    content=f"立绘：{card_name}",
-                    image_file=image_file,
-                    prompt=prompt,
-                    params={
-                        "card_message_id": card_message_id.hex,
-                        "generation_task_id": gen_task_id.hex,
-                        "source": "ai",
-                    },
-                )
-                await session_repo.touch(
-                    story_session, message_delta=1, message_at=datetime.now(timezone.utc)
-                )
+                art_msg = await message_repo.get(art_message_id) if art_message_id else None
+                if art_msg is not None:
+                    await message_repo.update_fields(
+                        art_msg,
+                        {
+                            "image_file": image_file,
+                            "status": ChatMessageStatus.DONE.value,
+                            "params": {
+                                **(art_msg.params or {}),
+                                "generation_task_id": gen_task_id.hex,
+                                "source": "ai",
+                            },
+                        },
+                    )
+                else:
+                    seq = await message_repo.next_sequence(session_id)
+                    art_title = (
+                        card_name
+                        if (
+                            card_name.startswith("立绘")
+                            or card_name.startswith("关键帧")
+                            or card_name.startswith("图片")
+                        )
+                        else f"图片：{card_name}"
+                    )
+                    await message_repo.create(
+                        message_id=uuid7(),
+                        session_id=session_id,
+                        role=ChatRole.ASSISTANT.value,
+                        sequence=seq,
+                        kind=StoryMessageKind.ART.value,
+                        content=art_title,
+                        image_file=image_file,
+                        prompt=prompt,
+                        params={
+                            "card_message_id": card_message_id.hex if card_message_id else None,
+                            "generation_task_id": gen_task_id.hex,
+                            "source": "ai",
+                        },
+                    )
+                    await session_repo.touch(
+                        story_session, message_delta=1, message_at=datetime.now(timezone.utc)
+                    )
                 # 项目生成冗余计数同步（与剧本生成同口径）
                 project = await ProjectRepository(db).get(project_id)
                 if project is not None:
@@ -250,6 +458,18 @@ class ArtGenerationService:
         except asyncio.CancelledError:
             # 任务被取消（用户停止/会话删除）：任务行落取消终态，不留在途僵尸
             try:
+                if art_message_id:
+                    async with get_session() as db:
+                        art_msg = await MessageRepository(db).get(art_message_id)
+                        if art_msg is not None:
+                            await MessageRepository(db).update_fields(
+                                art_msg,
+                                {
+                                    "status": ChatMessageStatus.STOPPED.value,
+                                    "error": "生成被取消",
+                                },
+                            )
+                            await db.commit()
                 await _update_task(
                     {
                         "status": StoryTaskStatus.CANCELLED.value,
@@ -264,31 +484,48 @@ class ArtGenerationService:
             logger.exception(f"[STORY] 立绘生成失败 task={gen_task_id.hex}: {exc}")
             # 失败也落 art 消息（failed），抽屉内直接可见失败原因并可重试；
             # 会话已删除时跳过消息落库（不留孤儿），但任务仍落 failed 终态
-            session_alive = True
             try:
                 async with get_session() as db:
                     if await SessionRepository(db).get(session_id) is None:
                         logger.info(f"[STORY] 会话已删除，跳过失败消息落库 task={gen_task_id.hex}")
-                        session_alive = False
                     else:
                         message_repo = MessageRepository(db)
-                        seq = await message_repo.next_sequence(session_id)
-                        await message_repo.create(
-                            message_id=uuid7(),
-                            session_id=session_id,
-                            role=ChatRole.ASSISTANT.value,
-                            sequence=seq,
-                            kind=StoryMessageKind.ART.value,
-                            content=f"立绘：{card_name}",
-                            prompt=prompt,
-                            status=ChatMessageStatus.FAILED.value,
-                            error=str(exc)[:500],
-                            params={
-                                "card_message_id": card_message_id.hex,
-                                "generation_task_id": gen_task_id.hex,
-                                "source": "ai",
-                            },
-                        )
+                        art_msg = await message_repo.get(art_message_id) if art_message_id else None
+                        if art_msg is not None:
+                            await message_repo.update_fields(
+                                art_msg,
+                                {
+                                    "status": ChatMessageStatus.FAILED.value,
+                                    "error": str(exc)[:500],
+                                },
+                            )
+                        else:
+                            seq = await message_repo.next_sequence(session_id)
+                            art_title = (
+                                card_name
+                                if (
+                                    card_name.startswith("立绘")
+                                    or card_name.startswith("关键帧")
+                                    or card_name.startswith("图片")
+                                )
+                                else f"图片：{card_name}"
+                            )
+                            await message_repo.create(
+                                message_id=uuid7(),
+                                session_id=session_id,
+                                role=ChatRole.ASSISTANT.value,
+                                sequence=seq,
+                                kind=StoryMessageKind.ART.value,
+                                content=art_title,
+                                prompt=prompt,
+                                status=ChatMessageStatus.FAILED.value,
+                                error=str(exc)[:500],
+                                params={
+                                    "card_message_id": card_message_id.hex if card_message_id else None,
+                                    "generation_task_id": gen_task_id.hex,
+                                    "source": "ai",
+                                },
+                            )
                         await db.commit()
             except Exception as inner_exc:
                 logger.error(f"[STORY] 立绘失败消息落库失败: {inner_exc}")

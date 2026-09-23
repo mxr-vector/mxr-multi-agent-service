@@ -8,12 +8,10 @@ import {
   characterApi,
   storyFileUrl,
   type StoryCharacterVO,
-  type StoryCharacterPayload,
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import Pagination from "@/components/ui/Pagination.vue";
-import CharacterFormDialog from "./CharacterFormDialog.vue";
 import CharacterDetailDialog from "./CharacterDetailDialog.vue";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -54,45 +52,18 @@ const keyword = useDebouncedKeyword(() => {
 
 onMounted(loadCharacters);
 
-// —— 新建/编辑 ——
-const formVisible = ref(false);
-const formSubmitting = ref(false);
-const editing = ref<StoryCharacterVO | null>(null);
+// —— 新建 / 编辑 / 详情（共用最全弹窗） ——
+const dialogVisible = ref(false);
+const activeCharacterId = ref<string | null>(null);
 
 function openCreate() {
-  editing.value = null;
-  formVisible.value = true;
+  activeCharacterId.value = null;
+  dialogVisible.value = true;
 }
-
-function openEdit(character: StoryCharacterVO) {
-  editing.value = character;
-  formVisible.value = true;
-}
-
-async function handleSubmit(payload: StoryCharacterPayload) {
-  formSubmitting.value = true;
-  try {
-    if (editing.value) {
-      await characterApi.update(editing.value.id, payload);
-      ElMessage.success("角色已更新");
-    } else {
-      await characterApi.create(payload);
-      ElMessage.success("角色已创建");
-    }
-    formVisible.value = false;
-    await loadCharacters();
-  } finally {
-    formSubmitting.value = false;
-  }
-}
-
-// —— 详情 ——
-const detailVisible = ref(false);
-const detailId = ref<string | null>(null);
 
 function openDetail(character: StoryCharacterVO) {
-  detailId.value = character.id;
-  detailVisible.value = true;
+  activeCharacterId.value = character.id;
+  dialogVisible.value = true;
 }
 
 // —— 删除 ——
@@ -148,7 +119,7 @@ async function handleDelete(character: StoryCharacterVO) {
               <span class="card-count">立绘 {{ character.art_count }}</span>
             </div>
             <div class="card-actions" @click.stop>
-              <el-button size="small" link @click="openEdit(character)">编辑</el-button>
+              <el-button size="small" link @click="openDetail(character)">编辑</el-button>
               <el-button size="small" link type="danger" @click="handleDelete(character)">
                 删除
               </el-button>
@@ -168,15 +139,10 @@ async function handleDelete(character: StoryCharacterVO) {
       </div>
     </div>
 
-    <CharacterFormDialog
-      v-model:visible="formVisible"
-      :record="editing"
-      :submitting="formSubmitting"
-      @submit="handleSubmit"
-    />
+    <!-- 统一详情/编辑/新建对话框 -->
     <CharacterDetailDialog
-      v-model:visible="detailVisible"
-      :character-id="detailId"
+      v-model:visible="dialogVisible"
+      :character-id="activeCharacterId"
       @changed="loadCharacters"
     />
   </div>

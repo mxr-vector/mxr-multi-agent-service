@@ -253,7 +253,7 @@ class SedimentService:
                         character_id=character.id,
                         image_file=image_file,
                         name=character.name,
-                        art_type="full_body",
+                        art_type="character_sheet",
                         source="ai",
                         prompt=art_message.prompt,
                         negative_prompt=card.get("negative_prompt"),
@@ -396,7 +396,27 @@ class SedimentService:
                         }
                         await message_repo.update_fields(card_message, {})
             else:
-                bad_except("未找到关联的角色信息，请先指定目标角色")
+                card_name = (
+                    (art_message.params or {}).get("card_name")
+                    or art_message.content.replace("立绘：", "").strip()
+                    or "未命名角色"
+                )
+                existing_chars, _ = await char_repo.list(
+                    ctx.user_id, page=1, size=20, keyword=card_name
+                )
+                match = next((c for c in existing_chars if c.name == card_name), None)
+                if match:
+                    target_char = await char_repo.get_for_update(match.id)
+                else:
+                    target_char = await char_repo.create(
+                        character_id=uuid7(),
+                        user_id=ctx.user_id,
+                        name=card_name,
+                        role_type="other",
+                        profile={},
+                        style={},
+                        appearance_prompt=art_message.prompt,
+                    )
 
             if target_char is None:
                 bad_except("未能关联或创建角色库角色")
@@ -415,7 +435,7 @@ class SedimentService:
                     character_id=target_char.id,
                     image_file=image_file,
                     name=target_char.name,
-                    art_type="full_body",
+                    art_type="character_sheet",
                     source="ai",
                     prompt=art_message.prompt,
                     negative_prompt=card_data.get("negative_prompt"),
@@ -537,6 +557,31 @@ class SedimentService:
                 "script_id": script_id,
             }
 
+            # 若该关键帧在会话中已有出图完成的 art 消息，且关键帧尚无图片，自动关联图片
+            if not (existing and existing.image_file):
+                art_stmt = (
+                    select(StoryMessage)
+                    .where(
+                        StoryMessage.session_id == message.session_id,
+                        StoryMessage.kind == StoryMessageKind.ART.value,
+                        StoryMessage.status == ChatMessageStatus.DONE.value,
+                        StoryMessage.image_file.isnot(None),
+                    )
+                    .order_by(StoryMessage.created_at.desc())
+                )
+                art_rows = list((await db.execute(art_stmt)).scalars().all())
+                for art_msg in art_rows:
+                    art_name = (art_msg.params or {}).get("card_name") or art_msg.content or ""
+                    kf_label = f"{scene_no}-{shot_no}"
+                    if (
+                        kf_label in art_name
+                        or (kf.get("name") and kf.get("name") in art_name)
+                        or (kf.get("prompt") and kf.get("prompt") == art_msg.prompt)
+                    ):
+                        kf_fields["image_file"] = art_msg.image_file
+                        kf_fields["status"] = "done"
+                        break
+
             if existing is not None:
                 await keyframe_repo.update_fields(existing, kf_fields)
                 target_keyframe = existing
@@ -616,6 +661,31 @@ class SedimentService:
                     "negative_prompt": kf.get("negative_prompt"),
                     "script_id": script_id,
                 }
+
+                # 若已有对应已完成生图的 art 消息，且关键帧尚无图片，自动关联图片
+                if not (existing and existing.image_file):
+                    art_stmt = (
+                        select(StoryMessage)
+                        .where(
+                            StoryMessage.session_id == session_id,
+                            StoryMessage.kind == StoryMessageKind.ART.value,
+                            StoryMessage.status == ChatMessageStatus.DONE.value,
+                            StoryMessage.image_file.isnot(None),
+                        )
+                        .order_by(StoryMessage.created_at.desc())
+                    )
+                    art_rows = list((await db.execute(art_stmt)).scalars().all())
+                    for art_msg in art_rows:
+                        art_name = (art_msg.params or {}).get("card_name") or art_msg.content or ""
+                        kf_label = f"{scene_no}-{shot_no}"
+                        if (
+                            kf_label in art_name
+                            or (kf.get("name") and kf.get("name") in art_name)
+                            or (kf.get("prompt") and kf.get("prompt") == art_msg.prompt)
+                        ):
+                            kf_fields["image_file"] = art_msg.image_file
+                            kf_fields["status"] = "done"
+                            break
 
                 if existing is not None:
                     await keyframe_repo.update_fields(existing, kf_fields)

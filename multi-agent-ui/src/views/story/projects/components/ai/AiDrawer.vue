@@ -7,12 +7,13 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { characterApi, storyAiApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
-import { useStoryAi } from "../../composables/useStoryAi";
+import { characterApi, storyAiApi, type StoryMessageVO } from "@/api/story";
+import { readCard, useStoryAi } from "../../composables/useStoryAi";
 import AiGenerateForm from "./AiGenerateForm.vue";
 import ScriptCard from "./ScriptCard.vue";
 import CharacterCardItem from "./CharacterCardItem.vue";
 import KeyframeCardItem from "./KeyframeCardItem.vue";
+import CharacterArtCardItem from "./CharacterArtCardItem.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -143,13 +144,125 @@ async function handleRemoveSession() {
   scrollToBottom(true);
 }
 
-function handleSend() {
-  scrollToBottom(true);
-  void ai.send(() => emit("changed"));
-}
+type OutputTabKey = "script" | "keyframe" | "art" | "all";
+const activeTab = ref<OutputTabKey>("script");
 
 function isUser(message: StoryMessageVO) {
   return message.role === "user";
+}
+
+/** 判断是否为关键帧关联的出图卡片 */
+function isKeyframeArt(msg: StoryMessageVO): boolean {
+  if (msg.kind !== "art") return false;
+  const name = String(msg.params?.card_name || msg.content || "");
+  return (
+    name.startsWith("关键帧") ||
+    name.startsWith("镜头") ||
+    name.includes("关键帧") ||
+    name.includes("分镜")
+  );
+}
+
+/** 关键帧类别判定：关键帧卡或关键帧出图 */
+function isKeyframe(msg: StoryMessageVO): boolean {
+  return msg.kind === "keyframe" || isKeyframeArt(msg);
+}
+
+/** 人物立绘类别判定：角色卡或人物立绘/通用生图 */
+function isCharacterOrArt(msg: StoryMessageVO): boolean {
+  if (msg.kind === "character") return true;
+  if (msg.kind === "art") {
+    return !isKeyframeArt(msg);
+  }
+  return false;
+}
+
+/** 剧情类别判定：用户提问、剧本卡或一般回答 */
+function isScript(msg: StoryMessageVO): boolean {
+  return isUser(msg) || msg.kind === "script" || msg.kind === "general";
+}
+
+/** 当前 Tab 过滤后的展示消息列表 */
+const filteredMessages = computed(() => {
+  const all = ai.messages.value;
+  if (activeTab.value === "script") {
+    return all.filter(isScript);
+  }
+  if (activeTab.value === "keyframe") {
+    return all.filter(isKeyframe);
+  }
+  if (activeTab.value === "art") {
+    return all.filter(isCharacterOrArt);
+  }
+  return all;
+});
+
+/** Tab 徽标数统计 */
+const scriptBadgeCount = computed(() => {
+  const scripts = ai.messages.value.filter((m) => m.kind === "script").length;
+  if (scripts > 0) return scripts;
+  return ai.messages.value.filter(isScript).length;
+});
+
+const keyframeBadgeCount = computed(() => {
+  return ai.messages.value.filter(isKeyframe).length;
+});
+
+const artBadgeCount = computed(() => {
+  return ai.messages.value.filter(isCharacterOrArt).length;
+});
+
+const tabs = computed(() => [
+  {
+    key: "script" as OutputTabKey,
+    label: "剧情",
+    count: scriptBadgeCount.value,
+  },
+  {
+    key: "keyframe" as OutputTabKey,
+    label: "关键帧",
+    count: keyframeBadgeCount.value,
+  },
+  {
+    key: "art" as OutputTabKey,
+    label: "人物立绘",
+    count: artBadgeCount.value,
+  },
+  {
+    key: "all" as OutputTabKey,
+    label: "全部",
+    count: ai.messages.value.length,
+  },
+]);
+
+/** Tab 空态文案提示 */
+const tabEmptyDescription = computed(() => {
+  if (activeTab.value === "script") {
+    return "暂无剧情内容，向 AI 描述你的故事开始创作";
+  }
+  if (activeTab.value === "keyframe") {
+    return "暂无分镜关键帧，生成剧本后将自动拆解分镜关键帧";
+  }
+  if (activeTab.value === "art") {
+    return "暂无人物立绘，生成剧本提取角色后可一键生成立绘";
+  }
+  return "向 AI 描述你的故事，生成剧本与角色卡";
+});
+
+function handleTabChange(tabKey: OutputTabKey) {
+  activeTab.value = tabKey;
+  nextTick(() => {
+    const el = streamRef.value;
+    if (el) {
+      el.scrollTop = tabKey === "all" || tabKey === "script" ? el.scrollHeight : 0;
+    }
+  });
+}
+
+function handleSend() {
+  activeTab.value = "script";
+  scrollToBottom(true);
+  void ai.send(() => emit("changed"));
 }
 
 /** 用户消息气泡内嵌制作参数摘要（有则展示） */
@@ -162,32 +275,69 @@ function userParamsSummary(message: StoryMessageVO): string {
   return parts.join(" · ");
 }
 
-/** 判断立绘是否已存入角色库 */
-function isArtSedimented(message: StoryMessageVO): boolean {
-  return !!(message.params ?? {})["sedimented_character_id"];
-}
-
-const savingArtId = ref<string | null>(null);
-
-/** 单个立绘存入角色库 */
-async function handleSaveSingleArt(message: StoryMessageVO) {
-  if (savingArtId.value) return;
-  savingArtId.value = message.id;
-  try {
-    const res = await storyAiApi.saveArt(message.id);
-    if (!message.params) {
-      message.params = {};
+/** 从会话已生成角色卡提炼角色候选列表（供生图选择关联） */
+const characterOptions = computed(() => {
+  const result: Array<{ id: string; name: string; art_prompt?: string | null; message_id?: string }> = [];
+  const seen = new Set<string>();
+  for (const msg of ai.messages.value) {
+    if (msg.kind === "character") {
+      const card = readCard(msg);
+      const name = card?.name || msg.content.replace(/^角色卡[：:]\s*/, "").trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        result.push({
+          id: msg.id,
+          name,
+          art_prompt: card?.art_prompt || msg.prompt,
+          message_id: msg.id,
+        });
+      }
     }
-    const char = res.data?.character as Record<string, unknown> | undefined;
-    message.params.sedimented_character_id = String(char?.id ?? "1");
-    ElMessage.success(
-      `立绘已成功存入角色库${char?.name ? `（角色「${String(char.name)}」）` : ""}`
-    );
-    await onCardChanged();
+  }
+  return result;
+});
+
+const generatingArt = ref(false);
+
+async function handleGenerateArt(payload: {
+  prompt: string;
+  name?: string;
+  cardMessageId?: string;
+  size?: string;
+  quality?: string;
+}) {
+  if (!ai.activeSessionId.value) {
+    await ai.createSession(payload.name ? `图像：${payload.name}` : undefined);
+  }
+  const sessionId = ai.activeSessionId.value;
+  if (!sessionId) {
+    ElMessage.error("未能创建或获取生成会话");
+    return;
+  }
+  // 按照出图类型自动切换到对应 Tab
+  if (payload.name && (payload.name.startsWith("关键帧") || payload.name.startsWith("镜头"))) {
+    activeTab.value = "keyframe";
+  } else {
+    activeTab.value = "art";
+  }
+  generatingArt.value = true;
+  scrollToBottom(true);
+  try {
+    await storyAiApi.generateArtDirect(sessionId, {
+      prompt: payload.prompt,
+      name: payload.name,
+      card_message_id: payload.cardMessageId,
+      size: payload.size,
+      quality: payload.quality,
+    });
+    ElMessage.success("已发起图像生成任务");
+    await ai.refresh();
+    scrollToBottom(true);
+    emit("changed");
   } catch {
-    // 错误由拦截器统一提示
+    // 错误拦截器统一处理
   } finally {
-    savingArtId.value = null;
+    generatingArt.value = false;
   }
 }
 
@@ -249,21 +399,52 @@ defineExpose({
       <el-button size="small" :disabled="!ai.activeSession.value" @click="handleRemoveSession">
         删除
       </el-button>
-      <el-button
-        v-if="unsavedKeyframeCount > 0"
-        size="small"
-        type="primary"
-        :loading="savingAllKeyframes"
-        @click="handleSaveAllKeyframes"
-      >
-        存入全部关键帧 ({{ unsavedKeyframeCount }})
-      </el-button>
+    </div>
+
+    <!-- 产物分类 Tab 导航 -->
+    <div class="drawer-tabs-wrapper">
+      <div class="tabs-segmented">
+        <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="tab-btn"
+          :class="{ active: activeTab === tab.key }"
+          @click="handleTabChange(tab.key)"
+        >
+          <span class="tab-label">{{ tab.label }}</span>
+          <span v-if="tab.count > 0" class="tab-badge">{{ tab.count }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- 消息流 -->
     <div ref="streamRef" v-loading="ai.loadingMessages.value" class="message-stream">
-      <template v-if="ai.messages.value.length">
-        <template v-for="message in ai.messages.value" :key="message.id">
+      <!-- 关键帧待入库快捷 Banner（在关键帧或全部 tab 且存在未入库帧时展示） -->
+      <div
+        v-if="(activeTab === 'keyframe' || activeTab === 'all') && unsavedKeyframeCount > 0"
+        class="tab-action-banner"
+      >
+        <div class="banner-info">
+          <span class="banner-icon">🎬</span>
+          <span>待入库关键帧：<strong>{{ unsavedKeyframeCount }}</strong> 个</span>
+        </div>
+        <el-button
+          size="small"
+          type="primary"
+          :loading="savingAllKeyframes"
+          @click="handleSaveAllKeyframes"
+        >
+          存入全部关键帧
+        </el-button>
+      </div>
+
+      <template
+        v-if="
+          filteredMessages.length ||
+          (ai.streaming.value && (activeTab === 'script' || activeTab === 'all'))
+        "
+      >
+        <template v-for="message in filteredMessages" :key="message.id">
           <!-- 用户指令 -->
           <div v-if="isUser(message)" class="msg-user">
             <div class="user-bubble">{{ message.content }}</div>
@@ -291,51 +472,27 @@ defineExpose({
           <KeyframeCardItem
             v-else-if="message.kind === 'keyframe'"
             :message="message"
+            :session-id="ai.activeSessionId.value"
             @changed="onCardChanged"
           />
 
-          <!-- 立绘消息：图片预览或失败提示 -->
-          <div v-else-if="message.kind === 'art'" class="msg-art">
-            <template v-if="message.status === 'done' && message.image_file">
-              <el-image
-                :src="storyFileUrl(message.image_file)"
-                :preview-src-list="[storyFileUrl(message.image_file)]"
-                fit="contain"
-                class="art-image"
-                preview-teleported
-              />
-              <div class="art-meta-row">
-                <div class="art-caption">{{ message.content }}</div>
-                <div class="art-actions">
-                  <el-tag v-if="isArtSedimented(message)" size="small" type="success">已入库</el-tag>
-                  <el-button
-                    v-else
-                    size="small"
-                    type="primary"
-                    link
-                    :loading="savingArtId === message.id"
-                    @click="handleSaveSingleArt(message)"
-                  >
-                    存入角色库
-                  </el-button>
-                </div>
-              </div>
-            </template>
-            <el-alert
-              v-else-if="message.status === 'failed'"
-              type="error"
-              :title="`${message.content}失败`"
-              :description="message.error ?? undefined"
-              :closable="false"
-            />
-          </div>
+          <!-- 图像卡片（立绘/关键帧/图片生成卡片） -->
+          <CharacterArtCardItem
+            v-else-if="message.kind === 'art'"
+            :message="message"
+            :session-id="ai.activeSessionId.value"
+            @changed="onCardChanged"
+          />
 
           <!-- 一般回复 -->
           <div v-else class="msg-text">{{ message.content }}</div>
         </template>
 
         <!-- 流式中的剧本增量 -->
-        <div v-if="ai.streaming.value" class="msg-streaming">
+        <div
+          v-if="ai.streaming.value && (activeTab === 'script' || activeTab === 'all')"
+          class="msg-streaming"
+        >
           <span class="streaming-hint">生成中…</span>
           <div class="streaming-text">{{ ai.streamText.value }}</div>
         </div>
@@ -344,13 +501,22 @@ defineExpose({
       <!-- 空态引导 -->
       <el-empty
         v-else-if="!ai.loadingMessages.value"
-        description="向 AI 描述你的故事，生成剧本与角色卡"
+        :description="tabEmptyDescription"
         :image-size="90"
       />
     </div>
 
-    <!-- 生成表单 -->
-    <AiGenerateForm v-model="ai.form.value" :styles="ai.styles.value" :generating="ai.streaming.value" @send="handleSend" @stop="ai.stop()" />
+    <!-- 生成表单：支持剧本与立绘双模式 -->
+    <AiGenerateForm
+      v-model="ai.form.value"
+      :styles="ai.styles.value"
+      :generating="ai.streaming.value"
+      :generating-art="generatingArt"
+      :characters="characterOptions"
+      @send="handleSend"
+      @stop="ai.stop()"
+      @generate-art="handleGenerateArt"
+    />
   </div>
 </template>
 
@@ -363,10 +529,17 @@ defineExpose({
 }
 .drawer-head {
   display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid #e5e9f2;
   background: #fff;
+}
+.drawer-head :deep(.el-select__wrapper) {
+  border-radius: 8px !important;
+}
+.drawer-head :deep(.el-button) {
+  border-radius: 8px !important;
 }
 .session-select {
   flex: 1;
@@ -376,6 +549,88 @@ defineExpose({
   color: #9aa4b2;
   font-size: 12px;
 }
+
+/* 分类 Tab 切换栏 */
+.drawer-tabs-wrapper {
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid #eef2f7;
+}
+.tabs-segmented {
+  display: flex;
+  align-items: center;
+  background: #f1f4fa;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+}
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tab-btn:hover {
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.6);
+}
+.tab-btn.active {
+  background: #ffffff;
+  color: #4f46e5;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #64748b;
+  transition: all 0.2s;
+}
+.tab-btn.active .tab-badge {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+/* 关键帧快捷操作横幅 */
+.tab-action-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.banner-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #166534;
+}
+.banner-icon {
+  font-size: 14px;
+}
+
 .message-stream {
   flex: 1;
   overflow: auto;
@@ -403,38 +658,6 @@ defineExpose({
   text-align: right;
   font-size: 11px;
   color: #9aa4b2;
-}
-.msg-art {
-  border: 1px solid #e5e9f2;
-  border-radius: 10px;
-  background: #fff;
-  padding: 10px;
-}
-.art-image {
-  width: 100%;
-  max-height: 260px;
-  border-radius: 8px;
-}
-.art-meta-row {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.art-caption {
-  font-size: 12px;
-  color: #4b5563;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.art-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
 }
 .msg-text {
   font-size: 13px;
