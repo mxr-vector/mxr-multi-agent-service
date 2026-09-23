@@ -15,6 +15,7 @@
 未沉淀的产物不进任何正式资产表，随会话删除丢弃。
 """
 
+import re
 import uuid
 
 from sqlalchemy import select
@@ -32,15 +33,19 @@ from database.story.project import (
     ScriptRepository,
 )
 from database.story.session import MessageRepository
+from entity.story.project import StoryKeyframe
 from entity.story.session import StoryMessage
 from exception.bad_except import bad_except
 from model.image.factory import OUTPUT_FORMAT
 from service.story.storage import (
     character_art_dir,
+    keyframe_image_dir,
     resolve_upload_path,
+    rmdir_if_empty,
     unlink_quietly,
     write_seq_file,
 )
+from utils.env import ENV
 
 # 消息沉淀标记键（幂等守卫）
 _SEDIMESTED_KEY = "sedimented_character_id"
@@ -518,6 +523,40 @@ class SedimentService:
         )
         return f"{rel_dir}/{filename}"
 
+    async def _copy_into_keyframe_dir(
+        self, source_relative: str, project, keyframe
+    ) -> str:
+        """把会话图片文件复制进关键帧目录（保留会话原件，实现资产物理隔离）。"""
+        import asyncio
+
+        src = resolve_upload_path(source_relative)
+        if not src.is_file():
+            bad_except(f"关键帧图片文件缺失: {source_relative}")
+        kf_name = getattr(keyframe, "name", None) or ""
+        kf_scene = getattr(keyframe, "scene_no", None)
+        kf_shot = getattr(keyframe, "shot_no", None)
+        kf_id = getattr(keyframe, "id", None)
+        keyframe_fallback = (
+            f"{kf_scene}-{kf_shot}"
+            if kf_scene is not None and kf_shot is not None
+            else (kf_id.hex if hasattr(kf_id, "hex") else str(kf_id or "unknown"))
+        )
+        rel_dir = keyframe_image_dir(
+            project.title, project.id.hex, kf_name, keyframe_fallback
+        )
+        content = await asyncio.to_thread(src.read_bytes)
+        ext = src.suffix.lstrip(".") or OUTPUT_FORMAT
+        filename = f"{uuid7().hex}.{ext}"
+        rel_path = f"{rel_dir}/{filename}"
+        target = ENV.upload_dir / rel_path
+
+        def _save() -> None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+
+        await asyncio.to_thread(_save)
+        return rel_path
+
     # ---------- 关键帧沉淀 ----------
 
     def _load_keyframe(self, message: StoryMessage) -> dict:
@@ -527,37 +566,311 @@ class SedimentService:
             bad_except("该消息不是关键帧卡片")
         return kf
 
-    async def save_keyframe(self, ctx, message_id: uuid.UUID) -> dict:
-        """关键帧卡'存入关键帧'：kind='keyframe' 消息 -> 项目 story_keyframes 资产。"""
+    async def save_keyframe(
+        self,
+        ctx,
+        message_id: uuid.UUID,
+        target_keyframe_id: uuid.UUID | None = None,
+        scene_no: int | None = None,
+        shot_no: int | None = None,
+        name: str | None = None,
+    ) -> dict:
+        """关键帧卡或关键帧出图消息'存入关键帧'：message -> 项目 story_keyframes 资产。"""
         if not ctx.user_id:
             bad_except("关键帧沉淀仅支持用户通道调用")
         async with get_session() as db:
             message, project = await self._assert_message_owned(db, message_id, ctx)
-            kf = self._load_keyframe(message)
             keyframe_repo = KeyframeRepository(db)
             script_repo = ScriptRepository(db)
             current_script = await script_repo.get_current(project.id)
             script_id = current_script.id if current_script else None
+            message_repo = MessageRepository(db)
 
-            scene_no = kf.get("scene_no")
-            shot_no = kf.get("shot_no")
-            existing = None
-            if scene_no is not None and shot_no is not None:
-                existing = await keyframe_repo.get_by_scene_shot(project.id, scene_no, shot_no)
+            # ----------------------------------------------------
+            # 路径 1：用户显式指定了存入的目标关键帧 target_keyframe_id
+            # ----------------------------------------------------
+            if target_keyframe_id is not None:
+                target_keyframe = await keyframe_repo.get(target_keyframe_id)
+                if target_keyframe is None or target_keyframe.project_id != project.id:
+                    bad_except("指定的目标关键帧不存在")
+
+                if (message.params or {}).get(_SEDIMENTED_KEYFRAME_KEY):
+                    bad_except("该消息已存入关键帧库，请勿重复操作")
+
+                old_file = target_keyframe.image_file
+                new_image_file = None
+                update_fields = {}
+                if message.kind == StoryMessageKind.ART.value:
+                    if message.status != ChatMessageStatus.DONE.value or not message.image_file:
+                        bad_except("关键帧图片尚未完成生成或文件缺失")
+                    new_image_file = await self._copy_into_keyframe_dir(
+                        message.image_file, project, target_keyframe
+                    )
+                    update_fields["image_file"] = new_image_file
+                    update_fields["status"] = "done"
+                    if not target_keyframe.prompt and message.prompt:
+                        update_fields["prompt"] = message.prompt
+                elif message.kind == StoryMessageKind.KEYFRAME.value:
+                    kf = self._load_keyframe(message)
+                    for key in (
+                        "name",
+                        "scene_description",
+                        "visual_description",
+                        "camera_description",
+                        "lighting_description",
+                        "style_description",
+                        "prompt",
+                    ):
+                        if kf.get(key):
+                            update_fields[key] = kf[key]
+
+                if update_fields:
+                    await keyframe_repo.update_fields(target_keyframe, update_fields)
+
+                message.params = {
+                    **(message.params or {}),
+                    _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                    "is_sedimented": True,
+                }
+                await message_repo.update_fields(message, {})
+
+                # 若是 art 消息且关联了 keyframe 消息，也给 keyframe 消息打标记
+                card_msg_id = (message.params or {}).get("card_message_id")
+                if card_msg_id:
+                    try:
+                        kf_card_msg = await message_repo.get(uuid.UUID(str(card_msg_id)))
+                        if kf_card_msg and kf_card_msg.kind == StoryMessageKind.KEYFRAME.value:
+                            kf_card_msg.params = {
+                                **(kf_card_msg.params or {}),
+                                _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                                "is_sedimented": True,
+                            }
+                            await message_repo.update_fields(kf_card_msg, {})
+                    except Exception:
+                        pass
+
+                project_repo = ProjectRepository(db)
+                await project_repo.recount_assets(project)
+                await db.commit()
+
+                if new_image_file and old_file and old_file != new_image_file:
+                    def _cleanup() -> None:
+                        unlink_quietly(old_file)
+                        parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
+                        if parent:
+                            rmdir_if_empty(parent)
+
+                    await asyncio.to_thread(_cleanup)
+
+                return target_keyframe.to_dict()
+
+            # ----------------------------------------------------
+            # 路径 2：未指定 target_keyframe_id（自动匹配或新建）
+            # ----------------------------------------------------
+            # 分支 2.1：入参为关键帧出图消息（kind='art'）
+            if message.kind == StoryMessageKind.ART.value:
+                if message.status != ChatMessageStatus.DONE.value or not message.image_file:
+                    bad_except("关键帧图片尚未完成生成或文件缺失")
+                if (message.params or {}).get(_SEDIMENTED_KEYFRAME_KEY):
+                    bad_except("该关键帧图片已存入关键帧库，请勿重复操作")
+
+                art_name = name or (message.params or {}).get("card_name") or message.content or ""
+                card_msg_id = (message.params or {}).get("card_message_id")
+                kf_msg = None
+                if card_msg_id:
+                    try:
+                        candidate = await message_repo.get(uuid.UUID(str(card_msg_id)))
+                        if candidate and candidate.kind == StoryMessageKind.KEYFRAME.value:
+                            kf_msg = candidate
+                    except Exception:
+                        pass
+
+                # 若未传编号，尝试从名称中解析场景与镜头号
+                req_scene_no = scene_no
+                req_shot_no = shot_no
+                if req_scene_no is None or req_shot_no is None:
+                    match = re.search(r"(\d+)[-_](\d+)", art_name)
+                    if match:
+                        req_scene_no = req_scene_no or int(match.group(1))
+                        req_shot_no = req_shot_no or int(match.group(2))
+
+                # 若未通过 card_message_id 关联，则在当前会话中按编号寻找匹配的关键帧卡片
+                if kf_msg is None and req_scene_no is not None and req_shot_no is not None:
+                    stmt = (
+                        select(StoryMessage)
+                        .where(
+                            StoryMessage.session_id == message.session_id,
+                            StoryMessage.kind == StoryMessageKind.KEYFRAME.value,
+                        )
+                    )
+                    all_kf_msgs = list((await db.execute(stmt)).scalars().all())
+                    for item in all_kf_msgs:
+                        item_kf = (item.params or {}).get(KEYFRAME_DATA_KEY) or {}
+                        if item_kf.get("scene_no") == req_scene_no and item_kf.get("shot_no") == req_shot_no:
+                            kf_msg = item
+                            break
+
+                target_keyframe = None
+                old_file = None
+                new_image_file = None
+                if kf_msg is not None:
+                    kf = self._load_keyframe(kf_msg)
+                    final_scene = req_scene_no or kf.get("scene_no") or 1
+                    final_shot = req_shot_no or kf.get("shot_no") or 1
+                    existing = await keyframe_repo.get_by_scene_shot(project.id, final_scene, final_shot)
+
+                    kf_fields = {
+                        "name": art_name or kf.get("name"),
+                        "scene_description": kf.get("scene_description"),
+                        "visual_description": kf.get("visual_description"),
+                        "camera_description": kf.get("camera_description"),
+                        "lighting_description": kf.get("lighting_description"),
+                        "style_description": kf.get("style_description"),
+                        "prompt": kf.get("prompt") or message.prompt or f"分镜镜头 {final_scene}-{final_shot}",
+                        "negative_prompt": kf.get("negative_prompt"),
+                        "script_id": script_id,
+                        "status": "done",
+                    }
+                    if existing is not None:
+                        old_file = existing.image_file
+                        new_image_file = await self._copy_into_keyframe_dir(
+                            message.image_file, project, existing
+                        )
+                        kf_fields["image_file"] = new_image_file
+                        await keyframe_repo.update_fields(existing, kf_fields)
+                        target_keyframe = existing
+                    else:
+                        dummy_kf_id = uuid7()
+                        class _TmpKF:
+                            id = dummy_kf_id
+                            scene_no = final_scene
+                            shot_no = final_shot
+                            name = kf_fields["name"]
+
+                        new_image_file = await self._copy_into_keyframe_dir(
+                            message.image_file, project, _TmpKF
+                        )
+                        kf_fields["image_file"] = new_image_file
+                        target_keyframe = await keyframe_repo.create(
+                            keyframe_id=dummy_kf_id,
+                            project_id=project.id,
+                            chapter_no=kf.get("chapter_no"),
+                            scene_no=final_scene,
+                            shot_no=final_shot,
+                            generation_task_id=self._gen_task_id(kf_msg),
+                            **kf_fields,
+                        )
+                    # 将关键帧卡片消息打上已沉淀标记
+                    kf_msg.params = {
+                        **(kf_msg.params or {}),
+                        _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                        "is_sedimented": True,
+                    }
+                    await message_repo.update_fields(kf_msg, {})
+                else:
+                    final_scene = req_scene_no or 1
+                    final_shot = req_shot_no
+                    existing = None
+                    if final_shot is not None:
+                        existing = await keyframe_repo.get_by_scene_shot(project.id, final_scene, final_shot)
+
+                    if existing is not None:
+                        old_file = existing.image_file
+                        new_image_file = await self._copy_into_keyframe_dir(
+                            message.image_file, project, existing
+                        )
+                        await keyframe_repo.update_fields(
+                            existing,
+                            {
+                                "image_file": new_image_file,
+                                "status": "done",
+                                "prompt": message.prompt or existing.prompt,
+                            },
+                        )
+                        target_keyframe = existing
+                    else:
+                        # 若未指定/解析出 shot_no，自动计算当前场景下最大的 shot_no + 1，防唯一约束冲突
+                        if final_shot is None:
+                            max_stmt = (
+                                select(StoryKeyframe.shot_no)
+                                .where(
+                                    StoryKeyframe.project_id == project.id,
+                                    StoryKeyframe.scene_no == final_scene,
+                                )
+                                .order_by(StoryKeyframe.shot_no.desc())
+                                .limit(1)
+                            )
+                            max_val = (await db.execute(max_stmt)).scalar_one_or_none()
+                            final_shot = (max_val or 0) + 1
+
+                        dummy_kf_id = uuid7()
+                        kf_name = art_name or f"镜头 {final_scene}-{final_shot}"
+                        class _TmpKF:
+                            id = dummy_kf_id
+                            scene_no = final_scene
+                            shot_no = final_shot
+                            name = kf_name
+
+                        new_image_file = await self._copy_into_keyframe_dir(
+                            message.image_file, project, _TmpKF
+                        )
+                        target_keyframe = await keyframe_repo.create(
+                            keyframe_id=dummy_kf_id,
+                            project_id=project.id,
+                            scene_no=final_scene,
+                            shot_no=final_shot,
+                            name=kf_name,
+                            prompt=message.prompt or "分镜画面",
+                            image_file=new_image_file,
+                            status="done",
+                            script_id=script_id,
+                            generation_task_id=self._gen_task_id(message),
+                        )
+
+                # 将当前 art 消息打上已沉淀标记
+                message.params = {
+                    **(message.params or {}),
+                    _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                    "is_sedimented": True,
+                }
+                await message_repo.update_fields(message, {})
+                project_repo = ProjectRepository(db)
+                await project_repo.recount_assets(project)
+                await db.commit()
+
+                if new_image_file and old_file and old_file != new_image_file:
+                    def _cleanup() -> None:
+                        unlink_quietly(old_file)
+                        parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
+                        if parent:
+                            rmdir_if_empty(parent)
+
+                    await asyncio.to_thread(_cleanup)
+
+                return target_keyframe.to_dict()
+
+            # 分支 2.2：入参为关键帧卡片消息（kind='keyframe'）
+            kf = self._load_keyframe(message)
+            final_scene = scene_no or kf.get("scene_no") or 1
+            final_shot = shot_no or kf.get("shot_no") or 1
+            existing = await keyframe_repo.get_by_scene_shot(project.id, final_scene, final_shot)
 
             kf_fields = {
-                "name": kf.get("name"),
+                "name": name or kf.get("name"),
                 "scene_description": kf.get("scene_description"),
                 "visual_description": kf.get("visual_description"),
                 "camera_description": kf.get("camera_description"),
                 "lighting_description": kf.get("lighting_description"),
                 "style_description": kf.get("style_description"),
-                "prompt": kf.get("prompt") or f"分镜镜头 {scene_no}-{shot_no}",
+                "prompt": kf.get("prompt") or f"分镜镜头 {final_scene}-{final_shot}",
                 "negative_prompt": kf.get("negative_prompt"),
                 "script_id": script_id,
             }
 
             # 若该关键帧在会话中已有出图完成的 art 消息，且关键帧尚无图片，自动关联图片
+            matched_art_msg = None
+            old_file = None
+            new_image_file = None
             if not (existing and existing.image_file):
                 art_stmt = (
                     select(StoryMessage)
@@ -572,28 +885,50 @@ class SedimentService:
                 art_rows = list((await db.execute(art_stmt)).scalars().all())
                 for art_msg in art_rows:
                     art_name = (art_msg.params or {}).get("card_name") or art_msg.content or ""
-                    kf_label = f"{scene_no}-{shot_no}"
+                    art_card_id = (art_msg.params or {}).get("card_message_id")
+                    kf_label = f"{final_scene}-{final_shot}"
                     if (
-                        kf_label in art_name
+                        (art_card_id and str(art_card_id) == message.id.hex)
+                        or kf_label in art_name
                         or (kf.get("name") and kf.get("name") in art_name)
                         or (kf.get("prompt") and kf.get("prompt") == art_msg.prompt)
                     ):
-                        kf_fields["image_file"] = art_msg.image_file
-                        kf_fields["status"] = "done"
+                        matched_art_msg = art_msg
                         break
 
             if existing is not None:
+                if matched_art_msg and matched_art_msg.image_file:
+                    old_file = existing.image_file
+                    new_image_file = await self._copy_into_keyframe_dir(
+                        matched_art_msg.image_file, project, existing
+                    )
+                    kf_fields["image_file"] = new_image_file
+                    kf_fields["status"] = "done"
                 await keyframe_repo.update_fields(existing, kf_fields)
                 target_keyframe = existing
             else:
+                dummy_kf_id = uuid7()
+                if matched_art_msg and matched_art_msg.image_file:
+                    class _TmpKF:
+                        id = dummy_kf_id
+                        scene_no = final_scene
+                        shot_no = final_shot
+                        name = kf_fields["name"]
+
+                    new_image_file = await self._copy_into_keyframe_dir(
+                        matched_art_msg.image_file, project, _TmpKF
+                    )
+                    kf_fields["image_file"] = new_image_file
+                    kf_fields["status"] = "done"
+
                 target_keyframe = await keyframe_repo.create(
-                    keyframe_id=uuid7(),
+                    keyframe_id=dummy_kf_id,
                     project_id=project.id,
                     chapter_no=kf.get("chapter_no"),
-                    scene_no=scene_no,
-                    shot_no=shot_no,
+                    scene_no=final_scene,
+                    shot_no=final_shot,
                     generation_task_id=self._gen_task_id(message),
-                    status="draft",
+                    status=kf_fields.get("status", "draft"),
                     **kf_fields,
                 )
 
@@ -603,10 +938,29 @@ class SedimentService:
                 _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
                 "is_sedimented": True,
             }
-            await MessageRepository(db).update_fields(message, {})
+            await message_repo.update_fields(message, {})
+            # 若有关联的 art 消息，同步打上沉淀标记，保持一致
+            if matched_art_msg is not None:
+                matched_art_msg.params = {
+                    **(matched_art_msg.params or {}),
+                    _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                    "is_sedimented": True,
+                }
+                await message_repo.update_fields(matched_art_msg, {})
+
             project_repo = ProjectRepository(db)
             await project_repo.recount_assets(project)
             await db.commit()
+
+            if new_image_file and old_file and old_file != new_image_file:
+                def _cleanup() -> None:
+                    unlink_quietly(old_file)
+                    parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
+                    if parent:
+                        rmdir_if_empty(parent)
+
+                await asyncio.to_thread(_cleanup)
+
             return target_keyframe.to_dict()
 
     async def save_all_keyframes(self, ctx, session_id: uuid.UUID) -> dict:
@@ -637,6 +991,7 @@ class SedimentService:
             messages = list(result.scalars().all())
             saved_count = 0
             saved_keyframes = []
+            files_to_clean = []
 
             for message in messages:
                 kf = (message.params or {}).get(KEYFRAME_DATA_KEY)
@@ -663,6 +1018,9 @@ class SedimentService:
                 }
 
                 # 若已有对应已完成生图的 art 消息，且关键帧尚无图片，自动关联图片
+                matched_art_msg = None
+                old_file = None
+                new_image_file = None
                 if not (existing and existing.image_file):
                     art_stmt = (
                         select(StoryMessage)
@@ -677,30 +1035,55 @@ class SedimentService:
                     art_rows = list((await db.execute(art_stmt)).scalars().all())
                     for art_msg in art_rows:
                         art_name = (art_msg.params or {}).get("card_name") or art_msg.content or ""
+                        art_card_id = (art_msg.params or {}).get("card_message_id")
                         kf_label = f"{scene_no}-{shot_no}"
                         if (
-                            kf_label in art_name
+                            (art_card_id and str(art_card_id) == message.id.hex)
+                            or kf_label in art_name
                             or (kf.get("name") and kf.get("name") in art_name)
                             or (kf.get("prompt") and kf.get("prompt") == art_msg.prompt)
                         ):
-                            kf_fields["image_file"] = art_msg.image_file
-                            kf_fields["status"] = "done"
+                            matched_art_msg = art_msg
                             break
 
                 if existing is not None:
+                    if matched_art_msg and matched_art_msg.image_file:
+                        old_file = existing.image_file
+                        new_image_file = await self._copy_into_keyframe_dir(
+                            matched_art_msg.image_file, project, existing
+                        )
+                        kf_fields["image_file"] = new_image_file
+                        kf_fields["status"] = "done"
                     await keyframe_repo.update_fields(existing, kf_fields)
                     target_keyframe = existing
                 else:
+                    dummy_kf_id = uuid7()
+                    if matched_art_msg and matched_art_msg.image_file:
+                        class _TmpKF:
+                            id = dummy_kf_id
+                            scene_no = scene_no
+                            shot_no = shot_no
+                            name = kf_fields["name"]
+
+                        new_image_file = await self._copy_into_keyframe_dir(
+                            matched_art_msg.image_file, project, _TmpKF
+                        )
+                        kf_fields["image_file"] = new_image_file
+                        kf_fields["status"] = "done"
+
                     target_keyframe = await keyframe_repo.create(
-                        keyframe_id=uuid7(),
+                        keyframe_id=dummy_kf_id,
                         project_id=project.id,
                         chapter_no=kf.get("chapter_no"),
                         scene_no=scene_no,
                         shot_no=shot_no,
                         generation_task_id=self._gen_task_id(message),
-                        status="draft",
+                        status=kf_fields.get("status", "draft"),
                         **kf_fields,
                     )
+
+                if new_image_file and old_file and old_file != new_image_file:
+                    files_to_clean.append(old_file)
 
                 message.params = {
                     **(message.params or {}),
@@ -708,11 +1091,28 @@ class SedimentService:
                     "is_sedimented": True,
                 }
                 await message_repo.update_fields(message, {})
+                if matched_art_msg is not None:
+                    matched_art_msg.params = {
+                        **(matched_art_msg.params or {}),
+                        _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
+                        "is_sedimented": True,
+                    }
+                    await message_repo.update_fields(matched_art_msg, {})
+
                 saved_count += 1
                 saved_keyframes.append(target_keyframe.to_dict())
 
             if saved_count > 0:
                 await ProjectRepository(db).recount_assets(project)
                 await db.commit()
+
+            for old_f in files_to_clean:
+                def _cleanup(f=old_f) -> None:
+                    unlink_quietly(f)
+                    parent = f.rsplit("/", 1)[0] if "/" in f else None
+                    if parent:
+                        rmdir_if_empty(parent)
+
+                await asyncio.to_thread(_cleanup)
 
             return {"saved_count": saved_count, "items": saved_keyframes}

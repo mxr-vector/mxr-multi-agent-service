@@ -85,6 +85,13 @@ class KeyframeSelectionRequest(BaseModel):
     keyframe_ids: list[uuid.UUID]
 
 
+class KeyframeGenerateImageRequest(BaseModel):
+    """关键帧生成图片请求体：size/quality 缺省取 image 角色配置。"""
+
+    size: Optional[str] = None
+    quality: Optional[str] = None
+
+
 @router.get("/projects/{project_id}/keyframes")
 async def list_keyframes(
     project_id: uuid.UUID = Path(...),
@@ -189,3 +196,21 @@ async def set_keyframe_characters(
             ctx, keyframe_id, payload.characters
         )
     )
+
+
+@router.post("/keyframes/{keyframe_id}/generate-image")
+async def generate_keyframe_image(
+    keyframe_id: uuid.UUID = Path(...),
+    payload: KeyframeGenerateImageRequest = Body(default=KeyframeGenerateImageRequest()),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """根据关键帧提示词及已设置的出场角色（形象参考图与局部描述）生成关键帧图片。"""
+    return R.success(
+        data=await _keyframe_service.generate_image(
+            ctx,
+            keyframe_id,
+            size=payload.size,
+            quality=payload.quality,
+        )
+    )
+

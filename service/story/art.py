@@ -235,6 +235,13 @@ class ArtGenerationService:
                     )
                     else f"图片：{display_name}"
                 )
+                is_kf = (
+                    card_name.startswith("关键帧")
+                    or card_name.startswith("镜头")
+                    or "关键帧" in card_name
+                    or "分镜" in card_name
+                )
+                card_type = "keyframe" if is_kf else "character"
                 await message_repo.create(
                     message_id=art_msg_id,
                     session_id=session_id,
@@ -247,6 +254,7 @@ class ArtGenerationService:
                     params={
                         "card_message_id": card_message_id.hex if card_message_id else None,
                         "card_name": card_name,
+                        "card_type": card_type,
                         "size": size,
                         "quality": quality,
                         "reference_images": reference_images or [],
@@ -256,7 +264,7 @@ class ArtGenerationService:
                 gen_task = await GenerationTaskRepository(db).create(
                     task_id=uuid7(),
                     project_id=project.id,
-                    task_type=StoryTaskType.CHARACTER_ART.value,
+                    task_type=StoryTaskType.IMAGE.value if is_kf else StoryTaskType.CHARACTER_ART.value,
                     session_id=session_id,
                     target_type=StoryMessageKind.ART.value,
                     target_id=art_msg_id,
@@ -267,6 +275,7 @@ class ArtGenerationService:
                         "art_message_id": art_msg_id.hex,
                         "card_message_id": card_message_id.hex if card_message_id else None,
                         "card_name": card_name,
+                        "card_type": card_type,
                         "size": size,
                         "quality": quality,
                         "reference_images": reference_images or [],

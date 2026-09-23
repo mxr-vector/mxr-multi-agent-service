@@ -138,4 +138,11 @@ export const keyframeApi = {
       { keyframe_ids: keyframeIds }
     );
   },
+  /** 结合出场角色与提示词生成关键帧图片 */
+  generateImage(id: string, payload: { size?: string; quality?: string } = {}) {
+    return request.post<StoryKeyframeVO, ApiResult<StoryKeyframeVO>>(
+      STORY_KEYFRAME_URL.generateImage(id),
+      payload
+    );
+  },
 };

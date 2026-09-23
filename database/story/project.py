@@ -343,10 +343,21 @@ class KeyframeRepository:
         await self.session.flush()
         return keyframe
 
+    async def reset_stale_generating(self) -> int:
+        """全库残留 generating 的关键帧统一置为 failed（启动清扫崩溃恢复路径）。"""
+        stmt = (
+            update(StoryKeyframe)
+            .where(StoryKeyframe.status == StoryKeyframeStatus.GENERATING.value)
+            .values(status=StoryKeyframeStatus.FAILED.value)
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
     async def delete(self, keyframe: StoryKeyframe) -> None:
         """物理删除关键帧行（出场角色由同事务内清理）。"""
         await self.session.delete(keyframe)
         await self.session.flush()
+
 
 
 class KeyframeCharacterRepository:

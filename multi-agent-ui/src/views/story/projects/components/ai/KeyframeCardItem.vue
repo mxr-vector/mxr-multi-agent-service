@@ -3,10 +3,14 @@
  * 关键帧卡片：AI 生成关键帧的呈现、五段式描述展示、提示词复制与"存入关键帧"沉淀。
  */
 import { computed, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { storyAiApi, type StoryKeyframeCard, type StoryMessageVO } from "@/api/story";
 import { readKeyframe } from "../../composables/useStoryAi";
 import { copyToClipboard } from "@/utils/clipboard";
+
+const router = useRouter();
+const route = useRoute();
 
 const props = defineProps<{
   message: StoryMessageVO;
@@ -33,7 +37,6 @@ function truncateTagText(text: string | null | undefined, maxChars = 10): string
 }
 
 const saving = ref(false);
-const generatingImage = ref(false);
 
 async function copyPrompt() {
   const promptText = kf.value?.prompt || props.message.prompt || "";
@@ -46,36 +49,39 @@ async function copyPrompt() {
   }
 }
 
-async function handleGenerateKeyframeImage() {
-  const sessionId = props.sessionId || props.message.session_id;
-  if (!sessionId) {
-    ElMessage.warning("缺少会话上下文，无法发起生图");
-    return;
+async function handleGoToKeyframe() {
+  let kfId = props.message.params?.sedimented_keyframe_id;
+  if (!isSedimented.value) {
+    if (saving.value) return;
+    saving.value = true;
+    try {
+      const res = await storyAiApi.saveKeyframe(props.message.id);
+      if (!props.message.params) {
+        props.message.params = {};
+      }
+      const savedKf = res.data as Record<string, unknown> | undefined;
+      kfId = String(savedKf?.id ?? "");
+      props.message.params.sedimented_keyframe_id = kfId || "1";
+      props.message.params.is_sedimented = true;
+      ElMessage.success("已自动存入关键帧库，正在跳转至关键帧列表...");
+      emit("changed");
+    } catch {
+      return;
+    } finally {
+      saving.value = false;
+    }
+  } else {
+    ElMessage.info("正在跳转至关键帧列表...");
   }
-  const promptText = kf.value?.prompt || props.message.prompt || "";
-  if (!promptText) {
-    ElMessage.warning("该关键帧缺少出图提示词");
-    return;
-  }
-  generatingImage.value = true;
-  try {
-    const kfName = kf.value?.name
-      ? `关键帧：${kf.value.name}`
-      : `关键帧 ${kf.value?.scene_no ?? "?"}-${kf.value?.shot_no ?? "?"}`;
-    const refImages = props.message.params?.reference_images;
-    await storyAiApi.generateArtDirect(sessionId, {
-      prompt: promptText,
-      name: kfName,
-      size: "1536x1024",
-      reference_images: Array.isArray(refImages) ? refImages : undefined,
-    });
-    ElMessage.success("已发起关键帧出图任务");
-    emit("changed");
-  } catch {
-    // 错误拦截器统一处理
-  } finally {
-    generatingImage.value = false;
-  }
+
+  router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      tab: "keyframe",
+      focus_id: kfId ? String(kfId) : undefined,
+    },
+  });
 }
 
 async function handleSaveKeyframe() {
@@ -196,10 +202,10 @@ async function handleSaveKeyframe() {
             size="small"
             link
             type="primary"
-            :loading="generatingImage"
-            @click="handleGenerateKeyframeImage"
+            :loading="saving"
+            @click="handleGoToKeyframe"
           >
-            生成图片
+            跳转生成图片
           </el-button>
         </div>
       </div>

@@ -19,7 +19,7 @@ from uuid_utils.compat import uuid7
 from agent.constants.enums.story import StorySessionType
 from agent.constants.enums.story import StoryProjectStatus
 from database.postgre_client import get_session
-from database.story.project import ProjectRepository
+from database.story.project import KeyframeRepository, ProjectRepository
 from database.story.session import (
     GenerationTaskRepository,
     MessageRepository,
@@ -74,12 +74,13 @@ async def reset_stale_generating_messages() -> int:
     async with get_session() as session:
         message_count = await MessageRepository(session).reset_stale_generating()
         task_count = await GenerationTaskRepository(session).reset_stale_running()
+        keyframe_count = await KeyframeRepository(session).reset_stale_generating()
         await session.commit()
-    total = message_count + task_count
+    total = message_count + task_count + keyframe_count
     if total:
         logger.warning(
             f"[STORY] 启动清扫：{message_count} 条残留 generating 消息、"
-            f"{task_count} 个残留在途任务已置为 failed"
+            f"{task_count} 个残留在途任务、{keyframe_count} 个残留 generating 关键帧已置为 failed"
         )
     return total
 

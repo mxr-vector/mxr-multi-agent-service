@@ -7,6 +7,8 @@
 - 删除关键帧同步清理出场角色与导出编排引用，并重算项目计数。
 """
 
+from __future__ import annotations
+
 import asyncio
 import shutil
 import uuid
@@ -15,7 +17,12 @@ from pathlib import Path
 
 from uuid_utils.compat import uuid7
 
-from agent.constants.enums.story import StoryKeyframeStatus
+from agent.constants.enums.story import (
+    StoryKeyframeStatus,
+    StoryTaskStatus,
+    StoryTaskType,
+)
+from core.config_snapshot import CFG
 from database.postgre_client import get_session
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
@@ -25,7 +32,10 @@ from database.story.project import (
     ProjectRepository,
     ScriptRepository,
 )
+from database.story.session import GenerationTaskRepository
 from exception.bad_except import bad_except
+from model.image.factory import OUTPUT_FORMAT, generate_image
+from service.story.art import _decode_image_content
 from service.story.project import ProjectService
 from service.story.storage import (
     IMAGE_EXTENSIONS,
@@ -239,6 +249,247 @@ class KeyframeService:
 
             await asyncio.to_thread(_cleanup)
         return result
+
+    async def generate_image(
+        self,
+        ctx,
+        keyframe_id: uuid.UUID,
+        size: str | None = None,
+        quality: str | None = None,
+    ) -> dict:
+        """根据提示词与已设置的出场角色（形象立绘与局部描述）生成关键帧图片。"""
+        if not ctx.user_id:
+            bad_except("关键帧生图仅支持用户通道调用")
+
+        async with get_session() as session:
+            keyframe = await self._assert_keyframe_owned(session, keyframe_id, ctx)
+            prompt = (keyframe.prompt or "").strip()
+            if not prompt:
+                bad_except("该关键帧缺少出图提示词，请先编辑补全")
+            if keyframe.status == StoryKeyframeStatus.GENERATING.value:
+                bad_except("该关键帧正在生成图片中，请稍候")
+
+            project = await ProjectRepository(session).get(keyframe.project_id)
+            if project is None:
+                bad_except("所属项目不存在")
+            if await GenerationTaskRepository(session).has_running(project.id):
+                bad_except("本项目已有生成任务进行中，请稍候")
+
+            # 汇总关键帧绑定的出场角色与立绘
+            kfc_repo = KeyframeCharacterRepository(session)
+            char_repo = CharacterRepository(session)
+            art_repo = CharacterArtRepository(session)
+            kfc_list = await kfc_repo.list_by_keyframe(keyframe.id)
+
+            reference_images: list[str] = []
+            # 保留关键帧本身已配置的参考图（校验本地文件存在性，跳过失效路径）
+            if keyframe.reference_images and isinstance(keyframe.reference_images, list):
+                for ref in keyframe.reference_images:
+                    if isinstance(ref, str) and ref.strip():
+                        val = ref.strip()
+                        if val.startswith(("http://", "https://", "data:image/")):
+                            reference_images.append(val)
+                        else:
+                            try:
+                                if resolve_upload_path(val).is_file():
+                                    reference_images.append(val)
+                            except Exception:
+                                pass
+
+            char_descs: list[str] = []
+            for entry in kfc_list:
+                character = await char_repo.get(entry.character_id)
+                if not character:
+                    continue
+                char_name = character.name
+
+                art_file: str | None = None
+                if entry.character_art_id:
+                    art = await art_repo.get(entry.character_art_id)
+                    if art and art.image_file:
+                        art_file = art.image_file
+                if not art_file:
+                    arts = await art_repo.list_by_character(character.id)
+                    for a in arts:
+                        if a.is_primary and a.image_file:
+                            art_file = a.image_file
+                            break
+                    if not art_file and arts and arts[0].image_file:
+                        art_file = arts[0].image_file
+
+                if art_file and art_file not in reference_images:
+                    try:
+                        if resolve_upload_path(art_file).is_file():
+                            reference_images.append(art_file)
+                    except Exception:
+                        pass
+
+                char_detail: list[str] = []
+                if character.appearance_prompt and character.appearance_prompt.strip():
+                    char_detail.append(f"设定：{character.appearance_prompt.strip()}")
+                if entry.character_prompt and entry.character_prompt.strip():
+                    char_detail.append(f"镜头状态：{entry.character_prompt.strip()}")
+
+                if char_detail:
+                    char_descs.append(f"{char_name}（{'；'.join(char_detail)}）")
+                else:
+                    char_descs.append(char_name)
+
+            effective_prompt = prompt
+            if char_descs:
+                effective_prompt = f"{prompt}\n出场角色：{'、'.join(char_descs)}"
+
+            gen_task = await GenerationTaskRepository(session).create(
+                task_id=uuid7(),
+                project_id=project.id,
+                task_type=StoryTaskType.KEYFRAME.value,
+                session_id=None,
+                target_type="keyframe",
+                target_id=keyframe.id,
+                provider="image",
+                model=CFG.image.model_name,
+                prompt=effective_prompt,
+                negative_prompt=keyframe.negative_prompt,
+                params={
+                    "keyframe_id": keyframe.id.hex,
+                    "reference_images": reference_images,
+                    "size": size,
+                    "quality": quality,
+                },
+                status=StoryTaskStatus.GENERATING.value,
+            )
+
+            keyframe.status = StoryKeyframeStatus.GENERATING.value
+            keyframe.generation_task_id = gen_task.id
+            keyframe.reference_images = reference_images
+            keyframe.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+
+        # 启动后台生图协程
+        asyncio.create_task(
+            self._run_keyframe_generation(
+                gen_task_id=gen_task.id,
+                project_id=project.id,
+                keyframe_id=keyframe.id,
+                prompt=effective_prompt,
+                size=size,
+                quality=quality,
+                reference_images=reference_images,
+            )
+        )
+
+        async with get_session() as session:
+            keyframe = await KeyframeRepository(session).get(keyframe_id)
+            items = await self._with_characters(session, [keyframe])
+            return items[0]
+
+    async def _run_keyframe_generation(
+        self,
+        gen_task_id: uuid.UUID,
+        project_id: uuid.UUID,
+        keyframe_id: uuid.UUID,
+        prompt: str,
+        size: str | None,
+        quality: str | None,
+        reference_images: list[str],
+    ) -> None:
+        async def _update_task(fields: dict) -> None:
+            async with get_session() as db:
+                row = await GenerationTaskRepository(db).get(gen_task_id)
+                if row is not None:
+                    await GenerationTaskRepository(db).update_fields(row, fields)
+                    await db.commit()
+
+        try:
+            await _update_task(
+                {
+                    "status": StoryTaskStatus.GENERATING.value,
+                    "progress": 10,
+                    "started_at": datetime.now(timezone.utc),
+                }
+            )
+
+            contents = await asyncio.to_thread(
+                generate_image,
+                prompt,
+                size,
+                quality=quality,
+                reference_images=reference_images or None,
+            )
+            if not contents or not contents[0]:
+                raise RuntimeError("图像模型返回空结果")
+
+            data = await asyncio.to_thread(_decode_image_content, contents[0])
+
+            old_file: str | None = None
+            rel_path: str = ""
+            async with get_session() as db:
+                keyframe = await KeyframeRepository(db).get(keyframe_id)
+                project = await ProjectRepository(db).get(project_id)
+                if keyframe is None or project is None:
+                    await _update_task(
+                        {
+                            "status": StoryTaskStatus.CANCELLED.value,
+                            "finished_at": datetime.now(timezone.utc),
+                            "error_message": "关键帧或项目已被删除",
+                        }
+                    )
+                    return
+
+                rel_dir = _keyframe_image_directory(project, keyframe)
+                filename = f"{uuid7().hex}.{OUTPUT_FORMAT}"
+                rel_path = f"{rel_dir}/{filename}"
+                target = ENV.upload_dir / rel_path
+
+                def _save() -> None:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+
+                await asyncio.to_thread(_save)
+
+                old_file = keyframe.image_file
+                keyframe.image_file = rel_path
+                keyframe.status = StoryKeyframeStatus.DONE.value
+                keyframe.updated_at = datetime.now(timezone.utc)
+                await db.commit()
+
+            if old_file:
+                def _cleanup() -> None:
+                    unlink_quietly(old_file)
+                    parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
+                    if parent:
+                        rmdir_if_empty(parent)
+
+                await asyncio.to_thread(_cleanup)
+
+            await _update_task(
+                {
+                    "status": StoryTaskStatus.SUCCEEDED.value,
+                    "progress": 100,
+                    "result_image_file": rel_path,
+                    "finished_at": datetime.now(timezone.utc),
+                }
+            )
+            logger.info(
+                f"[STORY] 关键帧图片生成完成 keyframe={keyframe_id.hex} file={rel_path}"
+            )
+        except Exception as exc:
+            logger.error(
+                f"[STORY] 关键帧图片生成失败 keyframe={keyframe_id.hex}: {exc}"
+            )
+            async with get_session() as db:
+                keyframe = await KeyframeRepository(db).get(keyframe_id)
+                if keyframe is not None:
+                    keyframe.status = StoryKeyframeStatus.FAILED.value
+                    keyframe.updated_at = datetime.now(timezone.utc)
+                    await db.commit()
+            await _update_task(
+                {
+                    "status": StoryTaskStatus.FAILED.value,
+                    "finished_at": datetime.now(timezone.utc),
+                    "error_message": str(exc)[:500],
+                }
+            )
 
     async def _relocate_image(self, session, project, keyframe, old_name) -> None:
         """关键帧改名后把图片迁至新名称目录（缺失文件保留原路径，不阻断改名）。"""

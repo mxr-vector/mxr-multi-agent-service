@@ -81,6 +81,17 @@ class ArtSedimentRequest(BaseModel):
     character_id: Optional[uuid.UUID] = None
 
 
+class KeyframeSedimentRequest(BaseModel):
+    """关键帧沉淀请求体：支持指定存入的目标关键帧 ID 或自定义编号新建。"""
+
+    target_keyframe_id: Optional[uuid.UUID] = Field(
+        default=None, description="指定存入的目标关键帧 ID（更新/替换该关键帧画面）"
+    )
+    scene_no: Optional[int] = Field(default=None, description="新建关键帧场景号")
+    shot_no: Optional[int] = Field(default=None, description="新建关键帧镜头号")
+    name: Optional[str] = Field(default=None, description="新建关键帧名称")
+
+
 @router.post("/messages/{message_id}/generate-art")
 async def generate_art(
     message_id: uuid.UUID = Path(...),
@@ -175,11 +186,19 @@ async def save_art(
 @router.post("/messages/{message_id}/save-keyframe")
 async def save_keyframe(
     message_id: uuid.UUID = Path(...),
+    payload: KeyframeSedimentRequest = Body(default=KeyframeSedimentRequest()),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """关键帧卡存入项目的关键帧库（若已存在同场景-镜头则更新）。"""
+    """关键帧卡或关键帧图片存入项目的关键帧库（支持指定目标关键帧或新建）。"""
     return R.success(
-        data=await _sediment_service.save_keyframe(ctx, message_id)
+        data=await _sediment_service.save_keyframe(
+            ctx,
+            message_id,
+            target_keyframe_id=payload.target_keyframe_id,
+            scene_no=payload.scene_no,
+            shot_no=payload.shot_no,
+            name=payload.name,
+        )
     )
 
 

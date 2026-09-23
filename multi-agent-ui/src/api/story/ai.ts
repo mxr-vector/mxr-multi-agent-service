@@ -439,10 +439,19 @@ export const storyAiApi = {
     >(`/story/messages/${messageId}/save-art`, { character_id: characterId });
   },
 
-  /** 关键帧卡存入项目关键帧库 */
-  saveKeyframe(messageId: string) {
+  /** 关键帧卡或关键帧图片存入项目关键帧库 */
+  saveKeyframe(
+    messageId: string,
+    payload?: {
+      target_keyframe_id?: string;
+      scene_no?: number;
+      shot_no?: number;
+      name?: string;
+    }
+  ) {
     return request.post<Record<string, unknown>, ApiResult<Record<string, unknown>>>(
-      STORY_AI_URL.saveKeyframe(messageId)
+      STORY_AI_URL.saveKeyframe(messageId),
+      payload || {}
     );
   },
 

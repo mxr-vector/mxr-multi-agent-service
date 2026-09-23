@@ -513,6 +513,7 @@ defineExpose({
             v-else-if="message.kind === 'art'"
             :message="message"
             :session-id="ai.activeSessionId.value"
+            :project-id="projectId"
             @changed="onCardChanged"
           />
 

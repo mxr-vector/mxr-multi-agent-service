@@ -67,6 +67,8 @@ export const STORY_KEYFRAME_URL = {
   characters: (id: string) => `${BASE}/keyframes/${id}/characters`,
   /** 上传/替换关键帧图片 */
   image: (id: string) => `${BASE}/keyframes/${id}/image`,
+  /** 结合出场角色与提示词生成关键帧图片 */
+  generateImage: (id: string) => `${BASE}/keyframes/${id}/generate-image`,
 } as const;
 
 /** 视频成品接口地址 */

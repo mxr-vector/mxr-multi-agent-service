@@ -118,13 +118,79 @@ def generate_image(
     target_quality = _spec(extra, "quality", quality, DEFAULT_QUALITY)
 
     if reference_images:
-        loaded_files = [_load_image_file_tuple(ref) for ref in reference_images if ref]
+        loaded_files = []
+        for ref in reference_images:
+            if not ref:
+                continue
+            try:
+                loaded_files.append(_load_image_file_tuple(ref))
+            except Exception as exc:
+                logger.warning(f"[IMAGE] 参考图加载失败，已跳过 ({ref}): {exc}")
         if loaded_files:
+            b64_list = [
+                f"data:{f[2]};base64,{base64.b64encode(f[1]).decode()}"
+                for f in loaded_files
+            ]
+            primary_file = (loaded_files[0][0], loaded_files[0][1], loaded_files[0][2])
+
             enhanced_prompt = prompt
             if "参考图" not in prompt and "reference" not in prompt.lower():
-                enhanced_prompt = f"根据参考图生成形象，严格保持参考图中的人物特征、五官发型与造型设计。{prompt}"
+                if len(loaded_files) > 1:
+                    enhanced_prompt = (
+                        f"根据提供的多个出场角色参考图生成画面，严格保持参考图中对应人物的外貌特征、五官发型与服饰设定。{prompt}"
+                    )
+                else:
+                    enhanced_prompt = (
+                        f"根据参考图生成形象，严格保持参考图中的人物特征、五官发型与造型设计。{prompt}"
+                    )
 
-            primary_file = (loaded_files[0][0], loaded_files[0][1], loaded_files[0][2])
+            extra_body_multi = {
+                "image": b64_list[0],
+                "images": b64_list,
+                "image_url": b64_list[0],
+                "image_urls": b64_list,
+                "reference_images": b64_list,
+                "prompt_images": b64_list,
+            }
+
+            # 多参考图场景（如关键帧多出场角色同框）：
+            # OpenAI 标准 images.edit 端点仅接受单张 image 文件入参，会造成多图截断；
+            # 优先采用 images.generate 并通过 extra_body 携带完整多图列表（兼容 images/image_urls/reference_images/prompt_images 等主流多模态生图入参）
+            if len(loaded_files) > 1:
+                try:
+                    resp = client.images.generate(
+                        model=CFG.image.model_name,
+                        prompt=enhanced_prompt,
+                        n=n,
+                        size=target_size,
+                        quality=target_quality,
+                        output_format=OUTPUT_FORMAT,
+                        output_compression=OUTPUT_COMPRESSION,
+                        extra_body=extra_body_multi,
+                    )
+                    return [item.b64_json or item.url or "" for item in resp.data]
+                except Exception as exc:
+                    logger.warning(
+                        f"[IMAGE] 多参考图 images.generate + extra_body 失败 ({exc})，回退尝试 images.edit (主参考图)"
+                    )
+                    try:
+                        resp = client.images.edit(
+                            model=CFG.image.model_name,
+                            image=primary_file,
+                            prompt=enhanced_prompt,
+                            n=n,
+                            size=target_size,
+                            quality=target_quality,
+                            output_format=OUTPUT_FORMAT,
+                            output_compression=OUTPUT_COMPRESSION,
+                            extra_body=extra_body_multi,
+                        )
+                        return [item.b64_json or item.url or "" for item in resp.data]
+                    except Exception as edit_exc:
+                        logger.error(f"[IMAGE] images.edit 降级亦失败: {edit_exc}")
+                        raise edit_exc from exc
+
+            # 单参考图场景：优先尝试标准 images.edit 端点，失败后降级 images.generate + extra_body
             try:
                 resp = client.images.edit(
                     model=CFG.image.model_name,
@@ -135,16 +201,13 @@ def generate_image(
                     quality=target_quality,
                     output_format=OUTPUT_FORMAT,
                     output_compression=OUTPUT_COMPRESSION,
+                    extra_body=extra_body_multi,
                 )
                 return [item.b64_json or item.url or "" for item in resp.data]
             except Exception as exc:
                 logger.warning(
                     f"[IMAGE] images.edit 调用失败 ({exc})，尝试兼容模式 images.generate + extra_body"
                 )
-                b64_list = [
-                    f"data:{f[2]};base64,{base64.b64encode(f[1]).decode()}"
-                    for f in loaded_files
-                ]
                 resp = client.images.generate(
                     model=CFG.image.model_name,
                     prompt=enhanced_prompt,
@@ -153,12 +216,7 @@ def generate_image(
                     quality=target_quality,
                     output_format=OUTPUT_FORMAT,
                     output_compression=OUTPUT_COMPRESSION,
-                    extra_body={
-                        "image": b64_list[0],
-                        "images": b64_list,
-                        "image_url": b64_list[0],
-                        "reference_images": b64_list,
-                    },
+                    extra_body=extra_body_multi,
                 )
                 return [item.b64_json or item.url or "" for item in resp.data]
 

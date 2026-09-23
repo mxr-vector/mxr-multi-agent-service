@@ -6,8 +6,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { CopyDocument, Picture, Refresh } from "@element-plus/icons-vue";
 import {
+  keyframeApi,
   storyAiApi,
   storyFileUrl,
+  type StoryKeyframeVO,
   type StoryMessageVO,
 } from "@/api/story";
 import { copyToClipboard } from "@/utils/clipboard";
@@ -15,6 +17,7 @@ import { copyToClipboard } from "@/utils/clipboard";
 const props = defineProps<{
   message: StoryMessageVO;
   sessionId?: string;
+  projectId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -51,8 +54,24 @@ const cardTitle = computed(() => {
   return `图片：${name}`;
 });
 
-/** 是否已存入角色库 */
+/** 是否属于关键帧相关出图 */
+const isKeyframe = computed(() => {
+  const cardType = String(params.value.card_type || "");
+  if (cardType === "keyframe") return true;
+  const name = cardName.value || props.message.content || "";
+  return (
+    name.startsWith("关键帧") ||
+    name.startsWith("镜头") ||
+    name.includes("关键帧") ||
+    name.includes("分镜")
+  );
+});
+
+/** 是否已存入正式资产库（关键帧看 sedimented_keyframe_id，角色立绘看 sedimented_character_id） */
 const isSedimented = computed(() => {
+  if (isKeyframe.value) {
+    return !!(params.value.sedimented_keyframe_id || params.value.is_sedimented);
+  }
   return !!params.value.sedimented_character_id;
 });
 
@@ -153,10 +172,10 @@ onBeforeUnmount(() => {
   if (pollTimer) clearTimeout(pollTimer);
 });
 
-// —— 存入角色库 ——
+// —— 存入角色库（角色立绘） ——
 const savingArt = ref(false);
 
-async function handleSaveArt() {
+async function handleSaveCharacterArt() {
   if (savingArt.value) return;
   savingArt.value = true;
   try {
@@ -174,6 +193,134 @@ async function handleSaveArt() {
     // 错误拦截器统一提示
   } finally {
     savingArt.value = false;
+  }
+}
+
+// —— 存入关键帧（弹窗选择目标关键帧或新建） ——
+const kfDialogVisible = ref(false);
+const loadingKeyframes = ref(false);
+const submittingKf = ref(false);
+const projectKeyframes = ref<StoryKeyframeVO[]>([]);
+const saveMode = ref<"existing" | "new">("existing");
+const selectedKeyframeId = ref<string>("");
+
+// 新建模式字段
+const newSceneNo = ref<number>(1);
+const newShotNo = ref<number>(1);
+const newKfName = ref<string>("");
+
+/** 解析当前卡片或名称中的场景与镜头编号 */
+function extractSceneShotFromName(name: string): { scene: number | null; shot: number | null } {
+  const match = /(\d+)[-_](\d+)/.exec(name);
+  if (match) {
+    return { scene: Number(match[1]), shot: Number(match[2]) };
+  }
+  return { scene: null, shot: null };
+}
+
+/** 打开存入关键帧选择弹窗 */
+async function openSaveKeyframeDialog() {
+  kfDialogVisible.value = true;
+  saveMode.value = "existing";
+  selectedKeyframeId.value = "";
+  newKfName.value = cardName.value || "新分镜镜头";
+  newSceneNo.value = 1;
+  newShotNo.value = 1;
+
+  const rawName = cardName.value || props.message.content || "";
+  const { scene, shot } = extractSceneShotFromName(rawName);
+
+  if (props.projectId) {
+    loadingKeyframes.value = true;
+    try {
+      const res = await keyframeApi.list(props.projectId, { size: 100 });
+      const items = res.data?.items ?? [];
+      projectKeyframes.value = items;
+
+      // 计算下一个推荐的镜头编号
+      const maxShot = items.reduce((max, k) => Math.max(max, k.shot_no ?? 0), 0);
+      newShotNo.value = maxShot + 1;
+
+      // 智能自动预选：
+      // 1. 若名称中包含编号（如 1-1），自动寻找匹配项
+      // 2. 否则若有卡片，尝试按名称模糊匹配
+      if (scene !== null && shot !== null) {
+        const match = items.find((k) => k.scene_no === scene && k.shot_no === shot);
+        if (match) {
+          selectedKeyframeId.value = match.id;
+        }
+      } else if (items.length > 0) {
+        const cleanName = rawName.replace(/^关键帧[：:\s]*/, "").trim();
+        const match = items.find((k) => k.name && cleanName.includes(k.name));
+        if (match) {
+          selectedKeyframeId.value = match.id;
+        } else {
+          selectedKeyframeId.value = items[0].id;
+        }
+      } else {
+        // 项目内暂无任何关键帧，自动切为新建模式
+        saveMode.value = "new";
+      }
+    } catch {
+      // 请求拦截器统一提示
+    } finally {
+      loadingKeyframes.value = false;
+    }
+  }
+}
+
+/** 当前选中的目标关键帧 */
+const currentSelectedKeyframe = computed(() => {
+  return projectKeyframes.value.find((k) => k.id === selectedKeyframeId.value) ?? null;
+});
+
+/** 确认存入关键帧 */
+async function confirmSaveKeyframe() {
+  submittingKf.value = true;
+  try {
+    let payload: { target_keyframe_id?: string; scene_no?: number; shot_no?: number; name?: string } = {};
+    if (saveMode.value === "existing") {
+      if (!selectedKeyframeId.value) {
+        ElMessage.warning("请选择要存入的目标关键帧");
+        return;
+      }
+      payload = { target_keyframe_id: selectedKeyframeId.value };
+    } else {
+      if (!newSceneNo.value || !newShotNo.value) {
+        ElMessage.warning("请输入场景号与镜头号");
+        return;
+      }
+      payload = {
+        scene_no: newSceneNo.value,
+        shot_no: newShotNo.value,
+        name: newKfName.value.trim() || undefined,
+      };
+    }
+
+    const res = await storyAiApi.saveKeyframe(props.message.id, payload);
+    if (!props.message.params) {
+      props.message.params = {};
+    }
+    const kf = res.data as Record<string, unknown> | undefined;
+    props.message.params.sedimented_keyframe_id = String(kf?.id ?? "1");
+    props.message.params.is_sedimented = true;
+    ElMessage.success(
+      `图片已成功存入关键帧（镜头 ${kf?.scene_no ?? "?"}-${kf?.shot_no ?? "?"}）`
+    );
+    kfDialogVisible.value = false;
+    emit("changed");
+  } catch {
+    // 请求拦截器统一提示
+  } finally {
+    submittingKf.value = false;
+  }
+}
+
+function handleSaveClick() {
+  if (isKeyframe.value) {
+    openSaveKeyframeDialog();
+  } else {
+    handleSaveCharacterArt();
   }
 }
 
@@ -336,9 +483,9 @@ async function handleRetry() {
           type="primary"
           link
           :loading="savingArt"
-          @click="handleSaveArt"
+          @click="handleSaveClick"
         >
-          存入角色库
+          {{ isKeyframe ? "存入关键帧" : "存入角色库" }}
         </el-button>
       </div>
       <div class="actions-right">
@@ -354,6 +501,101 @@ async function handleRetry() {
         </el-button>
       </div>
     </div>
+
+    <!-- 存入关键帧选择弹窗 -->
+    <el-dialog
+      v-model="kfDialogVisible"
+      title="存入项目关键帧"
+      width="520px"
+      append-to-body
+      destroy-on-close
+    >
+      <div v-loading="loadingKeyframes" class="save-kf-dialog-content">
+        <!-- 待存入画面预览与信息 -->
+        <div class="save-kf-preview">
+          <el-image
+            v-if="message.image_file"
+            :src="storyFileUrl(message.image_file)"
+            fit="cover"
+            class="save-kf-thumb"
+          />
+          <div class="save-kf-info">
+            <div class="save-kf-name">{{ cardTitle }}</div>
+            <div v-if="promptText" class="save-kf-prompt" :title="promptText">
+              {{ promptText }}
+            </div>
+          </div>
+        </div>
+
+        <el-divider style="margin: 14px 0" />
+
+        <!-- 存入方式选择 -->
+        <el-form label-position="top">
+          <el-form-item label="存入目标">
+            <el-radio-group v-model="saveMode" size="default">
+              <el-radio-button value="existing" :disabled="projectKeyframes.length === 0">
+                更新已有关键帧
+              </el-radio-button>
+              <el-radio-button value="new">新建为关键帧</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
+          <!-- 模式一：选择已有关键帧 -->
+          <template v-if="saveMode === 'existing'">
+            <el-form-item label="选择目标关键帧" required>
+              <el-select
+                v-model="selectedKeyframeId"
+                placeholder="请选择要存入/覆盖的关键帧"
+                filterable
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="kf in projectKeyframes"
+                  :key="kf.id"
+                  :value="kf.id"
+                  :label="`镜头 ${kf.scene_no}-${kf.shot_no}：${kf.name || '未命名'} ${kf.image_file ? '（已有画面）' : '（待出图）'}`"
+                >
+                  <div class="kf-option-item">
+                    <span class="kf-option-badge">镜头 {{ kf.scene_no }}-{{ kf.shot_no }}</span>
+                    <span class="kf-option-name">{{ kf.name || "未命名镜头" }}</span>
+                    <el-tag v-if="kf.image_file" size="small" type="warning" effect="plain">已有画面</el-tag>
+                    <el-tag v-else size="small" type="info" effect="plain">待出图</el-tag>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+
+            <div v-if="currentSelectedKeyframe?.image_file" class="save-kf-warn-tip">
+              ⚠️ 该关键帧当前已存在画面，存入后将替换其现有图片。
+            </div>
+          </template>
+
+          <!-- 模式二：新建关键帧 -->
+          <template v-else>
+            <div style="display: flex; gap: 12px">
+              <el-form-item label="场景号" required style="flex: 1">
+                <el-input-number v-model="newSceneNo" :min="1" :max="999" style="width: 100%" />
+              </el-form-item>
+              <el-form-item label="镜头号" required style="flex: 1">
+                <el-input-number v-model="newShotNo" :min="1" :max="999" style="width: 100%" />
+              </el-form-item>
+            </div>
+            <el-form-item label="关键帧名称">
+              <el-input v-model="newKfName" placeholder="例如：长廊对峙 / 主角近景" maxlength="100" />
+            </el-form-item>
+          </template>
+        </el-form>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="kfDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submittingKf" @click="confirmSaveKeyframe">
+            确认存入
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -532,5 +774,64 @@ async function handleRetry() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.save-kf-preview {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #f8fafc;
+  padding: 10px;
+  border-radius: 8px;
+}
+.save-kf-thumb {
+  width: 90px;
+  height: 60px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.save-kf-info {
+  flex: 1;
+  min-width: 0;
+}
+.save-kf-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+.save-kf-prompt {
+  font-size: 11px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.kf-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+.kf-option-badge {
+  font-weight: 600;
+  color: #526ae2;
+  font-size: 12px;
+}
+.kf-option-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #334155;
+}
+.save-kf-warn-tip {
+  font-size: 12px;
+  color: #e6a23c;
+  margin-top: -6px;
+  margin-bottom: 10px;
 }
 </style>

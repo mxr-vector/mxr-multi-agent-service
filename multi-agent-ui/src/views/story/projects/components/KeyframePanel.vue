@@ -2,8 +2,10 @@
 /**
  * 关键帧面板：五段式描述维护、编号冲突由后端校验、出场角色登记、导出选择。
  */
-import { onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { onMounted, onUnmounted, reactive, ref } from "vue";
+import { useRoute } from "vue-router";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { Loading } from "@element-plus/icons-vue";
 import {
   collectPages,
   keyframeApi,
@@ -16,6 +18,8 @@ import {
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import Pagination from "@/components/ui/Pagination.vue";
+
+const route = useRoute();
 
 const props = defineProps<{
   projectId: string;
@@ -108,12 +112,120 @@ async function loadKeyframes() {
     const res = await keyframeApi.list(props.projectId, { page: page.value, size: size.value });
     list.value = res.data?.items ?? [];
     total.value = res.data?.total ?? 0;
+    checkAndStartPolling();
   } finally {
     loading.value = false;
   }
 }
 
+// —— 关键帧生图与轮询 ——
+const generatingImageId = ref<string | null>(null);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function checkAndStartPolling() {
+  if (list.value.some((k) => k.status === "generating")) {
+    if (!pollTimer) {
+      pollTimer = setInterval(async () => {
+        try {
+          const res = await keyframeApi.list(props.projectId, { page: page.value, size: size.value });
+          list.value = res.data?.items ?? [];
+          total.value = res.data?.total ?? 0;
+          emit("changed");
+          if (!list.value.some((k) => k.status === "generating")) {
+            stopPolling();
+          }
+        } catch {
+          stopPolling();
+        }
+      }, 3000);
+    }
+  } else {
+    stopPolling();
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
 onMounted(loadKeyframes);
+onUnmounted(() => {
+  stopPolling();
+  clearCreateImage();
+});
+
+function tableRowClassName({ row }: { row: StoryKeyframeVO }) {
+  if (route.query.focus_id && row.id === route.query.focus_id) {
+    return "focused-keyframe-row";
+  }
+  return "";
+}
+
+async function handleGenerateImage(keyframe: StoryKeyframeVO) {
+  if (keyframe.status === "generating") {
+    ElMessage.info("该关键帧正在生成图片中，请稍候");
+    return;
+  }
+  const prompt = (keyframe.prompt || "").trim();
+  if (!prompt) {
+    ElMessage.warning("关键帧缺少出图提示词，请先编辑补充提示词");
+    return;
+  }
+
+  const charCount = keyframe.characters?.length || 0;
+  if (charCount > 0) {
+    const charNames = keyframe.characters
+      .map((c) => c.character_name || "角色")
+      .join("、");
+    try {
+      await ElMessageBox.confirm(
+        `系统将自动根据当前提示词及已设置的出场角色（${charNames}）形象参考图，提交给模型生成，以保证角色与画面的一致性。\n\n是否开始生成？`,
+        "生成关键帧图片",
+        {
+          confirmButtonText: "开始生成",
+          cancelButtonText: "取消",
+          type: "info",
+        }
+      );
+    } catch {
+      return;
+    }
+  } else {
+    try {
+      await ElMessageBox.confirm(
+        "当前关键帧尚未设置出场角色。为了保证角色形象一致性，建议先点击「出场角色」绑定角色的参考立绘后再生成。\n\n若当前镜头无需角色或为场景空镜，也可直接按当前提示词生成。确定继续提交生成吗？",
+        "关键帧未设置出场角色",
+        {
+          confirmButtonText: "继续生成",
+          cancelButtonText: "先去设置出场角色",
+          distinguishCancelAndClose: true,
+          type: "warning",
+        }
+      );
+    } catch (action) {
+      if (action === "cancel") {
+        openCastDialog(keyframe);
+      }
+      return;
+    }
+  }
+
+  generatingImageId.value = keyframe.id;
+  try {
+    await keyframeApi.generateImage(keyframe.id);
+    keyframe.status = "generating";
+    ElMessage.success("已发起关键帧生成任务");
+    checkAndStartPolling();
+    emit("changed");
+  } catch {
+    // 错误拦截器统一处理
+  } finally {
+    generatingImageId.value = null;
+  }
+}
 
 // —— 创建/编辑 ——
 const formVisible = ref(false);
@@ -393,14 +505,18 @@ function numbering(keyframe: StoryKeyframeVO): string {
       @change="onImagePicked"
     />
 
-    <el-table v-loading="loading" :data="list" stripe>
+    <el-table v-loading="loading" :data="list" stripe :row-class-name="tableRowClassName">
       <el-table-column label="场景-镜头" width="100">
         <template #default="{ row }">{{ numbering(row) }}</template>
       </el-table-column>
       <el-table-column label="参考图" width="110">
         <template #default="{ row }">
+          <div v-if="row.status === 'generating'" class="kf-generating-box" title="正在生成图片...">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span class="kf-generating-text">生图中</span>
+          </div>
           <el-image
-            v-if="row.image_file"
+            v-else-if="row.image_file"
             :src="storyFileUrl(row.image_file)"
             :preview-src-list="[storyFileUrl(row.image_file)]"
             fit="cover"
@@ -411,6 +527,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
             size="small"
             link
             :loading="uploadingImageId === row.id"
+            :disabled="row.status === 'generating'"
             @click="openImagePicker(row)"
           >
             {{ row.image_file ? "替换图" : "上传图片" }}
@@ -422,7 +539,20 @@ function numbering(keyframe: StoryKeyframeVO): string {
       </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
-          <el-tag size="small">{{ STATUS_LABEL[row.status] ?? row.status }}</el-tag>
+          <el-tag
+            size="small"
+            :type="
+              row.status === 'done'
+                ? 'success'
+                : row.status === 'generating'
+                ? 'warning'
+                : row.status === 'failed'
+                ? 'danger'
+                : 'info'
+            "
+          >
+            {{ STATUS_LABEL[row.status] ?? row.status }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="正向提示词" min-width="200" show-overflow-tooltip>
@@ -444,8 +574,17 @@ function numbering(keyframe: StoryKeyframeVO): string {
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
+          <el-button
+            size="small"
+            link
+            type="primary"
+            :loading="row.status === 'generating' || generatingImageId === row.id"
+            @click="handleGenerateImage(row)"
+          >
+            生成图片
+          </el-button>
           <el-button size="small" link @click="openCastDialog(row)">出场角色</el-button>
           <el-button size="small" link @click="openEdit(row)">编辑</el-button>
           <el-button size="small" link type="danger" @click="handleDelete(row)">删除</el-button>
@@ -743,5 +882,34 @@ function numbering(keyframe: StoryKeyframeVO): string {
   margin-top: 14px;
   display: flex;
   justify-content: flex-end;
+}
+.kf-generating-box {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  border: 1px dashed #3b82f6;
+  background: #eff6ff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #3b82f6;
+  margin-bottom: 4px;
+}
+.kf-generating-text {
+  font-size: 10px;
+}
+:deep(.focused-keyframe-row) {
+  --el-table-tr-bg-color: #f0fdf4 !important;
+  animation: pulse-focus 2s ease-in-out infinite alternate;
+}
+@keyframes pulse-focus {
+  from {
+    background-color: #f0fdf4;
+  }
+  to {
+    background-color: #e0f2fe;
+  }
 }
 </style>
