@@ -227,7 +227,9 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
   gap: 6px;
 }
 .ai-panel {
-  width: 400px;
+  width: 520px;
+  max-width: 48vw;
+  min-width: 440px;
   height: calc(100vh - 120px);
   position: sticky;
   top: 16px;
@@ -235,6 +237,7 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
   border-radius: 10px;
   background: #fff;
   overflow: hidden;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .ai-toggle {
   align-self: flex-start;

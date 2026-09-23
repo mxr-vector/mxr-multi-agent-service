@@ -7,7 +7,7 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { characterApi, storyAiApi, type StoryMessageVO } from "@/api/story";
+import { characterApi, storyAiApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
 import { readCard, useStoryAi } from "../../composables/useStoryAi";
 import AiGenerateForm from "./AiGenerateForm.vue";
 import ScriptCard from "./ScriptCard.vue";
@@ -275,6 +275,23 @@ function userParamsSummary(message: StoryMessageVO): string {
   return parts.join(" · ");
 }
 
+/** 提取用户消息关联的多模态或参考图片列表 */
+function getUserImages(message: StoryMessageVO): string[] {
+  const images: string[] = [];
+  if (message.image_file) {
+    images.push(message.image_file);
+  }
+  const paramsImages = message.params?.images;
+  if (Array.isArray(paramsImages)) {
+    for (const img of paramsImages) {
+      if (typeof img === "string" && img && !images.includes(img)) {
+        images.push(img);
+      }
+    }
+  }
+  return images;
+}
+
 /** 从会话已生成角色卡提炼角色候选列表（供生图选择关联） */
 const characterOptions = computed(() => {
   const result: Array<{ id: string; name: string; art_prompt?: string | null; message_id?: string }> = [];
@@ -305,6 +322,7 @@ async function handleGenerateArt(payload: {
   cardMessageId?: string;
   size?: string;
   quality?: string;
+  referenceImages?: string[];
 }) {
   if (!ai.activeSessionId.value) {
     await ai.createSession(payload.name ? `图像：${payload.name}` : undefined);
@@ -329,6 +347,7 @@ async function handleGenerateArt(payload: {
       card_message_id: payload.cardMessageId,
       size: payload.size,
       quality: payload.quality,
+      reference_images: payload.referenceImages,
     });
     ElMessage.success("已发起图像生成任务");
     await ai.refresh();
@@ -447,7 +466,20 @@ defineExpose({
         <template v-for="message in filteredMessages" :key="message.id">
           <!-- 用户指令 -->
           <div v-if="isUser(message)" class="msg-user">
-            <div class="user-bubble">{{ message.content }}</div>
+            <div class="user-bubble">
+              <div v-if="getUserImages(message).length > 0" class="user-bubble-images">
+                <el-image
+                  v-for="(img, idx) in getUserImages(message)"
+                  :key="idx"
+                  :src="storyFileUrl(img)"
+                  :preview-src-list="getUserImages(message).map(storyFileUrl)"
+                  fit="cover"
+                  class="user-msg-image"
+                  preview-teleported
+                />
+              </div>
+              <div class="user-bubble-text">{{ message.content }}</div>
+            </div>
             <div v-if="userParamsSummary(message)" class="user-params">
               {{ userParamsSummary(message) }}
             </div>
@@ -650,6 +682,23 @@ defineExpose({
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.6;
+}
+.user-bubble-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.user-msg-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+}
+.user-bubble-text {
   white-space: pre-wrap;
   word-break: break-all;
 }

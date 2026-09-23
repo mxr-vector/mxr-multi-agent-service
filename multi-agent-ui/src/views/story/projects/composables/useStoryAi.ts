@@ -187,15 +187,15 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       role: "user",
       kind: "general",
       content: idea,
-      image_file: null,
+      image_file: form.value.image_file ?? null,
       prompt: null,
-      params: null,
+      params: form.value.images && form.value.images.length > 0 ? { images: form.value.images } : null,
       sequence: messages.value.length,
       status: "done",
       error: null,
       created_at: new Date().toISOString(),
     });
-    form.value = { ...form.value, idea: "" };
+    form.value = { ...form.value, idea: "", image_file: null, images: [] };
     streaming.value = true;
     streamText.value = "";
     const parts: string[] = [];

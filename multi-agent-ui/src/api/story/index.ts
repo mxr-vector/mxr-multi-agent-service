@@ -90,7 +90,23 @@ export const STORY_FILE_BASE = `${import.meta.env.VITE_APP_BASE_API}/public/file
 
 /** 相对路径转公开访问地址；空值原样返回 */
 export function storyFileUrl(relative?: string | null): string {
-  return relative ? `${STORY_FILE_BASE}/${relative}` : "";
+  if (!relative) return "";
+  if (
+    relative.startsWith("http://") ||
+    relative.startsWith("https://") ||
+    relative.startsWith("data:") ||
+    relative.startsWith("blob:")
+  ) {
+    return relative;
+  }
+  let clean = relative.replace(/^\/+/, "");
+  if (clean.startsWith("public/files/")) {
+    return `${import.meta.env.VITE_APP_BASE_API}/${clean}`;
+  }
+  if (clean.startsWith("files/")) {
+    clean = clean.slice("files/".length);
+  }
+  return `${STORY_FILE_BASE}/${clean}`;
 }
 
 /** 分页结果最小契约（与 @/api/rag 的 PageResult 对齐，避免循环依赖仅取所需字段） */

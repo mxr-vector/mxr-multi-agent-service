@@ -62,10 +62,12 @@ async function handleGenerateKeyframeImage() {
     const kfName = kf.value?.name
       ? `关键帧：${kf.value.name}`
       : `关键帧 ${kf.value?.scene_no ?? "?"}-${kf.value?.shot_no ?? "?"}`;
+    const refImages = props.message.params?.reference_images;
     await storyAiApi.generateArtDirect(sessionId, {
       prompt: promptText,
       name: kfName,
       size: "1536x1024",
+      reference_images: Array.isArray(refImages) ? refImages : undefined,
     });
     ElMessage.success("已发起关键帧出图任务");
     emit("changed");

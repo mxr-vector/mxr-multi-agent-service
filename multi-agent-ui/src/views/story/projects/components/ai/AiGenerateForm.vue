@@ -6,8 +6,16 @@
  */
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { Paperclip, Picture, Promotion } from "@element-plus/icons-vue";
-import type { StoryGeneratePayload, StoryStyleVO } from "@/api/story";
+import {
+  Close,
+  Document,
+  MagicStick,
+  Paperclip,
+  Picture,
+  Plus,
+  Promotion,
+} from "@element-plus/icons-vue";
+import { storyAiApi, storyFileUrl, type StoryGeneratePayload, type StoryStyleVO } from "@/api/story";
 import {
   commonFileApi,
   COMMON_FILE_ACCEPT,
@@ -49,9 +57,42 @@ const emit = defineEmits<{
       cardMessageId?: string;
       size?: string;
       quality?: string;
+      referenceImages?: string[];
     }
   ): void;
 }>();
+
+// —— 隐藏文件选择器引用与触发 ——
+const docFileInput = ref<HTMLInputElement | null>(null);
+const imgFileInput = ref<HTMLInputElement | null>(null);
+
+function triggerDocUpload() {
+  if (parsingFile.value || props.generating || props.generatingArt) return;
+  docFileInput.value?.click();
+}
+
+function triggerImageUpload() {
+  if (uploadingImage.value || props.generating || props.generatingArt) return;
+  imgFileInput.value?.click();
+}
+
+function onDocFileChange(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const files = target.files;
+  if (files && files.length > 0) {
+    handleFileUpload(files[0]);
+  }
+  target.value = "";
+}
+
+function onImgFileChange(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const files = target.files;
+  if (files && files.length > 0) {
+    handleImageUpload(files[0]);
+  }
+  target.value = "";
+}
 
 // —— 生图模式状态（点击「创建图片」后常亮） ——
 const isImageMode = ref(false);
@@ -59,8 +100,55 @@ const isImageMode = ref(false);
 function toggleImageMode() {
   isImageMode.value = !isImageMode.value;
   if (isImageMode.value) {
-    ElMessage.info("已切换为生图模式，点击「生成图片」将直接调用图像生成模型");
+    ElMessage.info("已切换为生图模式，可上传参考图根据参考图生成形象，点击「生成图片」直接调用图像模型");
   }
+}
+
+// —— 图片上传（多模态图片/参考图） ——
+interface AttachedImage {
+  image_file: string;
+  url: string;
+}
+
+const attachedImages = ref<AttachedImage[]>([]);
+const uploadingImage = ref(false);
+
+function syncFormImages() {
+  form.value.images = attachedImages.value.map((i) => i.image_file);
+  form.value.image_file = attachedImages.value[0]?.image_file ?? null;
+}
+
+async function handleImageUpload(rawFile: File) {
+  if (!rawFile.type.startsWith("image/")) {
+    ElMessage.error("请上传图片文件（PNG/JPG/WEBP 等）");
+    return false;
+  }
+  if (rawFile.size > 15 * 1024 * 1024) {
+    ElMessage.error("图片大小不能超过 15MB");
+    return false;
+  }
+  uploadingImage.value = true;
+  try {
+    const res = await storyAiApi.uploadImage(rawFile);
+    if (res.data) {
+      attachedImages.value.push({
+        image_file: res.data.image_file,
+        url: res.data.url,
+      });
+      syncFormImages();
+      ElMessage.success(isImageMode.value ? "参考图上传成功" : "图片上传成功，将附带给大模型");
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || "图片上传失败");
+  } finally {
+    uploadingImage.value = false;
+  }
+  return false;
+}
+
+function removeImage(index: number) {
+  attachedImages.value.splice(index, 1);
+  syncFormImages();
 }
 
 // —— 文件上传与解析 ——
@@ -102,6 +190,11 @@ function handlePaste(event: ClipboardEvent) {
   const files = event.clipboardData?.files;
   if (files && files.length > 0) {
     const file = files[0];
+    if (file.type.startsWith("image/")) {
+      event.preventDefault();
+      handleImageUpload(file);
+      return;
+    }
     const name = file.name.toLowerCase();
     if (COMMON_FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) {
       event.preventDefault();
@@ -114,6 +207,11 @@ function handleDrop(event: DragEvent) {
   const files = event.dataTransfer?.files;
   if (files && files.length > 0) {
     const file = files[0];
+    if (file.type.startsWith("image/")) {
+      event.preventDefault();
+      handleImageUpload(file);
+      return;
+    }
     const name = file.name.toLowerCase();
     if (COMMON_FILE_EXTENSIONS.some((ext) => name.endsWith(ext))) {
       event.preventDefault();
@@ -240,11 +338,23 @@ function handleCreateImage() {
     return;
   }
   const size = mapRatioToSize(form.value.aspect_ratio);
+  const refImages = attachedImages.value.map((i) => i.image_file);
   emit("generateArt", {
     prompt,
     size,
+    referenceImages: refImages.length ? refImages : undefined,
   });
   form.value.idea = "";
+  attachedImages.value = [];
+  syncFormImages();
+}
+
+/** 提交剧本创作请求（发送给大语言模型） */
+function handleSend() {
+  if (props.generating) return;
+  syncFormImages();
+  emit("send");
+  attachedImages.value = [];
 }
 
 /** 快捷键或统一回车提交 */
@@ -252,9 +362,7 @@ function handleSubmit() {
   if (isImageMode.value) {
     handleCreateImage();
   } else {
-    if (!props.generating) {
-      emit("send");
-    }
+    handleSend();
   }
 }
 </script>
@@ -324,9 +432,52 @@ function handleSubmit() {
           </el-select>
         </template>
 
-        <div v-else class="mode-tag-capsule">
+        <div v-else class="mode-tag-capsule" @click="toggleImageMode" title="点击切回剧本创作模式">
           <span class="mode-tag-icon">✨</span>
           <span>生图模式 (立绘/关键帧)</span>
+          <el-icon class="mode-tag-close"><Close /></el-icon>
+        </div>
+      </div>
+
+      <!-- 隐藏原生文件上传器（由 + 号更多列表触发） -->
+      <input
+        ref="docFileInput"
+        type="file"
+        :accept="COMMON_FILE_ACCEPT"
+        style="display: none"
+        @change="onDocFileChange"
+      />
+      <input
+        ref="imgFileInput"
+        type="file"
+        accept="image/*"
+        style="display: none"
+        @change="onImgFileChange"
+      />
+
+      <!-- 已上传图片/参考图预览条 -->
+      <div v-if="attachedImages.length > 0" class="attached-images-bar">
+        <div
+          v-for="(img, idx) in attachedImages"
+          :key="img.image_file"
+          class="attached-image-chip"
+        >
+          <el-image
+            :src="storyFileUrl(img.image_file)"
+            fit="cover"
+            class="chip-thumbnail"
+            :preview-src-list="attachedImages.map((i) => storyFileUrl(i.image_file))"
+            preview-teleported
+          />
+          <span class="chip-label">{{ isImageMode ? `参考图 ${idx + 1}` : `图片 ${idx + 1}` }}</span>
+          <button
+            type="button"
+            class="chip-remove-btn"
+            title="移除"
+            @click.stop="removeImage(idx)"
+          >
+            <el-icon><Close /></el-icon>
+          </button>
         </div>
       </div>
 
@@ -354,37 +505,88 @@ function handleSubmit() {
       <!-- 底部工具与操作栏 -->
       <div class="action-row">
         <div class="action-left">
-          <!-- 上传参考文档 -->
-          <el-upload
-            :show-file-list="false"
-            :before-upload="handleFileUpload"
-            :accept="COMMON_FILE_ACCEPT"
-            :disabled="generating || generatingArt || parsingFile"
-          >
+          <!-- 加号更多功能菜单 -->
+          <el-dropdown trigger="click" popper-class="composer-plus-dropdown" placement="top-start">
             <button
               type="button"
-              class="toolbar-pill-btn"
-              :disabled="generating || generatingArt || parsingFile"
-              title="上传参考文档提取内容"
+              class="toolbar-plus-btn"
+              :class="{ 'has-images': attachedImages.length > 0, 'mode-active': isImageMode }"
+              :disabled="generating || generatingArt"
+              title="添加附件或切换生图模式"
             >
-              <el-icon :class="{ 'is-loading': parsingFile }"><Paperclip /></el-icon>
-              <span>{{ parsingFile ? "解析中..." : "上传文档" }}</span>
+              <el-icon><Plus /></el-icon>
+              <span v-if="attachedImages.length > 0" class="plus-count-badge">{{ attachedImages.length }}</span>
             </button>
-          </el-upload>
+            <template #dropdown>
+              <el-dropdown-menu class="plus-dropdown-menu">
+                <!-- 1. 上传参考文档 -->
+                <el-dropdown-item :disabled="parsingFile" @click="triggerDocUpload">
+                  <div class="plus-menu-item">
+                    <div class="plus-menu-icon doc-icon">
+                      <el-icon :class="{ 'is-loading': parsingFile }"><Document /></el-icon>
+                    </div>
+                    <div class="plus-menu-text">
+                      <div class="plus-menu-title">
+                        <span>{{ parsingFile ? "文档解析中..." : "上传参考文档" }}</span>
+                      </div>
+                      <div class="plus-menu-desc">提取 Word / PDF / TXT / Markdown 故事内容</div>
+                    </div>
+                  </div>
+                </el-dropdown-item>
 
-          <!-- 单点按钮「创建图片」：点击后常亮，切换为调用图像生成模型 -->
-          <button
-            type="button"
-            class="toolbar-pill-btn image-toggle-btn"
-            :class="{ active: isImageMode }"
-            :disabled="generating"
-            title="点击切换生图模式（调用图像生成模型）"
-            @click="toggleImageMode"
-          >
-            <el-icon><Picture /></el-icon>
-            <span>创建图片</span>
-            <span v-if="isImageMode" class="active-glow-dot"></span>
-          </button>
+                <!-- 2. 上传图片 / 参考图 -->
+                <el-dropdown-item :disabled="uploadingImage" @click="triggerImageUpload">
+                  <div class="plus-menu-item">
+                    <div class="plus-menu-icon img-icon">
+                      <el-icon :class="{ 'is-loading': uploadingImage }"><Picture /></el-icon>
+                    </div>
+                    <div class="plus-menu-text">
+                      <div class="plus-menu-title">
+                        <span>{{ uploadingImage ? "图片上传中..." : (isImageMode ? "上传参考图" : "上传对话图片") }}</span>
+                        <span v-if="attachedImages.length > 0" class="menu-count-badge">已选 {{ attachedImages.length }} 张</span>
+                      </div>
+                      <div class="plus-menu-desc">
+                        {{ isImageMode ? "根据参考图生成角色立绘或分镜画面" : "上传图片发送给多模态大模型进行创作" }}
+                      </div>
+                    </div>
+                  </div>
+                </el-dropdown-item>
+
+                <!-- 3. 生图模式切换 -->
+                <el-dropdown-item divided @click="toggleImageMode">
+                  <div class="plus-menu-item">
+                    <div class="plus-menu-icon mode-icon" :class="{ active: isImageMode }">
+                      <el-icon><MagicStick /></el-icon>
+                    </div>
+                    <div class="plus-menu-text">
+                      <div class="plus-menu-title plus-menu-title-between">
+                        <span>创建图片模式</span>
+                        <el-tag size="small" :type="isImageMode ? 'primary' : 'info'" effect="light" class="mode-state-tag">
+                          {{ isImageMode ? "已开启" : "未开启" }}
+                        </el-tag>
+                      </div>
+                      <div class="plus-menu-desc">切换后点击生成将直接调用图像生成模型</div>
+                    </div>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <!-- 模式与加载反馈胶囊 -->
+          <div v-if="isImageMode" class="toolbar-status-capsule" @click="toggleImageMode" title="点击切回剧本创作模式">
+            <span class="status-glow-dot"></span>
+            <span>生图模式</span>
+            <el-icon class="status-close-icon"><Close /></el-icon>
+          </div>
+          <div v-else-if="parsingFile" class="toolbar-loading-capsule">
+            <el-icon class="is-loading"><Paperclip /></el-icon>
+            <span>文档解析中...</span>
+          </div>
+          <div v-else-if="uploadingImage" class="toolbar-loading-capsule">
+            <el-icon class="is-loading"><Picture /></el-icon>
+            <span>图片上传中...</span>
+          </div>
         </div>
 
         <div class="action-right">
@@ -411,7 +613,7 @@ function handleSubmit() {
               class="modern-cta-btn script-cta-btn"
               :disabled="generatingArt"
               :icon="Promotion"
-              @click="emit('send')"
+              @click="handleSend"
             >
               生成剧本
             </el-button>
@@ -559,6 +761,66 @@ function handleSubmit() {
   white-space: nowrap;
 }
 
+/* 附加图片/参考图横条 */
+.attached-images-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 2px 2px;
+}
+
+.attached-image-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 3px 6px 3px 4px;
+  font-size: 11px;
+  color: #334155;
+  transition: all 0.2s;
+}
+
+.attached-image-chip:hover {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+}
+
+.chip-thumbnail {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.chip-label {
+  font-weight: 500;
+  user-select: none;
+}
+
+.chip-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.08);
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  font-size: 10px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chip-remove-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
 /* 现代化无界输入框 */
 .input-row {
   padding: 2px 0;
@@ -594,57 +856,129 @@ function handleSubmit() {
   gap: 6px;
 }
 
-.toolbar-pill-btn {
+/* 加号更多操作按钮 */
+.toolbar-plus-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
+  justify-content: center;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
-  color: #64748b;
+  color: #475569;
+  cursor: pointer;
+  position: relative;
+  font-size: 15px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  line-height: 1.4;
+  padding: 0;
 }
 
-.toolbar-pill-btn:hover:not(:disabled) {
+.toolbar-plus-btn:hover:not(:disabled) {
   background: #f1f5f9;
-  color: #334155;
   border-color: #cbd5e1;
+  color: #1e293b;
 }
 
-.toolbar-pill-btn:disabled {
+.toolbar-plus-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-/* 单点常亮按钮核心样式 */
-.image-toggle-btn {
-  position: relative;
+.toolbar-plus-btn.has-images {
+  border-color: #818cf8;
+  color: #4f46e5;
+  background: #eef2ff;
 }
 
-.image-toggle-btn.active {
+.toolbar-plus-btn.mode-active {
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   border-color: #4f46e5;
   color: #ffffff;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.38);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 
-.image-toggle-btn.active:hover {
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.48);
+.plus-count-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
-.active-glow-dot {
+/* 底部状态辅助胶囊 */
+.toolbar-status-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #4f46e5;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.toolbar-status-capsule:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+
+.status-glow-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #34d399;
   box-shadow: 0 0 6px #34d399;
   animation: pulse-glow 2s infinite ease-in-out;
+}
+
+.status-close-icon {
+  font-size: 12px;
+  color: #818cf8;
+  transition: color 0.15s;
+}
+
+.toolbar-status-capsule:hover .status-close-icon {
+  color: #ef4444;
+}
+
+.toolbar-loading-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.mode-tag-close {
+  margin-left: 2px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.mode-tag-close:hover {
+  opacity: 1;
+  color: #ef4444;
 }
 
 @keyframes pulse-glow {
@@ -697,5 +1031,103 @@ function handleSubmit() {
 
 .stop-cta-btn {
   box-shadow: 0 2px 6px rgba(230, 162, 60, 0.25);
+}
+
+/* 加号下拉功能菜单全局样式 */
+:global(.composer-plus-dropdown .el-dropdown-menu) {
+  padding: 6px !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08) !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+:global(.composer-plus-dropdown .el-dropdown-menu__item) {
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  transition: all 0.15s ease !important;
+}
+
+:global(.composer-plus-dropdown .el-dropdown-menu__item:hover) {
+  background: #f8fafc !important;
+}
+
+:global(.plus-menu-item) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 250px;
+}
+
+:global(.plus-menu-icon) {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+:global(.plus-menu-icon.doc-icon) {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+:global(.plus-menu-icon.img-icon) {
+  background: #fdf2f8;
+  color: #ec4899;
+}
+
+:global(.plus-menu-icon.mode-icon) {
+  background: #f5f3ff;
+  color: #8b5cf6;
+}
+
+:global(.plus-menu-icon.mode-icon.active) {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+}
+
+:global(.plus-menu-text) {
+  flex: 1;
+  min-width: 0;
+}
+
+:global(.plus-menu-title) {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  line-height: 1.3;
+}
+
+:global(.plus-menu-title-between) {
+  justify-content: space-between;
+}
+
+:global(.plus-menu-desc) {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+:global(.menu-count-badge) {
+  font-size: 10px;
+  background: #e0e7ff;
+  color: #4338ca;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+:global(.mode-state-tag) {
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
 }
 </style>

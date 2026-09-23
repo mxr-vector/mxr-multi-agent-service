@@ -23,6 +23,8 @@ export const STORY_AI_URL = {
   sessionMessages: (sessionId: string) => `/story/sessions/${sessionId}/messages`,
   /** 视频风格注册表枚举 */
   styles: "/story/styles",
+  /** 上传通用图片（多模态对话/参考图） */
+  uploadImage: "/story/upload-image",
   /** SSE 流式剧本生成 */
   generate: (sessionId: string) => `/story/sessions/${sessionId}/generate`,
   /** 停止生成 */
@@ -137,6 +139,8 @@ export interface StoryGeneratePayload {
   aspect_ratio?: string | null;
   episodes?: number | null;
   tone?: string | null;
+  image_file?: string | null;
+  images?: string[];
 }
 
 /** done 帧数据（含角色卡与降级信息） */
@@ -346,17 +350,30 @@ export const storyAiApi = {
     );
   },
 
-  // ---------- 立绘与沉淀 ----------
+  // ---------- 资源上传 ----------
 
-  /** 从角色卡发起内部立绘生成（返回任务记录，前端轮询）；size/quality 按次覆盖，缺省取模型配置 */
-  generateArt(messageId: string, size?: string, quality?: string) {
-    return request.post<StoryGenerationTaskVO, ApiResult<StoryGenerationTaskVO>>(
-      STORY_AI_URL.generateArt(messageId),
-      { size, quality }
+  /** 上传通用图片（供多模态对话或生图参考图使用） */
+  uploadImage(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request.post<{ image_file: string; url: string }, ApiResult<{ image_file: string; url: string }>>(
+      STORY_AI_URL.uploadImage,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
     );
   },
 
-  /** 会话中直接发起立绘生成任务 */
+  // ---------- 立绘与沉淀 ----------
+
+  /** 从角色卡发起内部立绘生成（返回任务记录，前端轮询）；size/quality 按次覆盖，缺省取模型配置，支持参考图 */
+  generateArt(messageId: string, size?: string, quality?: string, reference_images?: string[]) {
+    return request.post<StoryGenerationTaskVO, ApiResult<StoryGenerationTaskVO>>(
+      STORY_AI_URL.generateArt(messageId),
+      { size, quality, reference_images }
+    );
+  },
+
+  /** 会话中直接发起立绘/生图生成任务，支持参考图 */
   generateArtDirect(
     sessionId: string,
     payload: {
@@ -365,6 +382,7 @@ export const storyAiApi = {
       card_message_id?: string;
       size?: string;
       quality?: string;
+      reference_images?: string[];
     }
   ) {
     return request.post<StoryGenerationTaskVO, ApiResult<StoryGenerationTaskVO>>(

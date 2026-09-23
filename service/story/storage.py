@@ -20,6 +20,7 @@ UPLOAD_DIR 经 {BASE_URL}/public/files 无鉴权静态挂载，若仅按角色�
 - 序号文件写入用 O_EXCL 原子创建（write_seq_file），并发/同名不互相覆盖。
 """
 
+import base64
 import os
 import re
 import shutil
@@ -41,8 +42,43 @@ CHARACTER_ART_ROOT = "story/characters"
 # 会话资产（AI 生成立绘预览图）存储根子目录：story/sessions/<session_id>/
 SESSION_ASSET_ROOT = "story/sessions"
 
+# 故事模块用户上传图片根子目录：story/upload/<user_id>/
+STORY_UPLOAD_ROOT = "story/upload"
+
 # 图片扩展名白名单（立绘/关键帧图片/视频封面共用，单处定义防分叉）
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+
+IMAGE_EXTENSION_MIME = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+}
+
+
+def image_to_data_uri(relative_path: str) -> str:
+    """读取 UPLOAD_DIR 下的图片文件并转为 base64 data URI。"""
+    path = resolve_upload_path(relative_path)
+    if not path.is_file():
+        bad_except("图片文件不存在或已被清理")
+    ext = path.suffix.lstrip(".").lower()
+    mime = IMAGE_EXTENSION_MIME.get(ext, "image/png")
+    encoded = base64.b64encode(path.read_bytes()).decode()
+    return f"data:{mime};base64,{encoded}"
+
+
+def save_story_upload(user_id: str, filename: str, data: bytes) -> str:
+    """保存用户上传的图片到 story/upload/<user_id>/ 目录下，返回相对路径。"""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
+    if ext not in IMAGE_EXTENSIONS:
+        bad_except(f"不支持的图片格式: {ext}（仅支持 {', '.join(sorted(IMAGE_EXTENSIONS))}）")
+    from uuid_utils.compat import uuid7
+
+    rel_path = f"{STORY_UPLOAD_ROOT}/{user_id}/{uuid7().hex}.{ext}"
+    target = resolve_upload_path(rel_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return rel_path
 
 
 def sanitize_dir_name(name: str, fallback: str) -> str:

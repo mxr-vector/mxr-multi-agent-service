@@ -12,17 +12,27 @@ from langchain_openai import ChatOpenAI
 from core.config_snapshot import CFG
 
 
-def build_visual_model(temperature: float = 0.2) -> ChatOpenAI:
+def build_visual_model(
+    temperature: float = 0.2,
+    max_tokens: int | None = None,
+    timeout: int | None = None,
+    stream_chunk_timeout: float | None = None,
+) -> ChatOpenAI:
     """按配置快照构造指向多模态端点的 OpenAI 兼容 chat model。
 
-    绘图场景要求输出稳定可解析的 Mermaid 代码块，temperature 默认取低值；
-    超时/重试由 visual 角色自身配置（缺省 60s / 2 次）。
+    绘图与故事多模态场景通过本工厂获取支持 vision 输入的模型实例；
+    超时/重试由 visual 角色自身配置或调用方显式覆盖。
     """
+    extra: dict = {}
+    if stream_chunk_timeout is not None:
+        extra["stream_chunk_timeout"] = stream_chunk_timeout
     return ChatOpenAI(
         model=CFG.visual.model_name,
         base_url=CFG.visual.api_url,
         api_key=CFG.visual.api_key,
         temperature=temperature,
-        timeout=CFG.visual.timeout,
+        max_tokens=max_tokens or CFG.chat_max_output_tokens,
+        timeout=timeout or CFG.visual.timeout,
         max_retries=CFG.visual.max_retries,
+        **extra,
     )

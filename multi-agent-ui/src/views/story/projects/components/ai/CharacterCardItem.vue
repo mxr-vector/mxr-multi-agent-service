@@ -5,8 +5,10 @@
  */
 import { computed, onBeforeUnmount, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { Loading, Picture } from "@element-plus/icons-vue";
 import {
   storyAiApi,
+  storyFileUrl,
   type StoryCharacterCard,
   type StoryGenerationTaskVO,
   type StoryMessageVO,
@@ -138,6 +140,34 @@ const artSpecVisible = ref(false);
 const artSpecSaving = ref(false);
 const artSize = ref("");
 const artQuality = ref("");
+const refImageFile = ref<string | null>(null);
+const refImageUrl = ref<string | null>(null);
+const uploadingRefImage = ref(false);
+
+async function handleRefImageUpload(rawFile: File) {
+  if (!rawFile.type.startsWith("image/")) {
+    ElMessage.error("请上传图片文件");
+    return false;
+  }
+  if (rawFile.size > 15 * 1024 * 1024) {
+    ElMessage.error("图片大小不能超过 15MB");
+    return false;
+  }
+  uploadingRefImage.value = true;
+  try {
+    const res = await storyAiApi.uploadImage(rawFile);
+    if (res.data) {
+      refImageFile.value = res.data.image_file;
+      refImageUrl.value = res.data.url;
+      ElMessage.success("参考图上传成功");
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || "参考图上传失败");
+  } finally {
+    uploadingRefImage.value = false;
+  }
+  return false;
+}
 
 function openArtSpec() {
   if (!card.value) return;
@@ -151,6 +181,8 @@ function openArtSpec() {
   );
   artSize.value = opt169 ? opt169.value : "1536x1024";
   artQuality.value = "";
+  refImageFile.value = null;
+  refImageUrl.value = null;
   artSpecVisible.value = true;
 }
 
@@ -160,7 +192,8 @@ async function confirmGenerateArt() {
     const res = await storyAiApi.generateArt(
       props.message.id,
       artSize.value || undefined,
-      artQuality.value || undefined
+      artQuality.value || undefined,
+      refImageFile.value ? [refImageFile.value] : undefined
     );
     artTask.value = res.data;
     pollAttempts = 0;
@@ -365,7 +398,7 @@ const roleTypeOptions = computed(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="artSpecVisible" title="生成立绘" width="360px" append-to-body destroy-on-close>
+    <el-dialog v-model="artSpecVisible" title="生成立绘" width="380px" append-to-body destroy-on-close>
       <el-form label-width="72px">
         <el-form-item label="尺寸">
           <el-select v-model="artSize" clearable placeholder="跟随模型配置" style="width: 100%">
@@ -386,6 +419,39 @@ const roleTypeOptions = computed(() => {
               :label="item.label"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="参考图">
+          <div class="ref-upload-wrapper">
+            <el-upload
+              :show-file-list="false"
+              :before-upload="handleRefImageUpload"
+              accept="image/*"
+              class="ref-uploader"
+            >
+              <div v-if="refImageFile" class="ref-preview-card">
+                <el-image
+                  :src="storyFileUrl(refImageFile)"
+                  fit="cover"
+                  class="ref-preview-img"
+                  preview-teleported
+                />
+                <div class="ref-replace-hint">点击更换</div>
+              </div>
+              <div v-else class="ref-upload-box">
+                <el-icon :class="{ 'is-loading': uploadingRefImage }">
+                  <Picture v-if="!uploadingRefImage" />
+                  <Loading v-else />
+                </el-icon>
+                <span class="ref-upload-text">{{ uploadingRefImage ? '上传中...' : '上传形象参考图' }}</span>
+              </div>
+            </el-upload>
+            <div v-if="refImageFile" class="ref-clear-box">
+              <el-button type="danger" link size="small" @click.stop="refImageFile = null; refImageUrl = null">
+                移除参考图
+              </el-button>
+            </div>
+            <div class="ref-field-tip">上传人物形象、发型或姿势参考图，根据参考图生成立绘</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -431,5 +497,72 @@ const roleTypeOptions = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
+}
+
+/* 参考图上传区样式 */
+.ref-upload-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.ref-uploader {
+  width: 100%;
+}
+.ref-upload-box {
+  width: 100%;
+  height: 72px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ref-upload-box:hover {
+  border-color: #6366f1;
+  color: #4f46e5;
+  background: #eef2ff;
+}
+.ref-upload-text {
+  font-size: 12px;
+}
+.ref-preview-card {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+}
+.ref-preview-img {
+  width: 100%;
+  height: 100%;
+}
+.ref-replace-hint {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 11px;
+  text-align: center;
+  padding: 3px 0;
+}
+.ref-clear-box {
+  display: flex;
+  justify-content: flex-end;
+}
+.ref-field-tip {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
 }
 </style>

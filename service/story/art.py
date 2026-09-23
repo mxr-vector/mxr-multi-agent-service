@@ -68,6 +68,7 @@ class ArtGenerationService:
         message_id: uuid.UUID,
         size: str | None = None,
         quality: str | None = None,
+        reference_images: list[str] | None = None,
     ) -> dict:
         """从角色卡消息发起立绘生成，返回生成任务记录（前端轮询详情）。"""
         if not ctx.user_id:
@@ -109,6 +110,7 @@ class ArtGenerationService:
                         "card_name": card_name,
                         "size": size,
                         "quality": quality,
+                        "reference_images": reference_images or [],
                         "source": "ai",
                     },
                 )
@@ -128,6 +130,7 @@ class ArtGenerationService:
                         "card": card,
                         "size": size,
                         "quality": quality,
+                        "reference_images": reference_images or [],
                     },
                 )
                 art_msg = await message_repo.get(art_msg_id)
@@ -160,6 +163,7 @@ class ArtGenerationService:
                 prompt=prompt,
                 size=size,
                 quality=quality,
+                reference_images=reference_images,
             )
         )
         register_generation(session_hex, run_task)
@@ -174,6 +178,7 @@ class ArtGenerationService:
         card_message_id: uuid.UUID | None = None,
         size: str | None = None,
         quality: str | None = None,
+        reference_images: list[str] | None = None,
     ) -> dict:
         """直接在会话中根据提示词发起人物立绘生成任务。"""
         if not ctx.user_id:
@@ -182,6 +187,7 @@ class ArtGenerationService:
         if not prompt:
             bad_except("出图提示词不能为空")
         raw_name = (name or "").strip()
+        card_name = raw_name or "图片"
         display_name = raw_name or "图像"
         session_hex = session_id.hex
 
@@ -199,6 +205,7 @@ class ArtGenerationService:
                     if raw_name
                     else f"创建图片\n提示词：{prompt}"
                 )
+                user_img = reference_images[0] if reference_images else None
                 await message_repo.create(
                     message_id=uuid7(),
                     session_id=session_id,
@@ -206,23 +213,25 @@ class ArtGenerationService:
                     sequence=user_seq,
                     kind=StoryMessageKind.GENERAL.value,
                     content=user_content,
+                    image_file=user_img,
                     prompt=prompt,
                     params={
                         "type": "create_art",
                         "size": size,
                         "quality": quality,
-                        "card_name": raw_name or "图片",
+                        "card_name": card_name,
+                        "reference_images": reference_images or [],
                     },
                 )
                 # 预创建一条 generating 状态的 art 消息，使会话流中立即展示图片卡片
                 art_msg_id = uuid7()
                 art_seq = await message_repo.next_sequence(session_id)
                 art_content = (
-                    raw_name
+                    card_name
                     if (
-                        raw_name.startswith("立绘")
-                        or raw_name.startswith("关键帧")
-                        or raw_name.startswith("图片")
+                        card_name.startswith("立绘")
+                        or card_name.startswith("关键帧")
+                        or card_name.startswith("图片")
                     )
                     else f"图片：{display_name}"
                 )
@@ -237,9 +246,10 @@ class ArtGenerationService:
                     prompt=prompt,
                     params={
                         "card_message_id": card_message_id.hex if card_message_id else None,
-                        "card_name": raw_name or "图片",
+                        "card_name": card_name,
                         "size": size,
                         "quality": quality,
+                        "reference_images": reference_images or [],
                         "source": "ai",
                     },
                 )
@@ -259,6 +269,7 @@ class ArtGenerationService:
                         "card_name": card_name,
                         "size": size,
                         "quality": quality,
+                        "reference_images": reference_images or [],
                     },
                 )
                 art_msg = await message_repo.get(art_msg_id)
@@ -291,6 +302,7 @@ class ArtGenerationService:
                 prompt=prompt,
                 size=size,
                 quality=quality,
+                reference_images=reference_images,
             )
         )
         register_generation(session_hex, run_task)
@@ -338,6 +350,7 @@ class ArtGenerationService:
         prompt: str,
         size: str | None,
         quality: str | None,
+        reference_images: list[str] | None = None,
     ) -> None:
         """后台生成协程：生图 → 落盘 → art 消息回填 → 任务终态。"""
 
@@ -357,9 +370,14 @@ class ArtGenerationService:
                 }
             )
             # 同步 SDK 经线程池执行（对齐项目"同步 IO 包 to_thread"约定）；
-            # size/quality 传 None 时工厂回落 image 角色配置，调用方仅按需覆盖
+            # size/quality 传 None 时工厂回落 image 角色配置，调用方仅按需覆盖；
+            # reference_images 支持基于参考图生成形象
             contents = await asyncio.to_thread(
-                generate_image, prompt, size, quality=quality
+                generate_image,
+                prompt,
+                size,
+                quality=quality,
+                reference_images=reference_images,
             )
             if not contents or not contents[0]:
                 raise RuntimeError("图像模型返回空结果")

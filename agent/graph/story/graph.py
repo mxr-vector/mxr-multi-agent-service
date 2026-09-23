@@ -44,6 +44,8 @@ from agent.tools.story_skill_tools import SKILL_READ_TOOL_NAME, build_skill_read
 from core.config_snapshot import CFG
 from exception.bad_except import bad_except
 from model.chat.factory import build_chat_model
+from model.visual.factory import build_visual_model
+from service.story.storage import image_to_data_uri
 from utils.logger import logger
 from utils.token_count import count_messages_tokens, count_tokens
 
@@ -90,13 +92,43 @@ def _trim_history_lines(lines: list[str], budget: int, model_name: str) -> str:
     return "\n".join(reversed(kept))
 
 
-def _input_budget() -> int:
+def _build_story_model(
+    max_tokens: int = _STORY_MAX_OUTPUT_TOKENS,
+    timeout: int = _STORY_STALL_TIMEOUT,
+    stream_chunk_timeout: float = float(_STORY_STALL_TIMEOUT),
+    temperature: float = 0.7,
+):
+    """故事对话模型：默认采用多模态模型（基于 OpenAI 兼容接口）。
+
+    优先使用配置快照中的 visual 多模态模型角色（支持文本与图片多模态输入）；
+    若 visual 角色未定义或缺少配置，平滑回退至 chat 对话模型角色。
+    """
+    try:
+        if hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name:
+            return build_visual_model(
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                stream_chunk_timeout=stream_chunk_timeout,
+            )
+    except Exception as exc:
+        logger.warning(f"[STORY] 加载 visual 多模态模型失败，回退至 chat 模型: {exc}")
+
+    return build_chat_model(
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        stream_chunk_timeout=stream_chunk_timeout,
+    )
+
+
+def _input_budget(context_window: int | None = None) -> int:
     """输入预算 = context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。"""
-    context_window = CFG.chat.context_window
+    window = context_window or getattr(CFG.chat, "context_window", 200000)
     return (
-        context_window
+        window
         - CFG.chat_max_output_tokens
-        - int(context_window * _INPUT_BUDGET_SAFETY_MARGIN)
+        - int(window * _INPUT_BUDGET_SAFETY_MARGIN)
     )
 
 
@@ -184,15 +216,16 @@ async def _run_skill_read(skill_dir: str, tool_call: dict) -> str:
         return f"文件读取失败：{path}。"
 
 
-class StoryState(TypedDict):
+class StoryState(TypedDict, total=False):
     """创作图状态：输入字段每轮由服务层覆盖，输出为创作结果与技能审计。"""
 
     # 输入：创作需求 / 风格键（图内经 get_style 解析技能包）/ 制作参数快照 /
-    # 历史消息行（服务层自业务表读取并做单条截断）
+    # 历史消息行（服务层自业务表读取并做单条截断）/ 多模态图片列表
     idea: str
     style_key: str
     params_snapshot: dict
     history_lines: list[str]
+    images: list[str]
     # 输出：流式累积的模型全文 + 技能调用审计
     answer: str
     skill_audit: dict
@@ -244,7 +277,13 @@ class StoryGraph:
         idea = state["idea"]
         params_snapshot = state.get("params_snapshot") or {}
         history_lines = state.get("history_lines") or []
-        model_name = CFG.chat.model_name
+        images = state.get("images") or []
+        model_role = (
+            CFG.visual
+            if (hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name)
+            else CFG.chat
+        )
+        model_name = model_role.model_name
         answer_parts: list[str] = []
         # 技能调用审计：custom 事件增量外发（失败路径服务层也能拿到已读清单）
         skill_audit = {"tool_rounds": 0, "files_read": [], "skipped_skill_read": False}
@@ -268,12 +307,33 @@ class StoryGraph:
                 }
             )
 
+        # 解析多模态图片
+        image_uris: list[str] = []
+        for img in images:
+            if not img:
+                continue
+            try:
+                if img.startswith(("data:", "http://", "https://")):
+                    image_uris.append(img)
+                else:
+                    image_uris.append(image_to_data_uri(img))
+            except Exception as exc:
+                logger.warning(f"[STORY] 图片转 data URI 失败 {img}: {exc}")
+
+        image_hint = ""
+        if image_uris:
+            image_hint = (
+                "\n\n=== 参考图片 ===\n"
+                "用户上传了参考图片，请结合你的多模态视觉理解能力深入分析参考图片中的角色长相、身材体态、发型发色、"
+                "妆容服饰与场景细节，在创作剧本故事与提取角色卡时充分体现参考图中的形象特征，确保角色设定与参考图高度一致。"
+            )
+
         # 系统提示装配：技能文件清单 + 参数 + 历史（按输入预算裁剪）
         params_hint = "\n".join(
             f"- {key}: {value}" for key, value in params_snapshot.items() if value
         )
         skill_hint = readable_file_hint(style)
-        budget = _input_budget()
+        budget = _input_budget(model_role.context_window)
         fixed_cost = count_tokens(
             model_name,
             SCRIPT_SYSTEM_PROMPT.format(
@@ -287,22 +347,30 @@ class StoryGraph:
         history_block = _trim_history_lines(
             history_lines, budget - fixed_cost, model_name
         ) or (HISTORY_EMPTY if not history_lines else "")
-        system_prompt = SCRIPT_SYSTEM_PROMPT.format(
-            style_name=style.name,
-            skill_files_hint=skill_hint,
-            params_hint=params_hint,
-            history_block=history_block or HISTORY_EMPTY,
-            idea_block=idea,
+        system_prompt = (
+            SCRIPT_SYSTEM_PROMPT.format(
+                style_name=style.name,
+                skill_files_hint=skill_hint,
+                params_hint=params_hint,
+                history_block=history_block or HISTORY_EMPTY,
+                idea_block=idea,
+            )
+            + image_hint
         )
+        if image_uris:
+            user_content: list[dict] = [{"type": "text", "text": idea}]
+            for uri in image_uris:
+                user_content.append({"type": "image_url", "image_url": {"url": uri}})
+            user_message = HumanMessage(content=user_content)
+        else:
+            user_message = HumanMessage(content=idea)
+
         messages: list = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=idea),
+            user_message,
         ]
-        model = build_chat_model(
-            max_tokens=_STORY_MAX_OUTPUT_TOKENS,
-            timeout=_STORY_STALL_TIMEOUT,
-            stream_chunk_timeout=float(_STORY_STALL_TIMEOUT),
-        ).bind_tools([build_skill_read_tool(style.skill_dir)])
+        # 对话模型默认采用多模态模型（基于 OpenAI 兼容接口）
+        model = _build_story_model().bind_tools([build_skill_read_tool(style.skill_dir)])
 
         read_count = 0
         corrections = 0
@@ -391,11 +459,7 @@ class StoryGraph:
                 )
                 _ensure_within_budget(messages, budget, model_name)
                 _resp2, pending2, _fwd2, _ts2 = await _stream_round(
-                    build_chat_model(
-                        max_tokens=_STORY_MAX_OUTPUT_TOKENS,
-                        timeout=_STORY_STALL_TIMEOUT,
-                        stream_chunk_timeout=float(_STORY_STALL_TIMEOUT),
-                    ),
+                    _build_story_model(),
                     messages,
                     allow_forward=True,
                     on_answer=_emit_answer,

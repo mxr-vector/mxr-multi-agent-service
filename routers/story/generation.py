@@ -5,15 +5,20 @@ SSE 帧为标准三字段（id/event/data），事件 think/answer/done/error；
 帧构造与生成编排收口在 service.story.generation，本层只做请求解析与响应封装。
 """
 
+import asyncio
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, Path, Query
+from fastapi import APIRouter, Body, Depends, File, Path, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from exception.bad_except import bad_except
 from service.story.generation import StoryGenerationService
 from service.story.session import StorySessionService
+from service.story.storage import IMAGE_EXTENSIONS, save_story_upload
+from utils.env import ENV
+from utils.file_ingest import read_upload_capped
 from utils.response import R
 from utils.user_context import UserContext, get_user_context
 
@@ -28,7 +33,8 @@ class ScriptGenerateRequest(BaseModel):
 
     - style_key 须为风格注册表已注册风格（未注册拒绝且不发起模型调用）；
     - aspect_ratio 缺省取该风格首选画幅；传值不在该风格预设内时拒绝；
-    - episodes/tone 可选，随制作参数快照落库并回写项目。
+    - episodes/tone 可选，随制作参数快照落库并回写项目；
+    - image_file/images 可选，上传给多模态大模型的参考图片相对路径。
     """
 
     # idea 不参与历史裁剪（idea_block 恒全量发送），限制合理长度上限防超长输入
@@ -38,6 +44,35 @@ class ScriptGenerateRequest(BaseModel):
     aspect_ratio: Optional[str] = None
     episodes: Optional[int] = Field(default=None, ge=1, le=100)
     tone: Optional[str] = None
+    image_file: Optional[str] = Field(default=None, description="主图片相对路径")
+    images: Optional[list[str]] = Field(default=None, description="多模态输入图片相对路径列表")
+
+
+@router.post("/upload-image")
+async def upload_story_image(
+    file: UploadFile = File(..., description="上传图片（支持 png/jpg/jpeg/webp）"),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """故事模块通用图片上传：供大模型多模态对话或生图参考图使用。"""
+    ext = (
+        file.filename.rsplit(".", 1)[-1].lower()
+        if file.filename and "." in file.filename
+        else ""
+    )
+    if ext not in IMAGE_EXTENSIONS:
+        bad_except(
+            f"不支持的图片类型: {file.filename or '(无扩展名)'}（仅支持 {', '.join(sorted(IMAGE_EXTENSIONS))}）"
+        )
+    data = await read_upload_capped(file, ENV.upload_max_size_mb * 1024 * 1024)
+    relative = await asyncio.to_thread(
+        save_story_upload, ctx.user_id or "common", file.filename or f"upload.{ext}", data
+    )
+    return R.success(
+        data={
+            "image_file": relative,
+            "url": f"{ENV.base_url}/public/files/{relative}",
+        }
+    )
 
 
 @router.get("/styles")
@@ -65,6 +100,8 @@ async def generate_script(
         aspect_ratio=payload.aspect_ratio,
         episodes=payload.episodes,
         tone=payload.tone,
+        image_file=payload.image_file,
+        images=payload.images,
     )
     return StreamingResponse(
         frames,

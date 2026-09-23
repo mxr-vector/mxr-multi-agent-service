@@ -27,6 +27,7 @@ class ArtGenerateRequest(BaseModel):
 
     size: Optional[str] = None
     quality: Optional[str] = None
+    reference_images: Optional[list[str]] = Field(default=None, description="参考图相对路径或URL列表")
 
 
 class DirectArtGenerateRequest(BaseModel):
@@ -37,6 +38,7 @@ class DirectArtGenerateRequest(BaseModel):
     card_message_id: Optional[uuid.UUID] = Field(default=None, description="可选关联的角色卡消息 ID")
     size: Optional[str] = None
     quality: Optional[str] = None
+    reference_images: Optional[list[str]] = Field(default=None, description="参考图相对路径或URL列表")
 
 
 class CardEditRequest(BaseModel):
@@ -88,7 +90,11 @@ async def generate_art(
     """从角色卡发起内部立绘生成：返回生成任务记录（前端轮询任务详情）。"""
     return R.success(
         data=await _art_service.start(
-            ctx, message_id=message_id, size=payload.size, quality=payload.quality
+            ctx,
+            message_id=message_id,
+            size=payload.size,
+            quality=payload.quality,
+            reference_images=payload.reference_images,
         )
     )
 
@@ -109,6 +115,7 @@ async def generate_session_art(
             card_message_id=payload.card_message_id,
             size=payload.size,
             quality=payload.quality,
+            reference_images=payload.reference_images,
         )
     )
 

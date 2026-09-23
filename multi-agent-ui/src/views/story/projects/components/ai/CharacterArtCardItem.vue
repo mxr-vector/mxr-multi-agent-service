@@ -67,6 +67,15 @@ const promptText = computed(() => {
   return props.message.prompt || "";
 });
 
+/** 参考图列表读取 */
+const referenceImages = computed<string[]>(() => {
+  const refs = params.value.reference_images;
+  if (Array.isArray(refs)) {
+    return refs.filter((r) => typeof r === "string" && r);
+  }
+  return [];
+});
+
 // —— 轮询生成中任务 ——
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let disposed = false;
@@ -201,6 +210,7 @@ async function handleRetry() {
       card_message_id: cardMsgId,
       size: (params.value.size as string) || undefined,
       quality: (params.value.quality as string) || undefined,
+      reference_images: referenceImages.value.length ? referenceImages.value : undefined,
     });
     ElMessage.success("已发起重新生成图片任务");
     emit("changed");
@@ -285,7 +295,23 @@ async function handleRetry() {
         />
       </div>
 
-      <!-- 4. 提示词区域 -->
+      <!-- 4. 参考图展示区域 -->
+      <div v-if="referenceImages.length > 0" class="ref-images-box">
+        <div class="ref-images-label">参考图（用于引导模型出图）：</div>
+        <div class="ref-images-list">
+          <el-image
+            v-for="(refImg, idx) in referenceImages"
+            :key="idx"
+            :src="storyFileUrl(refImg)"
+            :preview-src-list="referenceImages.map(storyFileUrl)"
+            fit="cover"
+            class="ref-thumbnail-img"
+            preview-teleported
+          />
+        </div>
+      </div>
+
+      <!-- 5. 提示词区域 -->
       <div v-if="promptText" class="prompt-box">
         <div class="prompt-label">出图提示词：</div>
         <div class="prompt-content">{{ promptText }}</div>
@@ -450,6 +476,30 @@ async function handleRetry() {
 .failed-box {
   border-radius: 8px;
   overflow: hidden;
+}
+.ref-images-box {
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.ref-images-label {
+  font-size: 11px;
+  color: #9aa4b2;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.ref-images-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ref-thumbnail-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
 }
 .prompt-box {
   background: #f8fafc;

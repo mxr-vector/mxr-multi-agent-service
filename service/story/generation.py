@@ -77,11 +77,14 @@ class StoryGenerationService:
         aspect_ratio: str | None = None,
         episodes: int | None = None,
         tone: str | None = None,
+        image_file: str | None = None,
+        images: list[str] | None = None,
     ):
         """发起一轮流式剧本生成，返回 SSE 帧异步生成器。
 
         进入流之前完成：风格解析（未注册拒绝）、会话属主校验、会话级与
         项目级互斥、生成任务落库、user 消息 + assistant 占位落库。
+        支持上传图片给多模态大模型进行视觉解析。
         """
         if not ctx.user_id:
             bad_except("剧本生成仅支持用户通道调用")
@@ -94,12 +97,17 @@ class StoryGenerationService:
                 f"画幅 {aspect_ratio} 不属于风格 {style.key}"
                 f"（可选：{'/'.join(style.aspect_ratios)}）"
             )
+        all_images = list(images) if images else ([image_file] if image_file else [])
+        primary_image = all_images[0] if all_images else None
+
         params_snapshot = {
             "style_key": style.key,
             "style_name": style.name,
             "aspect_ratio": aspect_ratio or style.aspect_ratios[0],
             "episodes": episodes,
             "tone": tone,
+            "image_file": primary_image,
+            "images": all_images,
         }
         session_hex = session_id.hex
         # 会话级互斥（内存注册表）：先原子占位，防"校验→注册"间 await 窗口
@@ -123,6 +131,12 @@ class StoryGenerationService:
                     if row.content
                 ]
                 now = datetime.now(timezone.utc)
+                # 对话模型默认优先采用多模态模型角色
+                model_name = (
+                    CFG.visual.model_name
+                    if (hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name)
+                    else CFG.chat.model_name
+                )
                 gen_task = await task_repo.create(
                     task_id=uuid7(),
                     project_id=project.id,
@@ -131,7 +145,7 @@ class StoryGenerationService:
                     prompt=idea,
                     params=params_snapshot,
                     provider="chat",
-                    model=CFG.chat.model_name,
+                    model=model_name,
                 )
                 user_seq = await message_repo.next_sequence(session_id)
                 await message_repo.create(
@@ -140,6 +154,7 @@ class StoryGenerationService:
                     role=ChatRole.USER.value,
                     sequence=user_seq,
                     content=idea,
+                    image_file=primary_image,
                     params=params_snapshot,
                 )
                 assistant_message = await message_repo.create(
@@ -167,6 +182,7 @@ class StoryGenerationService:
                     style_key=style.key,
                     params_snapshot=params_snapshot,
                     history_lines=history_lines,
+                    images=all_images,
                 )
             )
             register_generation(session_hex, task)
@@ -199,6 +215,7 @@ class StoryGenerationService:
         style_key: str,
         params_snapshot: dict,
         history_lines: list[str],
+        images: list[str] | None = None,
     ) -> None:
         """图执行协程：astream 事件映射为 SSE 帧入队，终态落库并发收尾帧。"""
         # 局部导入：避免 service 层与 agent 图在模块加载期耦合（对齐 chat）
@@ -259,6 +276,7 @@ class StoryGenerationService:
                 "style_key": style_key,
                 "params_snapshot": params_snapshot,
                 "history_lines": history_lines,
+                "images": images or [],
             }
             config = {"configurable": {"session_id": session_hex}}
             async for mode, payload in graph.astream(

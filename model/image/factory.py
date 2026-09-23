@@ -18,11 +18,14 @@ output_compression 固定 80（上游默认通常为 100 即几乎不压缩；st
 关键帧与角色立绘，体积敏感，80 在肉眼几乎无损的前提下明显省体积）。
 """
 
+import base64
 from functools import cache
 
+import httpx
 from openai import OpenAI
 
 from core.config_snapshot import CFG
+from utils.logger import logger
 
 # 生图规格缺省值（extra 未配置或键缺失时回落，与前端字典 is_default 项一致）
 DEFAULT_SIZE = "1024x1024"
@@ -72,27 +75,99 @@ def _spec(extra: dict, key: str, override: str | None, default: str) -> str:
     return default
 
 
+def _load_image_file_tuple(img_ref: str | bytes) -> tuple[str, bytes, str]:
+    """把参考图（相对路径/URL/base64/bytes）转为 (文件名, 二进制, mime)。"""
+    if isinstance(img_ref, bytes):
+        return ("reference.png", img_ref, "image/png")
+    text = str(img_ref).strip()
+    if text.startswith("data:image/"):
+        header, b64_data = text.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "").strip()
+        ext = mime.split("/")[-1] if "/" in mime else "png"
+        return (f"reference.{ext}", base64.b64decode(b64_data), mime)
+    if text.startswith(("http://", "https://")):
+        resp = httpx.get(text, timeout=60.0, follow_redirects=True)
+        resp.raise_for_status()
+        ext = text.split("?")[0].rsplit(".", 1)[-1].lower()
+        mime = f"image/{ext}" if ext in ("png", "jpg", "jpeg", "webp") else "image/png"
+        return (f"reference.{ext}", resp.content, mime)
+    from service.story.storage import resolve_upload_path
+
+    path = resolve_upload_path(text)
+    ext = path.suffix.lstrip(".").lower()
+    mime = f"image/{ext}" if ext in ("png", "jpg", "jpeg", "webp") else "image/png"
+    return (path.name, path.read_bytes(), mime)
+
+
 def generate_image(
     prompt: str,
     size: str | None = None,
     n: int = 1,
     quality: str | None = None,
+    reference_images: list[str | bytes] | None = None,
 ) -> list[str]:
-    """调用 images/generations 生成图像，返回图片内容列表（base64 或 URL）。
+    """调用 OpenAI 兼容图像生成端点，返回图片内容列表（base64 或 URL）。
 
-    model 取配置快照 CFG.image.model_name，output_format/output_compression 为写死
-    常量（三者调用方均不传）；size/quality 为 None 时取 CFG.image.extra 的配置值，
-    extra 亦缺失则回落本模块缺省（1024x1024 / auto）——调用方仅在需要偏离全局
-    配置时显式传参（如关键帧按分镜比例出横版图）。
-    调用方自行决定图片内容的落盘/透传方式（b64_json 解码或 url 直链）。
+    - 未传参考图：调用 images.generate 标准端点出图；
+    - 传入参考图：优先基于 OpenAI images.edit 端点进行参考图生图，上游未实现时
+      自动降级使用 images.generate 携带 extra_body 兼容字段。
     """
     extra = CFG.image.extra or {}
-    resp = build_image_client().images.generate(
+    client = build_image_client()
+    target_size = _spec(extra, "size", size, DEFAULT_SIZE)
+    target_quality = _spec(extra, "quality", quality, DEFAULT_QUALITY)
+
+    if reference_images:
+        loaded_files = [_load_image_file_tuple(ref) for ref in reference_images if ref]
+        if loaded_files:
+            enhanced_prompt = prompt
+            if "参考图" not in prompt and "reference" not in prompt.lower():
+                enhanced_prompt = f"根据参考图生成形象，严格保持参考图中的人物特征、五官发型与造型设计。{prompt}"
+
+            primary_file = (loaded_files[0][0], loaded_files[0][1], loaded_files[0][2])
+            try:
+                resp = client.images.edit(
+                    model=CFG.image.model_name,
+                    image=primary_file,
+                    prompt=enhanced_prompt,
+                    n=n,
+                    size=target_size,
+                    quality=target_quality,
+                    output_format=OUTPUT_FORMAT,
+                    output_compression=OUTPUT_COMPRESSION,
+                )
+                return [item.b64_json or item.url or "" for item in resp.data]
+            except Exception as exc:
+                logger.warning(
+                    f"[IMAGE] images.edit 调用失败 ({exc})，尝试兼容模式 images.generate + extra_body"
+                )
+                b64_list = [
+                    f"data:{f[2]};base64,{base64.b64encode(f[1]).decode()}"
+                    for f in loaded_files
+                ]
+                resp = client.images.generate(
+                    model=CFG.image.model_name,
+                    prompt=enhanced_prompt,
+                    n=n,
+                    size=target_size,
+                    quality=target_quality,
+                    output_format=OUTPUT_FORMAT,
+                    output_compression=OUTPUT_COMPRESSION,
+                    extra_body={
+                        "image": b64_list[0],
+                        "images": b64_list,
+                        "image_url": b64_list[0],
+                        "reference_images": b64_list,
+                    },
+                )
+                return [item.b64_json or item.url or "" for item in resp.data]
+
+    resp = client.images.generate(
         model=CFG.image.model_name,
         prompt=prompt,
         n=n,
-        size=_spec(extra, "size", size, DEFAULT_SIZE),
-        quality=_spec(extra, "quality", quality, DEFAULT_QUALITY),
+        size=target_size,
+        quality=target_quality,
         output_format=OUTPUT_FORMAT,
         output_compression=OUTPUT_COMPRESSION,
     )
