@@ -70,9 +70,11 @@ class ExportService:
                 if character is None:
                     continue
                 arts = cast_arts.get(character.id, [])
-                chosen = [art for art in arts if art.id in selected_art_ids] or [
-                    art for art in arts if art.is_primary
-                ]
+                chosen = (
+                    [art for art in arts if art.id in selected_art_ids]
+                    or [art for art in arts if art.art_type == "character_sheet"]
+                    or [art for art in arts if art.is_primary]
+                )
                 data = character.to_dict()
                 data["sort_order"] = row.sort_order
                 data["arts"] = [art.to_dict() for art in chosen]

@@ -2,7 +2,7 @@
 /**
  * 角色详情/编辑/新建对话框：
  * 基础信息编辑 + 立绘管理（上传/设为主立绘/删除）+ 出演项目提示。
- * 支持新建与编辑共用同一个完整对话框，立绘类型默认支持单图包含「半身正面+三视图」。
+ * 支持新建与编辑共用同一个完整对话框，立绘类型默认支持单图包含「主视图+三视图」。
  */
 import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
@@ -58,11 +58,9 @@ const roleOptions = computed(() => {
   return ROLE_TYPE_OPTIONS;
 });
 
-// 立绘类型：默认单图包含半身正面与三视图；亦兼容分立的三视图与正面半身特写
+// 立绘类型：默认单图包含主视图+三视图；保留已有立绘类型的 label 回显
 const ART_TYPE_OPTIONS: { value: StoryArtType; label: string }[] = [
-  { value: "character_sheet", label: "半身正面+三视图" },
-  { value: "turnaround", label: "三视图" },
-  { value: "front_bust", label: "正面半身特写" },
+  { value: "character_sheet", label: "主视图+三视图" },
   { value: "full_body", label: "全身" },
   { value: "half_body", label: "半身" },
   { value: "face", label: "面部特写" },
@@ -70,9 +68,11 @@ const ART_TYPE_OPTIONS: { value: StoryArtType; label: string }[] = [
   { value: "reference", label: "参考图" },
   { value: "other", label: "其他" },
 ];
-const ART_TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  ART_TYPE_OPTIONS.map((item) => [item.value, item.label])
-);
+const ART_TYPE_LABEL: Record<string, string> = {
+  turnaround: "三视图",
+  front_bust: "主视图",
+  ...Object.fromEntries(ART_TYPE_OPTIONS.map((item) => [item.value, item.label])),
+};
 
 const loading = ref(false);
 const saving = ref(false);
@@ -114,6 +114,7 @@ watch(
     if (!visible) return;
     currentId.value = props.characterId;
     detail.value = null;
+    uploadArtType.value = "character_sheet";
     formRef.value?.clearValidate();
     if (props.characterId) {
       await loadDetail(props.characterId);
@@ -346,22 +347,17 @@ async function handleDeleteArt(artId: string) {
           <template v-if="!isCreate">
             <div class="required-arts">
               <template v-if="hasCharacterSheet">
-                <el-tag size="small" type="success">半身正面+三视图 已具备</el-tag>
+                <el-tag size="small" type="success">主视图+三视图 已具备</el-tag>
               </template>
               <template v-else-if="hasTurnaround && hasFrontBust">
                 <el-tag size="small" type="success">三视图 已具备</el-tag>
-                <el-tag size="small" type="success">正面半身特写 已具备</el-tag>
+                <el-tag size="small" type="success">主视图 已具备</el-tag>
               </template>
               <template v-else>
-                <el-tag size="small" :type="hasTurnaround ? 'success' : 'warning'">
-                  三视图 {{ hasTurnaround ? "已具备" : "缺失" }}
-                </el-tag>
-                <el-tag size="small" :type="hasFrontBust ? 'success' : 'warning'">
-                  正面半身特写 {{ hasFrontBust ? "已具备" : "缺失" }}
-                </el-tag>
+                <el-tag size="small" type="warning">主视图+三视图 缺失</el-tag>
               </template>
               <span v-if="!hasCompleteArt" class="required-hint">
-                建议上传一张包含【半身正面+三视图】的设定图
+                建议上传一张包含【主视图+三视图】的设定图
               </span>
             </div>
 

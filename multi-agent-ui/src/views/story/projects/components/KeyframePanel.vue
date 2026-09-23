@@ -261,6 +261,26 @@ const castOptions = ref<CastOption[]>([]);
 // 版本令牌：弹窗快速切换关键帧时，作废在途加载，防止把 A 帧数据写进 B 帧
 let castDialogToken = 0;
 
+const ART_TYPE_LABEL: Record<string, string> = {
+  character_sheet: "主视图+三视图",
+  turnaround: "三视图",
+  front_bust: "主视图",
+  full_body: "全身",
+  half_body: "半身",
+  face: "面部特写",
+  action: "动作",
+  reference: "参考图",
+  other: "其他",
+};
+
+function formatArtLabel(art: StoryCharacterArtVO): string {
+  const typeLabel = ART_TYPE_LABEL[art.art_type] || "";
+  if (art.name && typeLabel && art.name !== typeLabel) {
+    return `${art.name}（${typeLabel}）`;
+  }
+  return art.name || typeLabel || "立绘";
+}
+
 async function openCastDialog(keyframe: StoryKeyframeVO) {
   const token = ++castDialogToken;
   castTarget.value = keyframe;
@@ -273,6 +293,9 @@ async function openCastDialog(keyframe: StoryKeyframeVO) {
   for (const casting of res.data ?? []) {
     const hit = existing.get(casting.id);
     const arts: StoryCharacterArtVO[] = casting.arts ?? [];
+    const defaultArt = arts.find((a) => a.art_type === "character_sheet") || arts[0];
+    const initialArtId =
+      hit !== undefined ? (hit.character_art_id ?? "") : (defaultArt?.id ?? "");
     options.push({
       character_id: casting.id,
       name: casting.name,
@@ -280,7 +303,7 @@ async function openCastDialog(keyframe: StoryKeyframeVO) {
       role: hit?.role ?? "main",
       character_prompt: hit?.character_prompt ?? "",
       arts,
-      art_id: hit?.character_art_id ?? "",
+      art_id: initialArtId,
     });
   }
   castOptions.value = options;
@@ -590,13 +613,13 @@ function numbering(keyframe: StoryKeyframeVO): string {
               v-model="option.art_id"
               size="small"
               clearable
-              placeholder="参考立绘（默认主立绘）"
+              placeholder="参考立绘（默认主视图+三视图）"
               class="cast-art"
             >
               <el-option
                 v-for="art in option.arts"
                 :key="art.id"
-                :label="art.name || (art.is_primary ? '主立绘' : '立绘')"
+                :label="formatArtLabel(art)"
                 :value="art.id"
               />
             </el-select>

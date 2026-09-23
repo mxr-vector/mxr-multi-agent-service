@@ -33,7 +33,6 @@ function truncateTagText(text: string | null | undefined, maxChars = 10): string
 }
 
 const saving = ref(false);
-const expanded = ref(false);
 const generatingImage = ref(false);
 
 async function copyPrompt() {
@@ -167,20 +166,20 @@ async function handleSaveKeyframe() {
       <span class="desc-text">{{ kf.visual_description }}</span>
     </div>
 
-    <!-- 剧情与完整描述（展开时展示） -->
-    <div v-if="kf?.scene_description && expanded" class="desc-row">
+    <!-- 剧情与完整描述 -->
+    <div v-if="kf?.scene_description" class="desc-row">
       <span class="desc-label">剧情：</span>
       <span class="desc-text">{{ kf.scene_description }}</span>
     </div>
-    <div v-if="kf?.camera_description && expanded" class="desc-row">
+    <div v-if="kf?.camera_description" class="desc-row">
       <span class="desc-label">镜头：</span>
       <span class="desc-text">{{ kf.camera_description }}</span>
     </div>
-    <div v-if="kf?.lighting_description && expanded" class="desc-row">
+    <div v-if="kf?.lighting_description" class="desc-row">
       <span class="desc-label">光影：</span>
       <span class="desc-text">{{ kf.lighting_description }}</span>
     </div>
-    <div v-if="kf?.style_description && expanded" class="desc-row">
+    <div v-if="kf?.style_description" class="desc-row">
       <span class="desc-label">风格：</span>
       <span class="desc-text">{{ kf.style_description }}</span>
     </div>
@@ -202,17 +201,14 @@ async function handleSaveKeyframe() {
           </el-button>
         </div>
       </div>
-      <div class="prompt-content" :class="{ clamp: !expanded }">
+      <div class="prompt-content">
         {{ kf.prompt }}
       </div>
     </div>
 
-    <!-- 底部操作与折叠 -->
-    <div class="card-actions">
-      <el-button size="small" link type="info" @click="expanded = !expanded">
-        {{ expanded ? "收起详情" : "展开详情" }}
-      </el-button>
-      <el-button v-if="!isSedimented" size="small" type="primary" :loading="saving" @click="handleSaveKeyframe">
+    <!-- 底部操作 -->
+    <div v-if="!isSedimented" class="card-actions">
+      <el-button size="small" type="primary" :loading="saving" @click="handleSaveKeyframe">
         存入关键帧
       </el-button>
     </div>
@@ -337,17 +333,10 @@ async function handleSaveKeyframe() {
   word-break: break-all;
 }
 
-.prompt-content.clamp {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 .card-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   border-top: 1px dashed #f1f5f9;
   padding-top: 6px;
   margin-top: 4px;
