@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from uuid_utils.compat import uuid7
+from sqlalchemy import select
 
 from agent.constants.enums.story import (
     StoryKeyframeStatus,
@@ -24,6 +25,7 @@ from agent.constants.enums.story import (
 )
 from core.config_snapshot import CFG
 from database.postgre_client import get_session
+from entity.story.session import StoryGenerationTask
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
     KeyframeCharacterRepository,
@@ -75,6 +77,9 @@ _KEYFRAME_CREATABLE = _KEYFRAME_UPDATABLE - {"status"}
 
 # 名称长度上限（对齐 schema VARCHAR(200)）
 _KEYFRAME_NAME_MAX = 200
+
+# 运行期在途关键帧生图协程注册表（keyframe_id_hex -> asyncio.Task）
+_keyframe_tasks: dict[str, asyncio.Task] = {}
 
 
 def _keyframe_image_directory(project, keyframe) -> str:
@@ -147,6 +152,22 @@ class KeyframeService:
                     asset_row.is_selected,
                     asset_row.sort_order,
                 )
+        # 批量获取生成任务的错误信息（针对 failed 状态的关键帧或异常任务）
+        gen_task_ids = {
+            keyframe.generation_task_id
+            for keyframe in keyframes
+            if keyframe.generation_task_id
+        }
+        task_errors: dict[uuid.UUID, str] = {}
+        if gen_task_ids:
+            stmt = select(
+                StoryGenerationTask.id, StoryGenerationTask.error_message
+            ).where(StoryGenerationTask.id.in_(gen_task_ids))
+            task_rows = (await session.execute(stmt)).all()
+            for tid, err_msg in task_rows:
+                if err_msg:
+                    task_errors[tid] = err_msg
+
         items = []
         for keyframe in keyframes:
             data = keyframe.to_dict()
@@ -154,6 +175,11 @@ class KeyframeService:
             selected, order = selection.get(keyframe.id, (False, 0))
             data["is_selected"] = selected
             data["selection_order"] = order
+            data["error_message"] = (
+                task_errors.get(keyframe.generation_task_id)
+                if keyframe.generation_task_id
+                else None
+            )
             items.append(data)
         return items
 
@@ -365,8 +391,8 @@ class KeyframeService:
             keyframe.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
-        # 启动后台生图协程
-        asyncio.create_task(
+        # 启动后台生图协程并注册
+        task = asyncio.create_task(
             self._run_keyframe_generation(
                 gen_task_id=gen_task.id,
                 project_id=project.id,
@@ -377,6 +403,7 @@ class KeyframeService:
                 reference_images=reference_images,
             )
         )
+        _keyframe_tasks[keyframe.id.hex] = task
 
         async with get_session() as session:
             keyframe = await KeyframeRepository(session).get(keyframe_id)
@@ -473,6 +500,32 @@ class KeyframeService:
             logger.info(
                 f"[STORY] 关键帧图片生成完成 keyframe={keyframe_id.hex} file={rel_path}"
             )
+        except asyncio.CancelledError:
+            logger.warning(
+                f"[STORY] 关键帧图片生成被取消 keyframe={keyframe_id.hex}"
+            )
+            try:
+                async with get_session() as db:
+                    keyframe = await KeyframeRepository(db).get(keyframe_id)
+                    if (
+                        keyframe is not None
+                        and keyframe.status == StoryKeyframeStatus.GENERATING.value
+                    ):
+                        keyframe.status = StoryKeyframeStatus.FAILED.value
+                        keyframe.updated_at = datetime.now(timezone.utc)
+                        await db.commit()
+                await _update_task(
+                    {
+                        "status": StoryTaskStatus.CANCELLED.value,
+                        "finished_at": datetime.now(timezone.utc),
+                        "error_message": "用户主动中止生成",
+                    }
+                )
+            except Exception as inner_exc:
+                logger.error(
+                    f"[STORY] 关键帧取消终态落库失败 keyframe={keyframe_id.hex}: {inner_exc}"
+                )
+            raise
         except Exception as exc:
             logger.error(
                 f"[STORY] 关键帧图片生成失败 keyframe={keyframe_id.hex}: {exc}"
@@ -490,6 +543,67 @@ class KeyframeService:
                     "error_message": str(exc)[:500],
                 }
             )
+        finally:
+            _keyframe_tasks.pop(keyframe_id.hex, None)
+
+    async def stop(self, ctx, keyframe_id: uuid.UUID) -> bool:
+        """中断/取消关键帧在途生成任务，释放项目级生成互斥锁。"""
+        if not ctx.user_id:
+            bad_except("关键帧操作仅支持用户通道调用")
+        cancelled = False
+        async with get_session() as session:
+            keyframe = await self._assert_keyframe_owned(session, keyframe_id, ctx)
+            task_id = keyframe.generation_task_id
+
+            # 1. 尝试取消内存中运行的 asyncio 任务
+            task = _keyframe_tasks.get(keyframe_id.hex)
+            if task and not task.done():
+                task.cancel()
+                cancelled = True
+
+            # 2. 状态落库：若当前仍为 generating，统一置为 failed 终态
+            if keyframe.status == StoryKeyframeStatus.GENERATING.value:
+                keyframe.status = StoryKeyframeStatus.FAILED.value
+                keyframe.updated_at = datetime.now(timezone.utc)
+                cancelled = True
+
+            task_repo = GenerationTaskRepository(session)
+            if task_id:
+                task_row = await task_repo.get(task_id)
+                if task_row and task_row.status in GenerationTaskRepository.RUNNING_STATUSES:
+                    await task_repo.update_fields(
+                        task_row,
+                        {
+                            "status": StoryTaskStatus.CANCELLED.value,
+                            "error_message": "用户主动中止生成",
+                            "finished_at": datetime.now(timezone.utc),
+                        },
+                    )
+                    cancelled = True
+
+            # 3. 兜底清理本项目下该关键帧关联的历史残留在途生成任务，保证释放 has_running 互斥
+            stmt = select(StoryGenerationTask).where(
+                StoryGenerationTask.project_id == keyframe.project_id,
+                StoryGenerationTask.target_id == keyframe.id,
+                StoryGenerationTask.status.in_(GenerationTaskRepository.RUNNING_STATUSES),
+            )
+            orphan_tasks = (await session.scalars(stmt)).all()
+            for ot in orphan_tasks:
+                await task_repo.update_fields(
+                    ot,
+                    {
+                        "status": StoryTaskStatus.CANCELLED.value,
+                        "error_message": "用户主动中止生成",
+                        "finished_at": datetime.now(timezone.utc),
+                    },
+                )
+                cancelled = True
+
+            await session.commit()
+            logger.info(
+                f"[STORY] 关键帧生成任务已中止 keyframe={keyframe_id.hex} cancelled={cancelled}"
+            )
+            return cancelled
 
     async def _relocate_image(self, session, project, keyframe, old_name) -> None:
         """关键帧改名后把图片迁至新名称目录（缺失文件保留原路径，不阻断改名）。"""

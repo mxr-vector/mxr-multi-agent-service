@@ -47,6 +47,8 @@ export interface StoryKeyframeVO {
   /** 导出选择状态（编排层），供「导出选择」对话框回显 */
   is_selected: boolean;
   selection_order: number;
+  /** 任务失败时的错误信息（来自 story_generation_tasks） */
+  error_message?: string | null;
 }
 
 /** 出场角色条目（登记/设置用） */
@@ -143,6 +145,12 @@ export const keyframeApi = {
     return request.post<StoryKeyframeVO, ApiResult<StoryKeyframeVO>>(
       STORY_KEYFRAME_URL.generateImage(id),
       payload
+    );
+  },
+  /** 中断关键帧图片生成 */
+  stopGeneration(id: string) {
+    return request.post<{ cancelled: boolean }, ApiResult<{ cancelled: boolean }>>(
+      STORY_KEYFRAME_URL.stop(id)
     );
   },
 };

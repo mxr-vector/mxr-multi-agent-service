@@ -214,3 +214,13 @@ async def generate_keyframe_image(
         )
     )
 
+
+@router.post("/keyframes/{keyframe_id}/stop")
+async def stop_keyframe_generation(
+    keyframe_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """中断在途的关键帧图片生成任务，释放项目级生成互斥锁。"""
+    cancelled = await _keyframe_service.stop(ctx, keyframe_id)
+    return R.success(data={"cancelled": cancelled})
+

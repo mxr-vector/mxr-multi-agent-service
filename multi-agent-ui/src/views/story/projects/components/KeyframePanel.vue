@@ -5,7 +5,7 @@
 import { onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Loading } from "@element-plus/icons-vue";
+import { Loading, QuestionFilled } from "@element-plus/icons-vue";
 import {
   collectPages,
   keyframeApi,
@@ -120,6 +120,7 @@ async function loadKeyframes() {
 
 // —— 关键帧生图与轮询 ——
 const generatingImageId = ref<string | null>(null);
+const stoppingImageId = ref<string | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 function checkAndStartPolling() {
@@ -128,9 +129,26 @@ function checkAndStartPolling() {
       pollTimer = setInterval(async () => {
         try {
           const res = await keyframeApi.list(props.projectId, { page: page.value, size: size.value });
+          const oldList = list.value;
           list.value = res.data?.items ?? [];
           total.value = res.data?.total ?? 0;
           emit("changed");
+
+          // 比较前后状态变化，完成或失败时给出明确通知
+          for (const item of list.value) {
+            const prev = oldList.find((k) => k.id === item.id);
+            if (prev && prev.status === "generating") {
+              const label = item.name ? `「${item.name}」` : numbering(item);
+              if (item.status === "done") {
+                ElMessage.success(`关键帧 ${label} 图片已生成完成`);
+              } else if (item.status === "failed") {
+                ElMessage.error(
+                  `关键帧 ${label} 图片生成失败${item.error_message ? "：" + item.error_message : ""}`
+                );
+              }
+            }
+          }
+
           if (!list.value.some((k) => k.status === "generating")) {
             stopPolling();
           }
@@ -224,6 +242,36 @@ async function handleGenerateImage(keyframe: StoryKeyframeVO) {
     // 错误拦截器统一处理
   } finally {
     generatingImageId.value = null;
+  }
+}
+
+async function handleStopGeneration(keyframe: StoryKeyframeVO) {
+  try {
+    await ElMessageBox.confirm(
+      `确定中断关键帧「${keyframe.name || numbering(keyframe)}」的图片生成吗？\n中断后将释放任务互斥锁定，可重新编辑或生成。`,
+      "中断生图任务",
+      {
+        confirmButtonText: "确定中断",
+        cancelButtonText: "继续生成",
+        type: "warning",
+      }
+    );
+  } catch {
+    return;
+  }
+
+  stoppingImageId.value = keyframe.id;
+  try {
+    await keyframeApi.stopGeneration(keyframe.id);
+    keyframe.status = "failed";
+    keyframe.error_message = "用户主动中止生成";
+    ElMessage.warning("已中断关键帧生成任务");
+    await loadKeyframes();
+    emit("changed");
+  } catch {
+    // 错误拦截器统一处理
+  } finally {
+    stoppingImageId.value = null;
   }
 }
 
@@ -511,9 +559,19 @@ function numbering(keyframe: StoryKeyframeVO): string {
       </el-table-column>
       <el-table-column label="参考图" width="110">
         <template #default="{ row }">
-          <div v-if="row.status === 'generating'" class="kf-generating-box" title="正在生成图片...">
+          <div v-if="row.status === 'generating'" class="kf-generating-box" title="正在生成图片，可点击中止">
             <el-icon class="is-loading"><Loading /></el-icon>
             <span class="kf-generating-text">生图中</span>
+            <el-button
+              size="small"
+              link
+              type="danger"
+              class="kf-generating-stop-btn"
+              :loading="stoppingImageId === row.id"
+              @click="handleStopGeneration(row)"
+            >
+              中断
+            </el-button>
           </div>
           <el-image
             v-else-if="row.image_file"
@@ -537,9 +595,21 @@ function numbering(keyframe: StoryKeyframeVO): string {
       <el-table-column label="名称" prop="name" min-width="130">
         <template #default="{ row }">{{ row.name || "—" }}</template>
       </el-table-column>
-      <el-table-column label="状态" width="90">
+      <el-table-column label="状态" width="100">
         <template #default="{ row }">
+          <el-tooltip
+            v-if="row.status === 'failed' && row.error_message"
+            :content="row.error_message"
+            placement="top"
+            effect="dark"
+          >
+            <el-tag size="small" type="danger" class="failed-tag">
+              失败
+              <el-icon class="el-icon--right"><QuestionFilled /></el-icon>
+            </el-tag>
+          </el-tooltip>
           <el-tag
+            v-else
             size="small"
             :type="
               row.status === 'done'
@@ -577,13 +647,24 @@ function numbering(keyframe: StoryKeyframeVO): string {
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
           <el-button
+            v-if="row.status === 'generating'"
+            size="small"
+            link
+            type="danger"
+            :loading="stoppingImageId === row.id"
+            @click="handleStopGeneration(row)"
+          >
+            中断生成
+          </el-button>
+          <el-button
+            v-else
             size="small"
             link
             type="primary"
-            :loading="row.status === 'generating' || generatingImageId === row.id"
+            :loading="generatingImageId === row.id"
             @click="handleGenerateImage(row)"
           >
-            生成图片
+            {{ row.status === "failed" ? "重新生成" : "生成图片" }}
           </el-button>
           <el-button size="small" link @click="openCastDialog(row)">出场角色</el-button>
           <el-button size="small" link @click="openEdit(row)">编辑</el-button>
@@ -899,6 +980,18 @@ function numbering(keyframe: StoryKeyframeVO): string {
 }
 .kf-generating-text {
   font-size: 10px;
+}
+.kf-generating-stop-btn {
+  font-size: 11px !important;
+  padding: 0 !important;
+  height: auto !important;
+  line-height: 1 !important;
+  margin-top: 2px;
+}
+.failed-tag {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
 :deep(.focused-keyframe-row) {
   --el-table-tr-bg-color: #f0fdf4 !important;

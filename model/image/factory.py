@@ -20,6 +20,7 @@ output_compression 固定 80（上游默认通常为 100 即几乎不压缩；st
 
 import base64
 from functools import cache
+import time
 
 import httpx
 from openai import OpenAI
@@ -117,6 +118,12 @@ def generate_image(
     target_size = _spec(extra, "size", size, DEFAULT_SIZE)
     target_quality = _spec(extra, "quality", quality, DEFAULT_QUALITY)
 
+    t0 = time.monotonic()
+    ref_count = len(reference_images) if reference_images else 0
+    logger.info(
+        f"[IMAGE] 发起生图请求: model={CFG.image.model_name}, size={target_size}, quality={target_quality}, ref_count={ref_count}"
+    )
+
     if reference_images:
         loaded_files = []
         for ref in reference_images:
@@ -145,17 +152,14 @@ def generate_image(
                     )
 
             extra_body_multi = {
-                "image": b64_list[0],
                 "images": b64_list,
-                "image_url": b64_list[0],
-                "image_urls": b64_list,
+                "image": b64_list[0],
                 "reference_images": b64_list,
-                "prompt_images": b64_list,
             }
 
             # 多参考图场景（如关键帧多出场角色同框）：
             # OpenAI 标准 images.edit 端点仅接受单张 image 文件入参，会造成多图截断；
-            # 优先采用 images.generate 并通过 extra_body 携带完整多图列表（兼容 images/image_urls/reference_images/prompt_images 等主流多模态生图入参）
+            # 优先采用 images.generate 并通过 extra_body 携带完整多图列表（兼容 images/reference_images）
             if len(loaded_files) > 1:
                 try:
                     resp = client.images.generate(
@@ -168,6 +172,8 @@ def generate_image(
                         output_compression=OUTPUT_COMPRESSION,
                         extra_body=extra_body_multi,
                     )
+                    cost = time.monotonic() - t0
+                    logger.info(f"[IMAGE] 多参考图 images.generate 成功耗时={cost:.2f}s")
                     return [item.b64_json or item.url or "" for item in resp.data]
                 except Exception as exc:
                     logger.warning(
@@ -183,14 +189,16 @@ def generate_image(
                             quality=target_quality,
                             output_format=OUTPUT_FORMAT,
                             output_compression=OUTPUT_COMPRESSION,
-                            extra_body=extra_body_multi,
                         )
+                        cost = time.monotonic() - t0
+                        logger.info(f"[IMAGE] images.edit 降级成功耗时={cost:.2f}s")
                         return [item.b64_json or item.url or "" for item in resp.data]
                     except Exception as edit_exc:
                         logger.error(f"[IMAGE] images.edit 降级亦失败: {edit_exc}")
                         raise edit_exc from exc
 
-            # 单参考图场景：优先尝试标准 images.edit 端点，失败后降级 images.generate + extra_body
+            # 单参考图场景：优先尝试标准 images.edit 端点（仅传文件与提示词，避免 extra_body 重复发送巨量 base64），
+            # 失败后降级 images.generate + extra_body
             try:
                 resp = client.images.edit(
                     model=CFG.image.model_name,
@@ -201,8 +209,9 @@ def generate_image(
                     quality=target_quality,
                     output_format=OUTPUT_FORMAT,
                     output_compression=OUTPUT_COMPRESSION,
-                    extra_body=extra_body_multi,
                 )
+                cost = time.monotonic() - t0
+                logger.info(f"[IMAGE] 单参考图 images.edit 成功耗时={cost:.2f}s")
                 return [item.b64_json or item.url or "" for item in resp.data]
             except Exception as exc:
                 logger.warning(
@@ -218,6 +227,8 @@ def generate_image(
                     output_compression=OUTPUT_COMPRESSION,
                     extra_body=extra_body_multi,
                 )
+                cost = time.monotonic() - t0
+                logger.info(f"[IMAGE] 兼容模式 images.generate 成功耗时={cost:.2f}s")
                 return [item.b64_json or item.url or "" for item in resp.data]
 
     resp = client.images.generate(
@@ -229,4 +240,6 @@ def generate_image(
         output_format=OUTPUT_FORMAT,
         output_compression=OUTPUT_COMPRESSION,
     )
+    cost = time.monotonic() - t0
+    logger.info(f"[IMAGE] 无参考图 images.generate 成功耗时={cost:.2f}s")
     return [item.b64_json or item.url or "" for item in resp.data]
