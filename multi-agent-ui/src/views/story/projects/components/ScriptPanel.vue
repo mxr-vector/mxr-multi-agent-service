@@ -2,9 +2,9 @@
 /**
  * 剧本面板：多版本列表、保存新版本、切换当前版本、编辑既有版本。
  */
-import { nextTick, onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { projectApi, scriptApi, type StoryScriptVO } from "@/api/story";
+import { scriptApi, type StoryScriptVO } from "@/api/story";
 import { formatDateTime } from "@/utils/format";
 import Pagination from "@/components/ui/Pagination.vue";
 
@@ -28,17 +28,6 @@ const page = ref(1);
 const size = ref(10);
 const total = ref(0);
 
-const castList = ref<Array<{ id: string; name: string }>>([]);
-
-async function loadCast() {
-  try {
-    const res = await projectApi.listCasting(props.projectId);
-    castList.value = (res.data ?? []).map((c) => ({ id: c.id, name: c.name }));
-  } catch {
-    castList.value = [];
-  }
-}
-
 async function loadScripts() {
   loading.value = true;
   try {
@@ -52,37 +41,7 @@ async function loadScripts() {
 
 onMounted(() => {
   loadScripts();
-  loadCast();
 });
-
-const saveTextareaRef = ref<any>(null);
-const editTextareaRef = ref<any>(null);
-const POSITIONS = ["画面居中", "画面左侧", "画面右侧", "前景", "背景"];
-
-function insertAtForm(isEdit: boolean, text: string) {
-  const comp = isEdit ? editTextareaRef.value : saveTextareaRef.value;
-  const targetForm = isEdit ? editForm : saveForm;
-  const el = comp?.$el?.querySelector("textarea") as HTMLTextAreaElement | null;
-  if (!el) {
-    targetForm.content = (targetForm.content || "") + text;
-    return;
-  }
-  const start = el.selectionStart ?? targetForm.content.length;
-  const end = el.selectionEnd ?? start;
-  const old = targetForm.content || "";
-  targetForm.content = old.substring(0, start) + text + old.substring(end);
-  const nextPos = start + text.length;
-  nextTick(() => {
-    el.focus();
-    el.setSelectionRange(nextPos, nextPos);
-  });
-}
-
-function insertCharToForm(isEdit: boolean, num: number, name?: string, pos?: string) {
-  const charPart = name ? `【角色${num}·${name}】` : `【角色${num}】`;
-  const text = pos ? `[${pos}]${charPart}` : charPart;
-  insertAtForm(isEdit, text);
-}
 
 // —— 保存新版本 ——
 const saveVisible = ref(false);
@@ -222,88 +181,19 @@ async function handleEdit() {
         :closable="false"
         show-icon
         style="margin-bottom: 12px"
-        title="剧本创作规范：每集需注明预估生成秒数（建议最多15s或30s，如：第1集（预估生成时长：15秒））；镜头需标明人物画面出现位置与编号（如：[画面中央]【角色1·角色名】）。"
+        title="剧本创作规范：每集需注明预估生成秒数（建议最多15s或30s，如：第1集（预估生成时长：15秒））。"
       />
       <el-form label-width="88px">
         <el-form-item label="版本标题">
           <el-input v-model="saveForm.title" placeholder="可选，如：第二稿" />
         </el-form-item>
         <el-form-item label="剧本内容">
-          <div class="textarea-wrapper">
-            <div class="character-helper-bar">
-              <span class="helper-label">按编号插入人物：</span>
-              <div class="helper-chips">
-                <template v-if="castList.length > 0">
-                  <el-dropdown
-                    v-for="(c, idx) in castList"
-                    :key="c.id || idx"
-                    trigger="click"
-                    size="small"
-                  >
-                    <button type="button" class="helper-btn">
-                      <span class="btn-num">角色{{ idx + 1 }}</span>
-                      <span>{{ c.name }}</span>
-                    </button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item @click="insertCharToForm(false, idx + 1, c.name)">
-                          直接插入：【角色{{ idx + 1 }}·{{ c.name }}】
-                        </el-dropdown-item>
-                        <el-dropdown-item
-                          v-for="pos in POSITIONS"
-                          :key="pos"
-                          @click="insertCharToForm(false, idx + 1, c.name, pos)"
-                        >
-                          [{{ pos }}]【角色{{ idx + 1 }}·{{ c.name }}】
-                        </el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </template>
-                <template v-else>
-                  <el-dropdown
-                    v-for="num in [1, 2, 3]"
-                    :key="num"
-                    trigger="click"
-                    size="small"
-                  >
-                    <button type="button" class="helper-btn">
-                      <span class="btn-num">【角色{{ num }}】</span>
-                    </button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item @click="insertCharToForm(false, num)">
-                          直接插入：【角色{{ num }}】
-                        </el-dropdown-item>
-                        <el-dropdown-item
-                          v-for="pos in POSITIONS"
-                          :key="pos"
-                          @click="insertCharToForm(false, num, undefined, pos)"
-                        >
-                          [{{ pos }}]【角色{{ num }}】
-                        </el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </template>
-                <span
-                  v-for="pos in POSITIONS"
-                  :key="pos"
-                  class="helper-pos-tag"
-                  @click="insertAtForm(false, `[${pos}]`)"
-                >
-                  {{ pos }}
-                </span>
-              </div>
-            </div>
-            <el-input
-              ref="saveTextareaRef"
-              v-model="saveForm.content"
-              type="textarea"
-              :rows="11"
-              placeholder="完整剧本文本"
-            />
-          </div>
+          <el-input
+            v-model="saveForm.content"
+            type="textarea"
+            :rows="12"
+            placeholder="完整剧本文本"
+          />
         </el-form-item>
         <el-form-item label="设为当前">
           <el-switch v-model="saveForm.set_current" />
@@ -328,87 +218,18 @@ async function handleEdit() {
         :closable="false"
         show-icon
         style="margin-bottom: 12px"
-        title="剧本创作规范：每集需注明预估生成秒数（建议最多15s或30s，如：第1集（预估生成时长：15秒））；镜头需标明人物画面出现位置与编号（如：[画面中央]【角色1·角色名】）。"
+        title="剧本创作规范：每集需注明预估生成秒数（建议最多15s或30s，如：第1集（预估生成时长：15秒））。"
       />
       <el-form label-width="88px">
         <el-form-item label="版本标题">
           <el-input v-model="editForm.title" placeholder="可选" />
         </el-form-item>
         <el-form-item label="剧本内容">
-          <div class="textarea-wrapper">
-            <div class="character-helper-bar">
-              <span class="helper-label">按编号插入人物：</span>
-              <div class="helper-chips">
-                <template v-if="castList.length > 0">
-                  <el-dropdown
-                    v-for="(c, idx) in castList"
-                    :key="c.id || idx"
-                    trigger="click"
-                    size="small"
-                  >
-                    <button type="button" class="helper-btn">
-                      <span class="btn-num">角色{{ idx + 1 }}</span>
-                      <span>{{ c.name }}</span>
-                    </button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item @click="insertCharToForm(true, idx + 1, c.name)">
-                          直接插入：【角色{{ idx + 1 }}·{{ c.name }}】
-                        </el-dropdown-item>
-                        <el-dropdown-item
-                          v-for="pos in POSITIONS"
-                          :key="pos"
-                          @click="insertCharToForm(true, idx + 1, c.name, pos)"
-                        >
-                          [{{ pos }}]【角色{{ idx + 1 }}·{{ c.name }}】
-                        </el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </template>
-                <template v-else>
-                  <el-dropdown
-                    v-for="num in [1, 2, 3]"
-                    :key="num"
-                    trigger="click"
-                    size="small"
-                  >
-                    <button type="button" class="helper-btn">
-                      <span class="btn-num">【角色{{ num }}】</span>
-                    </button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item @click="insertCharToForm(true, num)">
-                          直接插入：【角色{{ num }}】
-                        </el-dropdown-item>
-                        <el-dropdown-item
-                          v-for="pos in POSITIONS"
-                          :key="pos"
-                          @click="insertCharToForm(true, num, undefined, pos)"
-                        >
-                          [{{ pos }}]【角色{{ num }}】
-                        </el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </template>
-                <span
-                  v-for="pos in POSITIONS"
-                  :key="pos"
-                  class="helper-pos-tag"
-                  @click="insertAtForm(true, `[${pos}]`)"
-                >
-                  {{ pos }}
-                </span>
-              </div>
-            </div>
-            <el-input
-              ref="editTextareaRef"
-              v-model="editForm.content"
-              type="textarea"
-              :rows="11"
-            />
-          </div>
+          <el-input
+            v-model="editForm.content"
+            type="textarea"
+            :rows="12"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -420,67 +241,6 @@ async function handleEdit() {
 </template>
 
 <style scoped>
-.textarea-wrapper {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.character-helper-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 4px 8px;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 6px;
-  font-size: 12px;
-}
-.helper-label {
-  color: #64748b;
-  font-size: 11px;
-}
-.helper-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.helper-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-}
-.helper-btn:hover {
-  background: #eef2ff;
-  border-color: #6366f1;
-  color: #4f46e5;
-}
-.btn-num {
-  font-weight: 600;
-  color: #4f46e5;
-}
-.helper-pos-tag {
-  display: inline-block;
-  padding: 1px 5px;
-  background: #e2e8f0;
-  border-radius: 3px;
-  font-size: 11px;
-  color: #475569;
-  cursor: pointer;
-  user-select: none;
-}
-.helper-pos-tag:hover {
-  background: #c7d2fe;
-  color: #3730a3;
-}
 .panel-toolbar {
   display: flex;
   align-items: center;

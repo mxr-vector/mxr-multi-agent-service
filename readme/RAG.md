@@ -21,7 +21,7 @@ docker.io/qdrant/qdrant
    - 池化模型（embedding + rerank）：如 `Qwen3-Embedding-4B`（`--runner pooling`，默认端口 9527）
    - 生成模型（chat + rewrite）：如 `Qwen3.5-2B`（需 `--enable-auto-tool-choice --tool-call-parser hermes`，默认端口 9528）
    - 显存至少 16G（CUDA/ROCm 均可）
-4. 初始化数据库：依次执行 `readme/sql/` 下三个脚本（见 5.1）
+4. 初始化数据库：依次执行 `database/sql/` 下三个脚本（见 5.1）
 5. 配置分两处：postgres/qdrant/embedding 等部署级配置在 `env/.env.development`；
    chat/rewrite/rerank/visual 模型与 RAG 运行参数在数据库，启动后于前端「模型管理 / 参数管理」页维护（免重启热更新）
 
@@ -52,13 +52,13 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 | PostgreSQL（`rag` schema） | 业务事实源 | 知识库/文件夹/文档/父子块/问答会话与消息全部持久化于此；向量命中后回查完整上下文、章节与页码 |
 | Qdrant | 向量检索 | 每知识库一个集合（命名 `kb_{id.hex}_v1`，后端派生，前端无感知），混合集合含 dense + sparse 双命名向量；PG 不存向量 |
 
-表结构见 [readme/sql/rag_schema.sql](./sql/rag_schema.sql)（含典型写入/浏览/检索流程示例）。
+表结构见 [database/sql/rag_schema.sql](../database/sql/rag_schema.sql)（含典型写入/浏览/检索流程示例）。
 
 ### 3.2 父子块模型（Parent-Child / Small-to-Big）
 
 - 两级切分：level 1 父块（2000 字符）→ level 0 叶块（400 字符 / 80 重叠）
 - 仅 **level 0 叶块**入 Qdrant（point id = chunk id）；命中后回溯父块/文档，给对话模型更完整的上下文
-- 切块策略（上传时可选）：`auto`（有结构走章节，否则回退字符）/ `char` / `structure`（强制章节，仅 markdown/docx/excel）
+- 切块策略（上传时可选）：`char`（全文字符递归切分，默认）/ `structure`（章节感知分块，仅 markdown/docx/excel）/ `semantic`（基于语义嵌入相似度的动态切分，异常时自动降级为 char）
 - 支持 pdf / markdown / excel / docx / text / csv；PDF 回填页码，markdown/docx/excel 回填章节标题
 - 增量更新：`content_hash` 判变，重传生成新 `document_version`；向量化后灰度清理旧版本点，避免检索读到"半新半旧"
 
@@ -74,9 +74,9 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
      → 模型不再发起工具调用 → 生成答案 + 结构化 sources（章节/页码/相似度）
 ```
 
-- **检索收敛在工具实现**（`agent/tools/rag_tools.py`，原独立检索子图 `agent/graph/sub/rag_graph.py` 已并入）：混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
+- **检索收敛在工具实现**（`agent/tools/rag_tools.py`）：检索能力统一收敛为对话模型自主调用的工具集合（如 `knowledge_base_search`、`kb_wiki_lookup` 等），混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
 - **问答父图**（`agent/graph/chat_graph.py`）：LangGraph 编排，checkpointer（Postgres 池）持久化多轮状态，TTL 后台任务定期清理；业务查询一律走 `rag.chat_sessions/chat_messages` 事实表
-- **配置驱动**：候选池 `RAG_CANDIDATE_POOL_SIZE`、最终 top-k `RAG_FINAL_TOP_K`、反思轮数上限 `RAG_REFLECT_ROUND_CAP`、多跳合并池 `RAG_MULTIHOP_MERGE_POOL` 均为 `sys_config` 白名单参数，前端「参数管理」页热更新
+- **配置驱动**：候选池 `RAG_CANDIDATE_POOL_SIZE`、最终 top-k `RAG_FINAL_TOP_K`、反思轮数上限 `RAG_REFLECT_ROUND_CAP`、多跳合并池 `RAG_MULTIHOP_MERGE_POOL` 等均为 `sys_config` 白名单参数，前端「参数管理」页热更新
 
 ### 3.4 权限与配置
 
@@ -117,7 +117,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 > - **gold 口径**：文档级（answer gold docs，contain 判定），与 Agriculture 行的 chunk 级严格口径不同，两者不可直接对比；括号内 ok/200 为 gold 有效的样本数
 > - **Hit@10（新增列）**：top-10 中**至少命中一个 gold 文档**的题占比——与用户体检最对应的检索口径（答对只需一个含答案的文档，不需要 gold 全中）；dureader 达 100%，单文档场景 72-74%
 > - **Recall@10 与 Hit@10 的差距**：多跳题平均 2-4 个 gold 文档，Recall 要求全部命中（分数被分母稀释），Hit 只要求中一个——两者都是真实口径，前者用于工程诊断（哪一层丢了 gold），后者用于体验评估（能否支撑答题）
-> - **代码状态**：实体扩展通道已移除、分层确定性工具默认关闭（`AGENTIC_TOOLS_ENABLED=false`），两轮均在此形态下测得；多跳检索（hop 查询 + 门控 + 合并池）为检索层内生能力
+> - **运行形态**：多跳检索（hop 查询 + wiki 门控 + 合并池统一重排）为检索层内生能力；分层确定性工具默认保持关闭（`AGENTIC_TOOLS_ENABLED=false`），两轮基准均在此标准形态下测得
 > - Agriculture 行为历史数据（旧 chunk 级口径），未随本次复测更新
 > - Agent 级端到端 QA 口径见 4.1 节
 
@@ -128,21 +128,19 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 | 测试臂 | 对话模型 | 分层确定性工具 | 样本 ok | QA 准确率 | 平均工具轮次 | 平均延迟 |
 |--|--|--|--|--|--|--|
 | 对照臂（历史锚点） | mimo-v2.5 | ✗ | 600/600 | 34.5% | 2.2 | 38s |
-| **对照臂（现行基线）** | glm-5.3-flash | ✗ | 600/600 | **68.3%** | 2.16 | 78s |
-| 工具臂（chunk_read 修复前） | glm-5.3-flash | ✓ | 598/600 | 66.9% | 2.43 | 124s |
-| 工具臂（修复后复测） | glm-5.3-flash | ✓ | 574/600 | 65.7% | 2.53 | 92s |
+| **对照臂（现行生产基线）** | glm-5.3-flash | ✗ | 600/600 | **68.3%** | 2.16 | 78s |
+| 工具臂（启用分层工具） | glm-5.3-flash | ✓ | 574/600 | 65.7% | 2.53 | 92s |
 
 **说明**
 
-- **测试模型**：对话模型两档——mimo-v2.5（历史锚点，云端网关）与 glm-5.3-flash（现行 `sys.sys_model_config` chat 角色）；embedding / rerank 全程 Qwen3-Embedding-4B，四臂同配置，检索层结果跨臂可比
+- **测试模型**：对话模型两档——mimo-v2.5（历史锚点，云端网关）与 glm-5.3-flash（现行 `sys.sys_model_config` chat 角色）；embedding / rerank 全程 Qwen3-Embedding-4B，跨臂同配置可比
 - **判定口径**：答案 contain-match 金标（不要求完全相等）；失败 / 超时样本计入分母不剔除
 
 **注意事项**
 
-1. **模型变量主导**：34.5% → 68.3% 的提升全部来自对话模型升级；同模型（glm）下分层确定性工具（`entity_relation_lookup` / `chunk_read`）净贡献 ≈ 0（Δ = −2.6pt，两比例 z 检验 z = −0.97，不显著）
-2. **分层工具默认关闭**（`AGENTIC_TOOLS_ENABLED=false`）：净贡献 ≈ 0 且延迟 +18~60%；关系索引资产（32,953 条实体关系）与构建 CLI（`python -m entity_index.build_cli --kb-id <id>`）全部保留，弱模型 / 小上下文场景一行配置开启即用，无需重建索引
-3. **口径区别**：本表是 QA 端到端口径（含对话模型生成），与上表检索指标（Recall / NDCG，不含生成）口径不同，不可直接混比
-4. 工具臂复测中的 chunk_read 修复（UUID 格式归一 + 知识库作用域）属正确性 / 安全性修复，不改变净效果；修复前该工具因格式缺陷实际不可用（仅 4 次调用）
+1. **模型能力主导**：34.5% → 68.3% 的提升全部来自对话模型能力升级；同模型（glm）下启用分层确定性工具（`entity_relation_lookup` / `chunk_read`）净贡献 ≈ 0（Δ = −2.6pt，两比例 z 检验 z = −0.97，不显著）
+2. **分层工具默认保持关闭**（`AGENTIC_TOOLS_ENABLED=false`）：强模型下净贡献 ≈ 0 且额外工具轮次导致延迟 +18~60%；关系索引资产（32,953 条实体关系）与构建 CLI（`python -m entity_index.build_cli --kb-id <id>`）全部保留，弱模型 / 小上下文场景可按需开启，无需重建索引
+3. **口径区别**：本表是 QA 端到端口径（含对话模型最终生成），与上表检索指标（Recall / NDCG，不含生成）口径不同，不可直接混比
 
 **复现**：`test/dataset01/eval/longbench_agent_eval.py`（工具臂）/ `--no-agent-tools`（对照臂）；完整归因分析见 [test/dataset01/results/four_arm_attribution_report.md](../test/dataset01/results/four_arm_attribution_report.md)
 
@@ -151,12 +149,12 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 
 ### 5.1 初始化数据库
 
-创建数据库后依次执行 `readme/sql/` 下脚本（先建表、后灌种子）：
+创建数据库后依次执行 `database/sql/` 下脚本（先建表、后灌种子）：
 
 ```bash
-psql -U postgres -d multi_agent_db -f readme/sql/system_schema.sql   # sys 系统管理表（用户/角色/菜单/字典/模型配置等）
-psql -U postgres -d multi_agent_db -f readme/sql/rag_schema.sql      # rag 业务表（知识库/文件夹/文档/父子块/会话/消息）
-psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：字典/菜单/角色/示例模型配置
+psql -U postgres -d multi_agent_db -f database/sql/system_schema.sql   # sys 系统管理表（用户/角色/菜单/字典/模型配置等）
+psql -U postgres -d multi_agent_db -f database/sql/rag_schema.sql      # rag 业务表（知识库/文件夹/文档/父子块/会话/消息）
+psql -U postgres -d multi_agent_db -f database/sql/base_seed.sql       # 种子：字典/菜单/角色/示例模型配置
 ```
 
 说明：
@@ -177,11 +175,11 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 | PostgreSQL | `POSTGRES_*` | 关系库连接 |
 | Qdrant | `QDRANT_HOST` / `QDRANT_PORT` / `QDRANT_API_KEY` / `QDRANT_HTTPS` | 向量库连接（服务端未启用 TLS 时保持 false） |
 | embedding | `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL_NAME` / `EMBEDDING_API_URL` / `EMBEDDING_API_KEY` | 全局向量模型；provider 可选 `openai` / `dashscope` / `cohere`（本地 vLLM 走 cohere 协议时 URL 不带 `/v1`），模型名须与 vLLM 实际部署一致 |
-| 下载 | `HF_ENDPOINT` / `BM25_CACHE_DIR` | legacy fastembed BM25 模型的下载端点（默认 hf-mirror）与缓存目录（jieba 主路径用不到） |
+| 稀疏/下载 | `HF_ENDPOINT` / `BM25_CACHE_DIR` | legacy fastembed BM25 模型的下载端点（默认 hf-mirror）与缓存目录（jieba 主路径用不到） |
+| 检索/导航开关 | `WIKI_ENABLED` / `AGENTIC_TOOLS_ENABLED` / `ENTITY_INDEX_ENABLED` | Wiki 导航层（默认 true）、Agentic 分层工具（默认 false）、实体索引（默认 true） |
 
-> 模型配置与运行参数已迁移至数据库（`sys.sys_model_config` / `sys.sys_config`），经配置快照
-> `core.config_snapshot.CFG` 读取并支持免重启热更新；env 中不再维护 `CHAT_*` / `REWRITE_*` /
-> `RERANK_*` / `RAG_*` 等键（`EMBEDDING_*` 因换模型即毁向量库，保留为部署级钉死项）。
+> **配置双轨机制**：部署级基础设施配置（PostgreSQL/Qdrant 连接、`EMBEDDING_*` 等）在环境配置文件中维护（`EMBEDDING_*` 因更换模型即改变向量空间、损坏向量库，故作为部署级配置严格固定）；
+> 运行时各角色模型（chat/rewrite/rerank 等）与 RAG 检索参数（`RAG_*`、`CHAT_*`）均在数据库（`sys.sys_model_config` / `sys.sys_config`）中维护，通过配置快照 `core.config_snapshot.CFG` 读取并支持前端免重启热更新。
 
 ### 5.3 启动服务
 
@@ -189,13 +187,14 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 
 ### 5.4 配置模型与运行参数
 
-启动后访问前端（登录账号见 `base_seed.sql` 种子用户），在「系统管理 → 模型管理」页
-配置四个角色模型（api_url / api_key / 超时 / 重试 / 上下文窗口）：
+启动后访问前端（登录账号见 `database/sql/base_seed.sql` 种子用户），在「系统管理 → 模型管理」页
+配置各角色模型（api_url / api_key / 超时 / 重试 / 上下文窗口）：
 
 - `chat`：对话与最终答案生成
 - `rewrite`：检索工具内反思自纠错的查询改写（结果不足时改写重检索）
 - `rerank`：检索结果精排
 - `visual`：多模态（RAG 用不到，Draw 系统使用）
+- `image`：生图模型（RAG 用不到，Story 系统使用）
 
 「系统管理 → 参数管理」页配置 RAG 运行参数（默认值见种子，修改即时生效）：
 
@@ -204,8 +203,12 @@ psql -U postgres -d multi_agent_db -f readme/sql/base_seed.sql       # 种子：
 | `RAG_CANDIDATE_POOL_SIZE` | 50 | 混合召回（dense+sparse RRF 融合）后保留的候选池上限 |
 | `RAG_FINAL_TOP_K` | 5 | rerank 精排后保留的最终候选数 |
 | `RAG_REFLECT_ROUND_CAP` | 3 | 反思循环最大检索轮数上限 |
+| `RAG_MAX_HOPS` | 2 | 受控多跳证据检索的最大跳数（含原问题首跳） |
+| `RAG_HOP_POOL_SIZE` | 20 | 多跳检索每一跳独立召回与重排的候选池上限 |
+| `RAG_MULTIHOP_MERGE_POOL` | 30 | 逐跳候选汇入合并池的文档数上限，统一对原问题重排后截取 top-k |
 | `CHAT_CHECKPOINT_TTL_DAYS` | 7 | checkpoint 保留天数（超期后台任务清理） |
 | `CHAT_HISTORY_MAX_MESSAGES` | 20 | 无 checkpoint 历史时回落业务表读取的历史消息条数上限 |
+| `CHAT_MAX_OUTPUT_TOKENS` | 8192 | 对话模型请求输出上限（参与输入预算计算） |
 
 ![model_config.png](./assets/images/model_config.png)
 
