@@ -104,6 +104,16 @@ class CharacterRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
+    async def get_by_name(self, user_id: str, name: str) -> StoryCharacter | None:
+        """按属主与名称精确查询角色。"""
+        stmt = (
+            select(StoryCharacter)
+            .where(StoryCharacter.user_id == user_id, StoryCharacter.name == name)
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
     async def update_fields(
         self, character: StoryCharacter, fields: dict
     ) -> StoryCharacter:

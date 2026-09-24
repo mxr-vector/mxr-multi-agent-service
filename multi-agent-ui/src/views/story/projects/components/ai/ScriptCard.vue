@@ -42,6 +42,20 @@ async function handleSave() {
     saving.value = false;
   }
 }
+
+const extracting = ref(false);
+
+async function handleExtractCharacters() {
+  extracting.value = true;
+  try {
+    const res = await storyAiApi.extractCharacters(props.message.session_id, props.message.id);
+    const count = res.data?.characters?.length ?? 0;
+    ElMessage.success(`成功从剧本提取 ${count} 个角色`);
+    emit("saved");
+  } finally {
+    extracting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -72,6 +86,16 @@ async function handleSave() {
           @click="saveVisible = true"
         >
           存为版本
+        </el-button>
+        <el-button
+          v-if="message.status === 'done'"
+          size="small"
+          link
+          type="success"
+          :loading="extracting"
+          @click="handleExtractCharacters"
+        >
+          提取角色
         </el-button>
       </template>
     </div>

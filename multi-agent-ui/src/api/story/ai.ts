@@ -39,6 +39,9 @@ export const STORY_AI_URL = {
   saveScript: (messageId: string) => `/story/messages/${messageId}/save-script`,
   saveKeyframe: (messageId: string) => `/story/messages/${messageId}/save-keyframe`,
   saveAllKeyframes: (sessionId: string) => `/story/sessions/${sessionId}/save-keyframes`,
+  /** 剧本提取角色与批量存入角色 */
+  extractCharacters: (sessionId: string) => `/story/sessions/${sessionId}/extract-characters`,
+  saveAllCharacters: (sessionId: string) => `/story/sessions/${sessionId}/save-characters`,
 } as const;
 
 /** 角色沉淀地址（独立导出，避免对象字面量自引用） */
@@ -464,4 +467,21 @@ export const storyAiApi = {
       ApiResult<{ saved_count: number; items: Record<string, unknown>[] }>
     >(STORY_AI_URL.saveAllKeyframes(sessionId));
   },
+
+  /** 从会话剧本中提取角色卡 */
+  extractCharacters(sessionId: string, messageId?: string) {
+    return request.post<
+      { characters: StoryCharacterCard[]; created_count: number; total_count: number },
+      ApiResult<{ characters: StoryCharacterCard[]; created_count: number; total_count: number }>
+    >(STORY_AI_URL.extractCharacters(sessionId), { message_id: messageId });
+  },
+
+  /** 一键将当前会话中的全部角色卡存入角色库并登记项目出演 */
+  saveAllCharacters(sessionId: string) {
+    return request.post<
+      { saved_count: number; items: Record<string, unknown>[] },
+      ApiResult<{ saved_count: number; items: Record<string, unknown>[] }>
+    >(STORY_AI_URL.saveAllCharacters(sessionId));
+  },
 }
+

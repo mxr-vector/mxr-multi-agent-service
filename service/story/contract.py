@@ -202,6 +202,164 @@ def _normalize_card(item) -> dict | None:
     return card
 
 
+def extract_characters_from_script(script_text: str) -> list[dict]:
+    """从剧本正文（尤其是人物小传/角色介绍段落，或出场人物标记）兜底提取结构化角色卡。"""
+    if not script_text:
+        return []
+
+    # 1. 尝试定位人物小传 / 角色介绍区域
+    bio_section = None
+    patterns = [
+        r"(?:##\s*|\b)[四4][、.\s]*人物小传[\s\S]*?(?=(?:##\s*|\b)[五5][、.\s]*剧本大纲|(?:##\s*|\b)[六6][、.\s]*剧本正文|\Z)",
+        r"(?:##\s*|\b)(?:人物小传|主要角色|角色设定|角色列表|出演角色)[\s\S]*?(?=(?:##\s*|\b)(?:剧本大纲|分镜大纲|分镜头大纲|剧本正文|正文)|\Z)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, script_text)
+        if m:
+            bio_section = m.group(0)
+            break
+
+    search_text = bio_section if bio_section else script_text
+    split_pat = r"\n(?=(?:\*{0,2}【角色\d+】|\*{0,2}【[^】\n]+】|###+\s*【?[^】\n]+】?|\d+[\.、]\s*【?[^】\n]+】?))"
+    blocks = re.split(split_pat, search_text)
+
+    characters: list[dict] = []
+    seen_names: set[str] = set()
+
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        if any(h in block for h in ("人物小传", "主要角色", "角色设定")) and len(block) < 30:
+            continue
+
+        first_line = block.split("\n")[0].strip("*# -")
+        name = None
+        m1 = re.search(r"【角色\d+】[·\s]*([^\s（(【】·]+)", first_line)
+        if m1:
+            name = m1.group(1).strip()
+        else:
+            m2 = re.search(r"【([^】]+)】", first_line)
+            if m2:
+                raw = m2.group(1).strip()
+                if re.match(r"^角色\d+$", raw):
+                    sub = re.search(r"角色\d+[·\s]+([^\s（(【】]+)", first_line)
+                    if sub:
+                        name = sub.group(1).strip()
+                else:
+                    name = re.sub(r"^角色\d+[·\s]*", "", raw).strip()
+            else:
+                m3 = re.search(r"^(?:\d+[\.、]\s*)?([^\s:：（(]+)", first_line)
+                if m3:
+                    cand = m3.group(1).strip()
+                    if cand not in ("四", "人物小传", "角色", "主要角色", "一", "二", "三", "五", "六"):
+                        name = cand
+
+        if not name or len(name) > 15:
+            continue
+        name = re.sub(r"[（(][^）)]*[）)]", "", name).strip("·:：*# ")
+        if not name or name in seen_names or len(name) > 12:
+            continue
+
+        seen_names.add(name)
+        lines = block.split("\n")[1:]
+        profile: dict = {}
+        visual_profile: dict = {}
+        appearance_parts: list[str] = []
+
+        for line in lines:
+            line = line.strip("* -")
+            if not line:
+                continue
+            if "：" in line or ":" in line:
+                parts = re.split(r"[：:]", line, maxsplit=1)
+                k = parts[0].strip()
+                v = parts[1].strip() if len(parts) > 1 else ""
+                if any(vk in k for vk in ("视觉", "外貌", "外观", "形象", "服饰", "体态", "样貌")):
+                    visual_profile[k] = v
+                    appearance_parts.append(v)
+                else:
+                    profile[k] = v
+            elif any(vk in line for vk in ("视觉", "长相", "身材", "穿着", "面容")):
+                appearance_parts.append(line)
+
+        appearance = "，".join(appearance_parts) or f"{name}人物形象特写与全身站姿"
+        role_type = "supporting"
+        idx = len(characters)
+        if idx == 0:
+            role_type = "protagonist"
+        elif any(ant in str(profile.get("核心标签", "")) or ant in str(profile.get("身份背景", "")) for ant in ("反派", "敌对", "反角")):
+            role_type = "antagonist"
+        elif idx == 1:
+            role_type = "protagonist"
+
+        art_prompt = (
+            f"16:9比例画面，角色立绘四视图设计，左侧半身大头照正面特写为主视图（展示面部五官轮廓与神态细节），"
+            f"右侧并列三张侧式图（全身正面、全身侧面、全身背面三视图，完整站立，从头到脚全身入镜）。"
+            f"同一人物一致性（Same identity, facial consistency）。"
+            f"人物主体：{name}，{appearance}。"
+            f"服饰造型精致，材质质感清晰，电影级柔光摄影棚背景，侧逆光勾勒轮廓，照片级真实质感，电影级高清画质 --ar 16:9"
+        )
+        negative_prompt = "畸形肢体，多余手指，肢体残缺，模糊失焦，低分辨率，插画感，二次元感，3D建模感，假皮塑料感，多头，画面割裂"
+
+        characters.append({
+            "name": name,
+            "role_type": role_type,
+            "profile": profile,
+            "visual_profile": visual_profile,
+            "appearance_prompt": appearance,
+            "art_prompt": art_prompt,
+            "negative_prompt": negative_prompt,
+        })
+
+    # 若未能从小传解析出角色，尝试从出场人物或正文锚点提取
+    if not characters:
+        cast_match = re.search(r"出场人物[：:]\s*([^\n\r]+)", script_text)
+        if cast_match:
+            raw_cast = cast_match.group(1)
+            for part in re.split(r"[,，、\s]+", raw_cast):
+                m = re.search(r"(?:【角色\d+】|【)?([^\s（(【】·]+)", part)
+                if m:
+                    cand_name = m.group(1).strip("【】*· ")
+                    cand_name = re.sub(r"[（(][^）)]*[）)]", "", cand_name).strip()
+                    if cand_name and cand_name not in seen_names and len(cand_name) <= 10:
+                        seen_names.add(cand_name)
+                        characters.append({
+                            "name": cand_name,
+                            "role_type": "protagonist" if not characters else "supporting",
+                            "profile": {},
+                            "visual_profile": {},
+                            "appearance_prompt": f"{cand_name}人物形象特写与全身站姿",
+                            "art_prompt": (
+                                f"16:9比例画面，角色立绘四视图设计，左侧半身大头照正面特写主视图，右侧并列三张侧式图（全身正面、侧面、背面）。"
+                                f"同一人物一致性。人物主体：{cand_name}。造型精致，照片级真实质感 --ar 16:9"
+                            ),
+                            "negative_prompt": "畸形肢体，多余手指，模糊，插画感，3D感",
+                        })
+
+    if not characters:
+        matches = re.findall(r"【角色\d+[·\s]+([^\s（(【】·]+)】", script_text)
+        for cand_name in matches:
+            cand_name = cand_name.strip("【】*· ")
+            cand_name = re.sub(r"[（(][^）)]*[）)]", "", cand_name).strip()
+            if cand_name and cand_name not in seen_names and len(cand_name) <= 10:
+                seen_names.add(cand_name)
+                characters.append({
+                    "name": cand_name,
+                    "role_type": "protagonist" if not characters else "supporting",
+                    "profile": {},
+                    "visual_profile": {},
+                    "appearance_prompt": f"{cand_name}人物形象特写与全身站姿",
+                    "art_prompt": (
+                        f"16:9比例画面，角色立绘四视图设计，左侧半身大头照正面特写主视图，右侧并列三张侧式图（全身正面、侧面、背面）。"
+                        f"同一人物一致性。人物主体：{cand_name}。造型精致，照片级真实质感 --ar 16:9"
+                    ),
+                    "negative_prompt": "畸形肢体，多余手指，模糊，插画感，3D感",
+                })
+
+    return characters[:_MAX_CARDS]
+
+
 def split_dual_track(full_text: str) -> DualTrack:
     """剥离尾部角色卡与关键帧 JSON 块，返回双轨解析结果（永不抛异常）。"""
     full_text = full_text or ""
@@ -209,10 +367,13 @@ def split_dual_track(full_text: str) -> DualTrack:
     if begin_index < 0:
         script_text = full_text.strip()
         keyframes = _extract_keyframes_from_script(script_text)
+        cards = extract_characters_from_script(script_text)
         return DualTrack(
             script_text=script_text,
+            cards=cards,
             keyframes=keyframes,
-            error="未找到结构化数据块",
+            ok=bool(cards or keyframes),
+            error=None if (cards or keyframes) else "未找到结构化数据块",
         )
     script_text = full_text[:begin_index].rstrip()
     end_index = full_text.find(CARDS_END, begin_index + len(CARDS_BEGIN))
@@ -220,10 +381,13 @@ def split_dual_track(full_text: str) -> DualTrack:
     payload = _loads_tolerant(raw)
     if not isinstance(payload, dict):
         keyframes = _extract_keyframes_from_script(script_text)
+        cards = extract_characters_from_script(script_text)
         return DualTrack(
             script_text=script_text,
+            cards=cards,
             keyframes=keyframes,
-            error="结构化数据块不是合法 JSON 对象",
+            ok=bool(cards or keyframes),
+            error=None if (cards or keyframes) else "结构化数据块不是合法 JSON 对象",
         )
     cards: list[dict] = []
     raw_cards = payload.get("characters")
@@ -235,6 +399,10 @@ def split_dual_track(full_text: str) -> DualTrack:
         card = _normalize_card(item)
         if card is not None:
             cards.append(card)
+
+    # 如果 JSON 中未产出角色卡，从剧本正文兜底提取
+    if not cards:
+        cards = extract_characters_from_script(script_text)
 
     raw_keyframes = payload.get("keyframes")
     keyframes: list[dict] = []

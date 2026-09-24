@@ -220,23 +220,8 @@ function pollTask() {
       artTask.value = res.data;
       if (["succeeded", "failed", "cancelled"].includes(res.data.status)) {
         if (res.data.status === "succeeded") {
-          ElMessage.success("立绘生成完成");
+          ElMessage.success(`角色「${card.value?.name || "角色"}」立绘生成完成`);
           emit("changed");
-          // 给用户选择是否立即存入角色库
-          try {
-            await ElMessageBox.confirm(
-              `角色「${card.value?.name || "角色"}」的立绘已生成完成，是否立即存入角色库？`,
-              "存入角色库确认",
-              {
-                confirmButtonText: "立即存入角色库",
-                cancelButtonText: "暂不存入",
-                type: "success",
-              }
-            );
-            await saveToLibrary();
-          } catch {
-            ElMessage.info("已生成，您也可以随时在立绘下方点击「存入角色库」进行收编");
-          }
         } else {
           ElMessage.error(`立绘生成失败：${res.data.error_message ?? "未知原因"}`);
         }

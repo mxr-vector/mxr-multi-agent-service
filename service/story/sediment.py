@@ -1116,3 +1116,142 @@ class SedimentService:
                 await asyncio.to_thread(_cleanup)
 
             return {"saved_count": saved_count, "items": saved_keyframes}
+
+    async def extract_characters(
+        self, ctx, session_id: uuid.UUID, message_id: uuid.UUID | None = None
+    ) -> dict:
+        """从会话剧本中提取角色卡，并生成对应的角色卡消息。"""
+        if not ctx.user_id:
+            bad_except("角色提取仅支持用户通道调用")
+        from datetime import datetime, timezone
+
+        from agent.constants.enums.chat import ChatRole
+        from database.story.session import SessionRepository
+        from service.story.contract import extract_characters_from_script
+        from service.story.session import StorySessionService
+
+        async with get_session() as db:
+            story_session, project = await StorySessionService()._assert_session_owned(
+                db, session_id, ctx
+            )
+            message_repo = MessageRepository(db)
+            script_text = ""
+            params_snapshot = {}
+
+            if message_id:
+                msg = await message_repo.get(message_id)
+                if msg and msg.session_id == session_id:
+                    script_text = msg.content or ""
+                    params_snapshot = msg.params or {}
+            if not script_text:
+                recent_msgs = await message_repo.list_recent(session_id, 20)
+                for m in recent_msgs:
+                    if m.kind == StoryMessageKind.SCRIPT.value and m.content:
+                        script_text = m.content
+                        params_snapshot = m.params or {}
+                        break
+            if not script_text:
+                current_script = await ScriptRepository(db).get_current(project.id)
+                if current_script and current_script.content:
+                    script_text = current_script.content
+
+            if not script_text:
+                bad_except("会话中暂无可用剧本，请先生成剧本")
+
+            cards = extract_characters_from_script(script_text)
+            if not cards:
+                bad_except("未能从剧本中识别出角色，请确认剧本中包含人物小传或主要角色说明")
+
+            stmt = select(StoryMessage).where(
+                StoryMessage.session_id == session_id,
+                StoryMessage.kind == StoryMessageKind.CHARACTER.value,
+            )
+            res = await db.execute(stmt)
+            existing_msgs = list(res.scalars().all())
+            existing_names = set()
+            for em in existing_msgs:
+                card_data = (em.params or {}).get(CARD_DATA_KEY)
+                if isinstance(card_data, dict) and card_data.get("name"):
+                    existing_names.add(card_data["name"])
+
+            new_cards = []
+            for card in cards:
+                name = card.get("name")
+                if not name or name in existing_names:
+                    continue
+                existing_names.add(name)
+                seq = await message_repo.next_sequence(session_id)
+                await message_repo.create(
+                    message_id=uuid7(),
+                    session_id=session_id,
+                    role=ChatRole.ASSISTANT.value,
+                    sequence=seq,
+                    kind=StoryMessageKind.CHARACTER.value,
+                    content=f"角色卡：{name}",
+                    prompt=card.get("art_prompt"),
+                    params={CARD_DATA_KEY: card, **params_snapshot},
+                )
+                new_cards.append(card)
+
+            if new_cards:
+                await SessionRepository(db).touch(
+                    story_session,
+                    message_delta=len(new_cards),
+                    message_at=datetime.now(timezone.utc),
+                )
+                await db.commit()
+
+            return {
+                "characters": cards,
+                "created_count": len(new_cards),
+                "total_count": len(existing_names),
+            }
+
+    async def save_all_characters(self, ctx, session_id: uuid.UUID) -> dict:
+        """当前会话中全部未沉淀的角色卡一键存入角色库并登记项目出演。"""
+        if not ctx.user_id:
+            bad_except("角色沉淀仅支持用户通道调用")
+        from service.story.session import StorySessionService
+        from utils.logger import logger
+
+        async with get_session() as db:
+            story_session, project = await StorySessionService()._assert_session_owned(
+                db, session_id, ctx
+            )
+            stmt = (
+                select(StoryMessage)
+                .where(
+                    StoryMessage.session_id == session_id,
+                    StoryMessage.kind == StoryMessageKind.CHARACTER.value,
+                )
+                .order_by(StoryMessage.sequence.asc())
+            )
+            res = await db.execute(stmt)
+            messages = list(res.scalars().all())
+
+        saved_count = 0
+        saved_items = []
+        for msg in messages:
+            if (msg.params or {}).get(_SEDIMESTED_KEY):
+                continue
+            card = (msg.params or {}).get(CARD_DATA_KEY)
+            if not isinstance(card, dict) or not card.get("name"):
+                continue
+            name = card["name"].strip()
+            async with get_session() as db:
+                existing = await CharacterRepository(db).get_by_name(ctx.user_id, name)
+                mode = "merge" if existing else "new"
+                char_id = existing.id if existing else None
+            try:
+                res = await self.save_character(
+                    ctx,
+                    message_id=msg.id,
+                    mode=mode,
+                    character_id=char_id,
+                )
+                saved_count += 1
+                saved_items.append(res)
+            except Exception as e:
+                logger.warning(f"[STORY] 批量存入角色失败 {name}: {e}")
+
+        return {"saved_count": saved_count, "items": saved_items}

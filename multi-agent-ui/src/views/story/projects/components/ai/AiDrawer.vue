@@ -256,7 +256,7 @@ const tabEmptyDescription = computed(() => {
     return "暂无分镜关键帧，生成剧本后将自动拆解分镜关键帧";
   }
   if (activeTab.value === "art") {
-    return "暂无人物立绘，生成剧本提取角色后可一键生成立绘";
+    return "暂无人物立绘与角色卡，点击下方按钮「从剧本提取角色」后可生成立绘";
   }
   return "向 AI 描述你的故事，生成剧本与角色卡";
 });
@@ -410,6 +410,71 @@ async function handleSaveAllKeyframes() {
   }
 }
 
+/** 角色卡计数 */
+const characterCardsCount = computed(() => {
+  return ai.messages.value.filter((m) => m.kind === "character").length;
+});
+
+/** 未沉淀角色卡计数 */
+const unsavedCharacterCount = computed(() => {
+  return ai.messages.value.filter(
+    (m) => m.kind === "character" && !m.params?.["sedimented_character_id"]
+  ).length;
+});
+
+/** 会话中是否存在剧本 */
+const hasScriptMessage = computed(() => {
+  return ai.messages.value.some((m) => m.kind === "script");
+});
+
+const extractingCharacters = ref(false);
+
+/** 从剧本提取角色 */
+async function handleExtractCharacters() {
+  if (!ai.activeSession.value || extractingCharacters.value) {
+    if (!ai.activeSession.value) {
+      ElMessage.warning("请先选择或新建生成会话");
+    }
+    return;
+  }
+  extractingCharacters.value = true;
+  try {
+    const res = await storyAiApi.extractCharacters(ai.activeSession.value.id);
+    const count = res.data?.characters?.length ?? 0;
+    const created = res.data?.created_count ?? 0;
+    if (created > 0) {
+      ElMessage.success(`成功从剧本提取并生成 ${created} 个角色卡`);
+    } else if (count > 0) {
+      ElMessage.info(`剧本中的 ${count} 个角色已提取就绪`);
+    } else {
+      ElMessage.warning("未能在剧本中识别出角色，请确认剧本包含人物小传");
+    }
+    await onCardChanged();
+    activeTab.value = "art";
+  } catch {
+    // 错误拦截器统一处理
+  } finally {
+    extractingCharacters.value = false;
+  }
+}
+
+const savingAllCharacters = ref(false);
+
+/** 一键存入所有角色 */
+async function handleSaveAllCharacters() {
+  if (!ai.activeSession.value || savingAllCharacters.value) return;
+  savingAllCharacters.value = true;
+  try {
+    const res = await storyAiApi.saveAllCharacters(ai.activeSession.value.id);
+    ElMessage.success(`成功存入 ${res.data?.saved_count ?? 0} 个角色到角色库并登记出演`);
+    await onCardChanged();
+  } catch {
+    // 错误拦截器统一处理
+  } finally {
+    savingAllCharacters.value = false;
+  }
+}
+
 defineExpose({
   /** 生成中标记（父级收起抽屉时提示） */
   isStreaming: computed(() => ai.streaming.value),
@@ -478,6 +543,44 @@ defineExpose({
         >
           存入全部关键帧
         </el-button>
+      </div>
+
+      <!-- 人物立绘快捷 Banner（在人物立绘或全部 tab 展示） -->
+      <div
+        v-if="activeTab === 'art' || (activeTab === 'all' && (characterCardsCount > 0 || hasScriptMessage))"
+        class="tab-action-banner art-action-banner"
+      >
+        <div class="banner-info">
+          <span class="banner-icon">👤</span>
+          <span v-if="characterCardsCount > 0">
+            角色卡：<strong>{{ characterCardsCount }}</strong> 个
+            <template v-if="unsavedCharacterCount > 0">
+              （待入库 <strong>{{ unsavedCharacterCount }}</strong> 个）
+            </template>
+          </span>
+          <span v-else>
+            暂无角色卡，可从剧本直接提取
+          </span>
+        </div>
+        <div class="banner-actions">
+          <el-button
+            size="small"
+            :type="characterCardsCount === 0 ? 'primary' : 'default'"
+            :loading="extractingCharacters"
+            @click="handleExtractCharacters"
+          >
+            {{ characterCardsCount > 0 ? "重新提取角色" : "从剧本提取角色" }}
+          </el-button>
+          <el-button
+            v-if="unsavedCharacterCount > 0"
+            size="small"
+            type="primary"
+            :loading="savingAllCharacters"
+            @click="handleSaveAllCharacters"
+          >
+            存入全部角色
+          </el-button>
+        </div>
       </div>
 
       <template
@@ -559,7 +662,16 @@ defineExpose({
         v-else-if="!ai.loadingMessages.value"
         :description="tabEmptyDescription"
         :image-size="90"
-      />
+      >
+        <el-button
+          v-if="activeTab === 'art'"
+          type="primary"
+          :loading="extractingCharacters"
+          @click="handleExtractCharacters"
+        >
+          从剧本提取角色
+        </el-button>
+      </el-empty>
     </div>
 
     <!-- 生成表单：支持剧本与立绘双模式 -->
@@ -685,6 +797,18 @@ defineExpose({
 }
 .banner-icon {
   font-size: 14px;
+}
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.art-action-banner {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+.art-action-banner .banner-info {
+  color: #5b21b6;
 }
 
 .message-stream {

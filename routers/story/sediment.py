@@ -213,3 +213,32 @@ async def save_all_keyframes(
     )
 
 
+class ExtractCharactersRequest(BaseModel):
+    """提取角色请求体：可选指定剧本消息 ID。"""
+
+    message_id: Optional[uuid.UUID] = Field(default=None, description="指定剧本消息ID（可选）")
+
+
+@router.post("/sessions/{session_id}/extract-characters")
+async def extract_characters(
+    session_id: uuid.UUID = Path(...),
+    payload: ExtractCharactersRequest = Body(default=ExtractCharactersRequest()),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """从会话剧本中提取角色卡并生成角色卡消息。"""
+    return R.success(
+        data=await _sediment_service.extract_characters(ctx, session_id, payload.message_id)
+    )
+
+
+@router.post("/sessions/{session_id}/save-characters")
+async def save_all_characters(
+    session_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """一键将当前会话中的全部角色卡存入角色库并登记项目出演。"""
+    return R.success(
+        data=await _sediment_service.save_all_characters(ctx, session_id)
+    )
+
+

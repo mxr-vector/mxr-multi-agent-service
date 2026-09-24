@@ -17,11 +17,11 @@ cat env/host.txt >> /etc/hosts
 type env\host.txt >> C:\Windows\System32\drivers\etc\hosts
 ```
 
-|功能实现|状态|
-|--|--|
-|RAG系统|- [:heavy_check_mark:]|
-|AI剧本生成|- [:x:]|
-|AI图像转写手绘|- [:smile:]|
+|功能实现|状态|阅读文档 |
+|--|--|--|
+|RAG系统|- [:heavy_check_mark:]|RAG 系统（知识库检索增强）[RAG.md](readme/RAG.md)|
+|AI剧本生成|- [:x:]|剧本、人物立绘、关键帧生成 [STORY.md](readme/STORY.md)|
+|AI图像转写手绘|- [:smile:]|Draw 系统（AI 绘图）：[DRAW.md](readme/DRAW.md)|
 
 ## 1.1 项目结构
 
@@ -57,11 +57,6 @@ project
 |
 |—— readme 必读内容 （含数据库sql文件）
 ```
-
-## 1.2 功能模块
-
-- RAG 系统（知识库检索增强）：[RAG.md](readme/RAG.md)
-- Draw 系统（AI 绘图）：[DRAW.md](readme/DRAW.md)
 
 # 二.本地VLLM推理框架部署
 
