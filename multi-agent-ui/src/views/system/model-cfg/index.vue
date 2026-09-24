@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
-import { modelConfigApi, type ModelConfig } from "@/api/system/modelConfig";
+import { modelConfigApi, type ModelConfig, type ConnectionTestResult } from "@/api/system/modelConfig";
 import { useDictStore } from "@/stores/dictStore";
 import FormDialog from "@/components/ui/FormDialog.vue";
 import ModelCard from "./ModelCard.vue";
@@ -51,6 +51,82 @@ const form = reactive({
   image_quality: "",
   remark: "",
 });
+
+// 可选模型列表（拉取自 v1/models）与拉取状态
+const availableModels = ref<string[]>([]);
+const fetchingModels = ref(false);
+
+// 弹窗内连通测试状态
+const dialogTesting = ref(false);
+const dialogTestResult = ref<ConnectionTestResult | null>(null);
+
+function handleModelSelectBlur(e: FocusEvent) {
+  const target = e.target as HTMLInputElement;
+  if (target && target.value && target.value.trim()) {
+    const val = target.value.trim();
+    form.model_name = val;
+    if (!availableModels.value.includes(val)) {
+      availableModels.value.push(val);
+    }
+  }
+}
+
+async function fetchAvailableModels() {
+  if (!form.api_url?.trim()) {
+    ElMessage.warning("请先填写接口地址");
+    return;
+  }
+  fetchingModels.value = true;
+  try {
+    const res = await modelConfigApi.fetchModels({
+      config_id: editing.value?.id,
+      api_url: form.api_url.trim(),
+      api_key: form.api_key.trim() || undefined,
+    });
+    const models = res.data?.models ?? [];
+    if (form.model_name && !models.includes(form.model_name)) {
+      availableModels.value = [form.model_name, ...models];
+    } else {
+      availableModels.value = models;
+    }
+    const ms = res.data?.latency_ms ? ` (${res.data.latency_ms}ms)` : "";
+    ElMessage.success(`成功拉取 ${models.length} 个可用模型${ms}`);
+  } catch {
+    // 错误由 request 统一提示
+  } finally {
+    fetchingModels.value = false;
+  }
+}
+
+async function testDialogConnection() {
+  if (!form.api_url?.trim()) {
+    ElMessage.warning("请先填写接口地址");
+    return;
+  }
+  dialogTesting.value = true;
+  try {
+    const res = await modelConfigApi.testConnection({
+      config_id: editing.value?.id,
+      api_url: form.api_url.trim(),
+      api_key: form.api_key.trim() || undefined,
+    });
+    dialogTestResult.value = res.data;
+    if (res.data?.connected) {
+      ElMessage.success(`接口连通正常，耗时 ${res.data.latency_ms}ms`);
+    } else {
+      ElMessage.warning(res.data?.msg || "连通测试未通过");
+    }
+  } catch (error: any) {
+    dialogTestResult.value = {
+      connected: false,
+      latency_ms: null,
+      msg: error?.message || "连通测试失败",
+    };
+  } finally {
+    dialogTesting.value = false;
+  }
+}
+
 const rules: FormRules = {
   name: [{ required: true, message: "请输入卡片名称", trigger: "blur" }],
   model_name: [{ required: true, message: "请输入模型名", trigger: "blur" }],
@@ -93,6 +169,8 @@ function buildImageExtra(): Record<string, unknown> {
 
 function openEdit(config: ModelConfig) {
   editing.value = config;
+  dialogTestResult.value = null;
+  availableModels.value = config.model_name ? [config.model_name] : [];
   const extra = (config.extra ?? {}) as Record<string, unknown>;
   Object.assign(form, {
     name: config.name,
@@ -111,6 +189,7 @@ function openEdit(config: ModelConfig) {
   dialogVisible.value = true;
   formRef.value?.clearValidate();
 }
+
 
 async function submit() {
   if (!editing.value) return;
@@ -181,10 +260,61 @@ onMounted(loadConfigs);
           <el-input v-model="form.name" maxlength="100" />
         </el-form-item>
         <el-form-item label="模型名" prop="model_name">
-          <el-input v-model="form.model_name" maxlength="200" />
+          <div class="field-with-btn">
+            <el-select
+              v-model="form.model_name"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="请选择或直接输入模型名"
+              :loading="fetchingModels"
+              class="model-select"
+              @blur="handleModelSelectBlur"
+            >
+              <el-option
+                v-for="item in availableModels"
+                :key="item"
+                :label="item"
+                :value="item"
+              />
+            </el-select>
+            <el-button
+              :loading="fetchingModels"
+              :disabled="!form.api_url"
+              @click="fetchAvailableModels"
+              title="访问远程 v1/models 获取可用模型列表"
+            >
+              获取模型
+            </el-button>
+          </div>
         </el-form-item>
         <el-form-item label="接口地址" prop="api_url">
-          <el-input v-model="form.api_url" placeholder="OpenAI 兼容 base_url" />
+          <div class="field-with-btn">
+            <el-input v-model="form.api_url" placeholder="OpenAI 兼容 base_url" />
+            <el-button
+              :loading="dialogTesting"
+              :disabled="!form.api_url"
+              @click="testDialogConnection"
+            >
+              连通测试
+            </el-button>
+          </div>
+          <div
+            v-if="dialogTestResult"
+            class="field-status-tip"
+            :class="{ 'is-success': dialogTestResult.connected, 'is-error': !dialogTestResult.connected }"
+          >
+            <el-tag
+              :type="dialogTestResult.connected ? 'success' : 'danger'"
+              size="small"
+              effect="plain"
+              class="status-tag"
+            >
+              {{ dialogTestResult.connected ? `${dialogTestResult.latency_ms}ms` : '失败' }}
+            </el-tag>
+            <span class="status-msg">{{ dialogTestResult.msg }}</span>
+          </div>
         </el-form-item>
         <el-form-item label="API 密钥">
           <el-input
@@ -284,5 +414,33 @@ onMounted(loadConfigs);
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
+}
+
+.field-with-btn {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-select {
+  flex: 1;
+}
+
+.field-status-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.field-status-tip.is-success .status-msg {
+  color: #67c23a;
+}
+
+.field-status-tip.is-error .status-msg {
+  color: #f56c6c;
 }
 </style>

@@ -1,11 +1,37 @@
 <script setup lang="ts">
 // 单个模型角色配置卡片：展示只读字段，编辑动作向上冒泡由页面统一处理。
-import { computed } from "vue";
-import type { ModelConfig } from "@/api/system/modelConfig";
+import { computed, ref } from "vue";
+import { ElMessage } from "element-plus";
+import { modelConfigApi, type ModelConfig, type ConnectionTestResult } from "@/api/system/modelConfig";
 import { useDictStore } from "@/stores/dictStore";
 
 const props = defineProps<{ config: ModelConfig }>();
 defineEmits<{ edit: [config: ModelConfig] }>();
+
+const testing = ref(false);
+const testResult = ref<ConnectionTestResult | null>(null);
+
+async function handleTestConnection() {
+  testing.value = true;
+  try {
+    const res = await modelConfigApi.testConnection({ config_id: props.config.id });
+    testResult.value = res.data;
+    if (res.data?.connected) {
+      ElMessage.success(`[${props.config.name}] 连通正常，耗时 ${res.data.latency_ms}ms`);
+    } else {
+      ElMessage.warning(`[${props.config.name}] ${res.data?.msg || "连通未通过"}`);
+    }
+  } catch (error: any) {
+    testResult.value = {
+      connected: false,
+      latency_ms: null,
+      msg: error?.message || "连通测试失败",
+    };
+  } finally {
+    testing.value = false;
+  }
+}
+
 
 const dictStore = useDictStore();
 dictStore.ensureLoaded();
@@ -104,7 +130,30 @@ const imageQualityLabel = computed(() => extraDictLabel("image_quality", "qualit
     </dl>
 
     <template #footer>
-      <el-button link type="primary" size="small" @click="$emit('edit', config)">编辑</el-button>
+      <div class="model-card__footer">
+        <div class="model-card__status">
+          <el-tag
+            v-if="testResult"
+            :type="testResult.connected ? 'success' : 'danger'"
+            size="small"
+            effect="plain"
+          >
+            {{ testResult.connected ? `${testResult.latency_ms}ms` : '失败' }}
+          </el-tag>
+        </div>
+        <div class="model-card__actions">
+          <el-button
+            link
+            type="primary"
+            size="small"
+            :loading="testing"
+            @click="handleTestConnection"
+          >
+            连通测试
+          </el-button>
+          <el-button link type="primary" size="small" @click="$emit('edit', config)">编辑</el-button>
+        </div>
+      </div>
     </template>
   </el-card>
 </template>
@@ -149,4 +198,22 @@ const imageQualityLabel = computed(() => extraDictLabel("image_quality", "qualit
 .model-card__mono {
   font-family: var(--el-font-family-mono, monospace);
 }
+
+.model-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.model-card__status {
+  display: flex;
+  align-items: center;
+}
+
+.model-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 </style>
+

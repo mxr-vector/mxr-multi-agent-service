@@ -33,6 +33,51 @@ class ModelConfigUpdate(BaseModel):
     remark: Optional[str] = None
 
 
+class ConnectionTestPayload(BaseModel):
+    """模型接口连通性测试请求体。"""
+
+    config_id: Optional[uuid.UUID] = None
+    api_url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class ModelListPayload(BaseModel):
+    """远程模型列表拉取请求体。"""
+
+    config_id: Optional[uuid.UUID] = None
+    api_url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+@router.post("/test-connection")
+async def test_model_connection(payload: ConnectionTestPayload = Body(...)):
+    """
+    测试模型接口连通性（探测 /v1/models 或基地址），返回连通状态与往返耗时（ms）。
+    支持传入 config_id 自动读取已保存密钥，或传入临时 api_url / api_key 验证。
+    """
+    result = await _service.test_connection(
+        config_id=payload.config_id,
+        api_url=payload.api_url,
+        api_key=payload.api_key,
+    )
+    return R.success(data=result, msg=result.get("msg", "测试完成"))
+
+
+@router.post("/models")
+async def list_remote_models(payload: ModelListPayload = Body(...)):
+    """
+    访问远程 OpenAI 兼容接口（v1/models）拉取可用模型列表。
+    支持传入 config_id 自动读取已保存密钥，或传入临时 api_url / api_key。
+    """
+    result = await _service.get_available_models(
+        config_id=payload.config_id,
+        api_url=payload.api_url,
+        api_key=payload.api_key,
+    )
+    return R.success(data=result)
+
+
+
 @router.get("")
 async def list_model_configs():
     """全量列出模型配置（api_key 掩码），供卡片页渲染。"""

@@ -47,6 +47,34 @@ export interface ModelConfigUpdatePayload {
 /** 更新返回体：在模型配置基础上附带热更新是否生效标识 */
 export type ModelConfigUpdateResult = ModelConfig & { refreshed?: boolean };
 
+/** 连通测试请求入参 */
+export interface ConnectionTestPayload {
+  config_id?: string;
+  api_url?: string;
+  api_key?: string;
+}
+
+/** 连通测试结果 */
+export interface ConnectionTestResult {
+  connected: boolean;
+  latency_ms: number | null;
+  status_code?: number | null;
+  msg: string;
+}
+
+/** 拉取可用模型请求入参 */
+export interface FetchModelsPayload {
+  config_id?: string;
+  api_url?: string;
+  api_key?: string;
+}
+
+/** 拉取可用模型响应载荷 */
+export interface FetchModelsResult {
+  models: string[];
+  latency_ms: number;
+}
+
 /** 模型配置管理 API：统一通过 modelConfigApi.xx() 调用 */
 export const modelConfigApi = {
   /** 全量列出模型配置（api_key 掩码），供卡片页渲染 */
@@ -66,4 +94,21 @@ export const modelConfigApi = {
       payload
     );
   },
+
+  /** 测试模型接口连通性（带延迟 ms） */
+  testConnection(payload: ConnectionTestPayload) {
+    return request.post<ConnectionTestResult, ApiResult<ConnectionTestResult>>(
+      MODEL_CONFIG_URL.testConnection,
+      payload
+    );
+  },
+
+  /** 访问远程 v1/models 获取可用模型列表 */
+  fetchModels(payload: FetchModelsPayload) {
+    return request.post<FetchModelsResult, ApiResult<FetchModelsResult>>(
+      MODEL_CONFIG_URL.models,
+      payload
+    );
+  },
 };
+

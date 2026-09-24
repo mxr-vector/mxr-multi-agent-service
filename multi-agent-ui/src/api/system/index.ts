@@ -58,6 +58,10 @@ export const CONFIG_URL = {
 export const MODEL_CONFIG_URL = {
   /** 全量列表（api_key 掩码） */
   root: `${BASE}/model-configs`,
+  /** 连通性测试（带 ms 延迟） */
+  testConnection: `${BASE}/model-configs/test-connection`,
+  /** 访问远程 v1/models 获取可用模型列表 */
+  models: `${BASE}/model-configs/models`,
   /** 按 id 更新 / 删除 */
   byId: (id: string) => `${BASE}/model-configs/${id}`,
   /** 按角色精确查询 */
