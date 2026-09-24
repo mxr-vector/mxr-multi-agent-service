@@ -4,7 +4,7 @@
  * 支持「创建图片」单点切换常亮模式，圆角现代化 UI 风格；
  * 支持通用文档解析与拖拽/粘贴。
  */
-import { computed, nextTick, ref } from "vue";
+import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   Close,
@@ -62,39 +62,6 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-// —— 输入框引用与人物/位置按编号快捷插入 ——
-const textareaRef = ref<any>(null);
-
-const CHARACTER_POSITIONS = [
-  { label: "画面居中", value: "画面居中" },
-  { label: "画面左侧", value: "画面左侧" },
-  { label: "画面右侧", value: "画面右侧" },
-  { label: "前景", value: "前景" },
-  { label: "背景", value: "背景" },
-];
-
-function insertTextAtCursor(insertText: string) {
-  const el = textareaRef.value?.$el?.querySelector("textarea") as HTMLTextAreaElement | null;
-  if (!el) {
-    form.value.idea = (form.value.idea || "") + insertText;
-    return;
-  }
-  const start = el.selectionStart ?? (form.value.idea?.length ?? 0);
-  const end = el.selectionEnd ?? start;
-  const oldText = form.value.idea || "";
-  form.value.idea = oldText.substring(0, start) + insertText + oldText.substring(end);
-  const nextPos = start + insertText.length;
-  nextTick(() => {
-    el.focus();
-    el.setSelectionRange(nextPos, nextPos);
-  });
-}
-
-function insertCharacter(num: number, name?: string, position?: string) {
-  const charPart = name ? `【角色${num}·${name}】` : `【角色${num}】`;
-  const fullText = position ? `[${position}]${charPart}` : charPart;
-  insertTextAtCursor(fullText);
-}
 
 // —— 隐藏文件选择器引用与触发 ——
 const docFileInput = ref<HTMLInputElement | null>(null);
@@ -533,90 +500,7 @@ function handleSubmit() {
         @drop.prevent="handleDrop"
         @dragover.prevent
       >
-        <!-- 按编号插入人物与画面出现位置快捷条 -->
-        <div v-if="!isImageMode" class="character-insert-bar">
-          <span class="insert-bar-label">按编号插入人物：</span>
-          <div class="insert-bar-items">
-            <!-- 若存在角色候选，展示角色编号卡 -->
-            <template v-if="characters && characters.length > 0">
-              <el-dropdown
-                v-for="(c, idx) in characters"
-                :key="c.id || idx"
-                trigger="click"
-                placement="bottom-start"
-                size="small"
-              >
-                <button
-                  type="button"
-                  class="char-chip-btn"
-                  :title="`插入【角色${idx + 1}·${c.name}】（点击展开位置选择）`"
-                >
-                  <span class="char-chip-num">角色{{ idx + 1 }}</span>
-                  <span class="char-chip-name">{{ c.name }}</span>
-                </button>
-                <template #dropdown>
-                  <el-dropdown-menu class="char-position-menu">
-                    <el-dropdown-item @click="insertCharacter(idx + 1, c.name)">
-                      直接插入编号：【角色{{ idx + 1 }}·{{ c.name }}】
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                      v-for="pos in CHARACTER_POSITIONS"
-                      :key="pos.value"
-                      @click="insertCharacter(idx + 1, c.name, pos.value)"
-                    >
-                      [{{ pos.label }}]【角色{{ idx + 1 }}·{{ c.name }}】
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </template>
-
-            <!-- 默认通用编号快捷插入 -->
-            <template v-else>
-              <el-dropdown
-                v-for="num in [1, 2, 3]"
-                :key="num"
-                trigger="click"
-                placement="bottom-start"
-                size="small"
-              >
-                <button type="button" class="char-chip-btn">
-                  <span class="char-chip-num">【角色{{ num }}】</span>
-                </button>
-                <template #dropdown>
-                  <el-dropdown-menu class="char-position-menu">
-                    <el-dropdown-item @click="insertCharacter(num)">
-                      直接插入编号：【角色{{ num }}】
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                      v-for="pos in CHARACTER_POSITIONS"
-                      :key="pos.value"
-                      @click="insertCharacter(num, undefined, pos.value)"
-                    >
-                      [{{ pos.label }}]【角色{{ num }}】
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </template>
-
-            <!-- 画面位置独立快速插入 -->
-            <div class="position-quick-tags">
-              <span class="pos-label">位置:</span>
-              <span
-                v-for="pos in CHARACTER_POSITIONS"
-                :key="pos.value"
-                class="pos-tag-btn"
-                @click="insertTextAtCursor(`[${pos.value}]`)"
-              >
-                {{ pos.label }}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <el-input
-          ref="textareaRef"
           v-model="form.idea"
           type="textarea"
           :rows="3"
@@ -952,97 +836,6 @@ function handleSubmit() {
 /* 现代化无界输入框 */
 .input-row {
   padding: 2px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* 人物与位置快捷插入栏 */
-.character-insert-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 5px 8px;
-  background: #f8fafc;
-  border-radius: 8px;
-  border: 1px dashed #cbd5e1;
-  font-size: 12px;
-}
-
-.insert-bar-label {
-  color: #64748b;
-  font-weight: 500;
-  font-size: 11px;
-  user-select: none;
-}
-
-.insert-bar-items {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.char-chip-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 11px;
-  color: #1e293b;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.char-chip-btn:hover {
-  background: #eef2ff;
-  border-color: #6366f1;
-  color: #4f46e5;
-  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.15);
-}
-
-.char-chip-num {
-  font-weight: 600;
-  color: #4f46e5;
-}
-
-.char-chip-name {
-  color: #334155;
-}
-
-.position-quick-tags {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 6px;
-}
-
-.pos-label {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.pos-tag-btn {
-  display: inline-block;
-  padding: 1px 6px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #475569;
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.15s ease;
-}
-
-.pos-tag-btn:hover {
-  background: #e0e7ff;
-  border-color: #818cf8;
-  color: #4338ca;
 }
 
 :deep(.modern-textarea .el-textarea__inner) {
