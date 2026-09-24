@@ -10,9 +10,9 @@ Story 系统是面向短剧、漫剧、商业广告及 AI 视频创作者的**�
    - Story 模块表结构使用内置 `uuidv7()` 作为主键默认值，要求 PostgreSQL ≥ 18。
    - 执行建表脚本：`database/sql/story_schema.sql`（包含 `story` schema 下项目、角色、立绘、剧本、关键帧、导出包、生成任务与视频成品等全套数据表）。
 2. **AI 模型配置**（前端「模型管理 / 参数管理」页维护，免重启热更新）：
-   - **文本生成模型（Chat / Rewrite）**：如 `Qwen2.5-72B`、`DeepSeek-V3` 等，需支持 Tool Calling / Function Call，用于驱动技能文档阅读与双轨结构化剧本输出；
-   - **图像生成模型（Image）**：如 `FLUX.1`、`SD3.5`、`Midjourney API` 或 OpenAI `dall-e-3` 兼容接口，需支持高分辨率出图与参考图输入（图生图/多模态控制），用于人物立绘与关键帧生成；
-   - **多模态理解模型（Visual，可选）**：如 `Qwen2.5-VL`、`Step-1.5V`，支持用户上传剧情参考图、分镜手稿或人设原案的视觉解析。
+   - **文本生成模型（Chat / Rewrite）**：如 `Qwen3.8-flash`、`DeepSeek-flash`、`gemini3.8-flash`、`gpt-5.6-luna` 等，需支持 Tool Calling / Function Call，用于驱动技能文档阅读与双轨结构化剧本输出；
+   - **图像生成模型（Image）**：如 `gpt-image2.5`、`gpt-image-2.0` OpenAI  兼容接口，需支持高分辨率出图与参考图输入（图生图/多模态控制），用于人物立绘与关键帧生成；
+   - **多模态理解模型（Visual，可选）**：如 `Qwen3.8-flash`、`Step-3.7`、`gpt-5.6-terra`，支持用户上传剧情参考图、分镜手稿或人设原案的视觉解析。
 3. **系统菜单配置**：
    - 确认系统管理内已挂载「剧本工坊」与「角色库」菜单（前端对应路由 `story/projects` 与 `story/character`），并为目标角色分配访问权限。
 
