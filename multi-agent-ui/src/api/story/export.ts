@@ -54,4 +54,10 @@ export const exportApi = {
       STORY_EXPORT_URL.byId(id)
     );
   },
+  /** 下载导出包 ZIP（含剧本、人物立绘、关键帧及完整说明） */
+  download(id: string) {
+    return request.get<Blob>(STORY_EXPORT_URL.download(id), {
+      responseType: "blob",
+    });
+  },
 };

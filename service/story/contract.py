@@ -40,9 +40,9 @@ class DualTrack:
 
 _MAX_KEYFRAMES = 50
 
-# 匹配类似: △ 【关键帧 1-1】[中景推近] 画面描述...
+# 匹配类似: △ 【关键帧 1-1】（预估 2秒）[中景推近] [画面居中]【角色1·林冲】...
 _SCRIPT_KEYFRAME_RE = re.compile(
-    r"△\s*【关键帧\s*(\d+)[-–—_](\d+)】\s*(?:\[([^\]]+)\])?\s*([^\n\r]+)",
+    r"△\s*【关键帧\s*(\d+)[-–—_](\d+)】\s*(?:（(?:预估\s*)?(\d+)\s*(?:秒|s|S)?）|\((?:预估\s*)?(\d+)\s*(?:秒|s|S)?\)|（[^）]+）|\([^)]+\))?\s*(?:\[([^\]]+)\])?\s*([^\n\r]+)",
     re.MULTILINE,
 )
 
@@ -62,8 +62,13 @@ def _extract_keyframes_from_script(script_text: str) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        camera_desc = (m[2] or "").strip() or None
-        raw_desc = (m[3] or "").strip()
+        duration_str = m[2] or m[3]
+        try:
+            duration_seconds = int(duration_str) if duration_str else None
+        except (ValueError, TypeError):
+            duration_seconds = None
+        camera_desc = (m[4] or "").strip() or None
+        raw_desc = (m[5] or "").strip()
         name = f"镜头 {scene_no}-{shot_no}"
         visual_desc = raw_desc or None
         prompt = f"{camera_desc}，{raw_desc}" if camera_desc else raw_desc
@@ -71,6 +76,7 @@ def _extract_keyframes_from_script(script_text: str) -> list[dict]:
             "scene_no": scene_no,
             "shot_no": shot_no,
             "name": name,
+            "duration_seconds": duration_seconds,
             "camera_description": camera_desc,
             "scene_description": raw_desc,
             "visual_description": visual_desc,
@@ -95,6 +101,12 @@ def _normalize_keyframe(item) -> dict | None:
     except (ValueError, TypeError):
         shot_no = 1
 
+    duration_val = item.get("duration_seconds") or item.get("duration")
+    try:
+        duration_seconds = int(duration_val) if duration_val is not None else None
+    except (ValueError, TypeError):
+        duration_seconds = None
+
     def _as_str(value) -> str | None:
         text = str(value).strip() if value is not None else ""
         return text or None
@@ -115,6 +127,7 @@ def _normalize_keyframe(item) -> dict | None:
         "scene_no": scene_no,
         "shot_no": shot_no,
         "name": name,
+        "duration_seconds": duration_seconds,
         "camera_description": camera_desc,
         "scene_description": scene_desc,
         "visual_description": visual_desc,

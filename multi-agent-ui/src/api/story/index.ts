@@ -87,6 +87,8 @@ export const STORY_VIDEO_URL = {
 export const STORY_EXPORT_URL = {
   /** 详情 */
   byId: (id: string) => `${BASE}/exports/${id}`,
+  /** 下载 ZIP */
+  download: (id: string) => `${BASE}/exports/${id}/download`,
 } as const;
 
 /** 上传/预览文件的公开访问基址（静态挂载 {BASE_URL}/public/files，免 token） */

@@ -329,9 +329,25 @@ class StoryGraph:
             )
 
         # 系统提示装配：技能文件清单 + 参数 + 历史（按输入预算裁剪）
-        params_hint = "\n".join(
-            f"- {key}: {value}" for key, value in params_snapshot.items() if value
-        )
+        params_hint_items = []
+        for key, value in params_snapshot.items():
+            if not value:
+                continue
+            if key == "episode_duration":
+                params_hint_items.append(
+                    f"- 每集生成时长（大致生成秒数）: {value}秒（单集生成上限最多15s或30s）"
+                )
+            elif key == "episodes":
+                params_hint_items.append(f"- 规划集数: {value}集")
+            elif key == "aspect_ratio":
+                params_hint_items.append(f"- 画面画幅: {value}")
+            elif key == "tone":
+                params_hint_items.append(f"- 故事基调: {value}")
+            elif key == "style_name":
+                params_hint_items.append(f"- 视觉风格: {value}")
+            elif key not in ("style_key", "image_file", "images"):
+                params_hint_items.append(f"- {key}: {value}")
+        params_hint = "\n".join(params_hint_items)
         skill_hint = readable_file_hint(style)
         budget = _input_budget(model_role.context_window)
         fixed_cost = count_tokens(

@@ -169,7 +169,34 @@ function stopPolling() {
   }
 }
 
-onMounted(loadKeyframes);
+const projectCastList = ref<Array<{ id: string; name: string }>>([]);
+
+async function loadProjectCast() {
+  try {
+    const res = await projectApi.listCasting(props.projectId);
+    projectCastList.value = (res.data ?? []).map((c) => ({ id: c.id, name: c.name }));
+  } catch {
+    projectCastList.value = [];
+  }
+}
+
+function insertToKeyframeField(field: "prompt" | "visual_description", text: string) {
+  form[field] = form[field] ? `${form[field]}，${text}` : text;
+}
+
+const POSITIONS = ["画面居中", "画面左侧", "画面右侧", "前景", "背景", "居中偏左", "居中偏右"];
+
+function insertCharToPrompt(num: number, name?: string, pos?: string) {
+  const charTag = name ? `【角色${num}·${name}】` : `【角色${num}】`;
+  const text = pos ? `[${pos}]${charTag}` : charTag;
+  insertToKeyframeField("prompt", text);
+}
+
+
+onMounted(() => {
+  loadKeyframes();
+  loadProjectCast();
+});
 onUnmounted(() => {
   stopPolling();
   clearCreateImage();
@@ -753,6 +780,72 @@ function numbering(keyframe: StoryKeyframeVO): string {
             <span class="muted">场景 + 镜头组合项目内唯一</span>
           </div>
         </el-form-item>
+        <div class="keyframe-helper-bar">
+          <span class="helper-label">按编号插入角色/位置：</span>
+          <div class="helper-chips">
+            <template v-if="projectCastList.length">
+              <el-dropdown
+                v-for="(c, idx) in projectCastList"
+                :key="c.id"
+                trigger="click"
+                size="small"
+              >
+                <button type="button" class="helper-btn">
+                  <span class="btn-num">角色{{ idx + 1 }}</span>
+                  <span>{{ c.name }}</span>
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="insertCharToPrompt(idx + 1, c.name)">
+                      插入提示词：【角色{{ idx + 1 }}·{{ c.name }}】
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-for="pos in POSITIONS"
+                      :key="pos"
+                      @click="insertCharToPrompt(idx + 1, c.name, pos)"
+                    >
+                      [{{ pos }}]【角色{{ idx + 1 }}·{{ c.name }}】
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+            <template v-else>
+              <el-dropdown
+                v-for="num in [1, 2, 3]"
+                :key="num"
+                trigger="click"
+                size="small"
+              >
+                <button type="button" class="helper-btn">
+                  <span class="btn-num">【角色{{ num }}】</span>
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item @click="insertCharToPrompt(num)">
+                      插入提示词：【角色{{ num }}】
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-for="pos in POSITIONS"
+                      :key="pos"
+                      @click="insertCharToPrompt(num, undefined, pos)"
+                    >
+                      [{{ pos }}]【角色{{ num }}】
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+            <span
+              v-for="pos in POSITIONS"
+              :key="pos"
+              class="helper-pos-tag"
+              @click="insertToKeyframeField('prompt', `[${pos}]`)"
+            >
+              {{ pos }}
+            </span>
+          </div>
+        </div>
         <el-form-item label="正向提示词">
           <el-input
             v-model="form.prompt"
@@ -1004,5 +1097,61 @@ function numbering(keyframe: StoryKeyframeVO): string {
   to {
     background-color: #e0f2fe;
   }
+}
+.keyframe-helper-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.helper-label {
+  color: #64748b;
+  font-size: 11px;
+}
+.helper-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.helper-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.helper-btn:hover {
+  background: #eef2ff;
+  border-color: #6366f1;
+  color: #4f46e5;
+}
+.btn-num {
+  font-weight: 600;
+  color: #4f46e5;
+}
+.helper-pos-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  font-size: 11px;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+.helper-pos-tag:hover {
+  background: #cbd5e1;
+  color: #1e293b;
 }
 </style>

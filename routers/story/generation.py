@@ -44,6 +44,9 @@ class ScriptGenerateRequest(BaseModel):
     aspect_ratio: Optional[str] = None
     episodes: Optional[int] = Field(default=None, ge=1, le=100)
     tone: Optional[str] = None
+    episode_duration: Optional[int] = Field(
+        default=None, ge=5, le=60, description="每集大致生成秒数（建议最多15s或30s）"
+    )
     image_file: Optional[str] = Field(default=None, description="主图片相对路径")
     images: Optional[list[str]] = Field(default=None, description="多模态输入图片相对路径列表")
 
@@ -100,6 +103,7 @@ async def generate_script(
         aspect_ratio=payload.aspect_ratio,
         episodes=payload.episodes,
         tone=payload.tone,
+        episode_duration=payload.episode_duration,
         image_file=payload.image_file,
         images=payload.images,
     )

@@ -44,7 +44,14 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
 
   // ---------- 生成表单（制作参数记忆） ----------
   const styles = ref<StoryStyleVO[]>([]);
-  const form = ref<StoryGeneratePayload>({ idea: "", style_key: "", aspect_ratio: "16:9", episodes: null, tone: null });
+  const form = ref<StoryGeneratePayload>({
+    idea: "",
+    style_key: "",
+    aspect_ratio: "16:9",
+    episodes: null,
+    episode_duration: 15,
+    tone: null,
+  });
 
   // ---------- 流式状态 ----------
   const streaming = shallowRef(false);
@@ -105,11 +112,13 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       form.value.style_key = savedKey;
       form.value.aspect_ratio = (params.aspect_ratio as string) ?? "16:9";
       form.value.episodes = (params.episodes as number) ?? null;
+      form.value.episode_duration = (params.episode_duration as number) ?? 15;
       form.value.tone = (params.tone as string) ?? null;
     } else if (styles.value.length && !form.value.style_key) {
       form.value.style_key = styles.value[0].key;
       const ratios = styles.value[0].aspect_ratios ?? [];
       form.value.aspect_ratio = ratios.includes("16:9") ? "16:9" : ratios[0] ?? "16:9";
+      form.value.episode_duration = 15;
     }
     await loadSessions();
     const latest = await storyAiApi.latestSession(projectId.value).catch(() => null);

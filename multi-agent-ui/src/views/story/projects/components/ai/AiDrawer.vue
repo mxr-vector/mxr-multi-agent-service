@@ -7,7 +7,7 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { characterApi, storyAiApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
+import { characterApi, projectApi, storyAiApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
 import { readCard, useStoryAi } from "../../composables/useStoryAi";
 import AiGenerateForm from "./AiGenerateForm.vue";
 import ScriptCard from "./ScriptCard.vue";
@@ -29,6 +29,18 @@ const projectIdRef = computed(() => props.projectId);
 const projectRef = computed(() => props.project);
 const ai = useStoryAi(projectIdRef, projectRef);
 
+const castingCharacters = ref<Array<{ id: string; name: string }>>([]);
+
+async function loadProjectCasting() {
+  if (!props.projectId) return;
+  try {
+    const res = await projectApi.listCasting(props.projectId);
+    castingCharacters.value = (res.data ?? []).map((c) => ({ id: c.id, name: c.name }));
+  } catch {
+    castingCharacters.value = [];
+  }
+}
+
 /** 同名角色精确检测（延迟到"存入角色库"时按名查询，避免详情页打开即全量拉角色库） */
 async function findSameName(name: string): Promise<{ id: string; name: string } | null> {
   if (!name) return null;
@@ -42,7 +54,7 @@ async function findSameName(name: string): Promise<{ id: string; name: string } 
 }
 
 onMounted(async () => {
-  await ai.init();
+  await Promise.all([ai.init(), loadProjectCasting()]);
   scrollToBottom(true);
 });
 
@@ -292,10 +304,11 @@ function getUserImages(message: StoryMessageVO): string[] {
   return images;
 }
 
-/** 从会话已生成角色卡提炼角色候选列表（供生图选择关联） */
+/** 从会话已生成角色卡与项目出演角色提炼角色候选列表（供生图选择关联与按编号快捷插入） */
 const characterOptions = computed(() => {
   const result: Array<{ id: string; name: string; art_prompt?: string | null; message_id?: string }> = [];
   const seen = new Set<string>();
+  // 1. 优先取当前会话中已经产出的角色卡
   for (const msg of ai.messages.value) {
     if (msg.kind === "character") {
       const card = readCard(msg);
@@ -309,6 +322,16 @@ const characterOptions = computed(() => {
           message_id: msg.id,
         });
       }
+    }
+  }
+  // 2. 补充项目出演角色（若尚未生成角色卡时也能快捷按编号引用）
+  for (const cast of castingCharacters.value) {
+    if (cast.name && !seen.has(cast.name)) {
+      seen.add(cast.name);
+      result.push({
+        id: cast.id,
+        name: cast.name,
+      });
     }
   }
   return result;

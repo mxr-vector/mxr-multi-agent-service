@@ -2,10 +2,12 @@
 剧本模块导出包路由：统一格式装配与历史查询。
 """
 
+import urllib.parse
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Path, Query
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from service.story.export import ExportService
@@ -52,5 +54,25 @@ async def export_detail(
     package_id: uuid.UUID = Path(...),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """导出包详情（含快照与可复制文本）。"""
+    """导出包详情（含素材快照清单）。"""
     return R.success(data=await _export_service.detail(ctx, package_id))
+
+
+@router.get("/exports/{package_id}/download")
+async def download_export(
+    package_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """下载导出包 ZIP 文件（含剧本、关键帧、人物立绘及完整说明）。"""
+    buffer, filename = await _export_service.build_zip(ctx, package_id)
+    encoded_filename = urllib.parse.quote(filename)
+    data = buffer.getvalue()
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"export.zip\"; filename*=utf-8''{encoded_filename}",
+            "Content-Length": str(len(data)),
+            "Access-Control-Expose-Headers": "Content-Disposition, Content-Length",
+        },
+    )

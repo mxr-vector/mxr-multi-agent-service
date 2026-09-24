@@ -44,6 +44,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth = request.headers.get("Authorization")
+        if not auth and request.query_params.get("token"):
+            auth = f"Bearer {request.query_params.get('token')}"
 
         # 通道一：静态 API key（机器调用），常数时间比对防时序侧信道。
         # 以 bytes 比对：str 版 compare_digest 遇非 ASCII 头值会抛 TypeError，
