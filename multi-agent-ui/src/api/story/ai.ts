@@ -144,6 +144,7 @@ export interface StoryGeneratePayload {
   episodes?: number | null;
   episode_duration?: number | null;
   tone?: string | null;
+  mode?: "story" | "scenery" | string | null;
   image_file?: string | null;
   images?: string[];
 }

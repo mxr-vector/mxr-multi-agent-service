@@ -59,6 +59,7 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             aspect_ratios=("16:9", "9:16", "4:3"),
             readable_files=(
                 ("SKILL.md", "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）"),
+                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：无剧情/无人物风光流转、空镜光影、场景流转分镜与关键帧出图规则（意境景色任务必读）"),
                 ("references/人物特写与三视图立绘设计规范.md", "16:9 人物立绘专门技能规范：半身大头照主视图+三张侧式图排版结构、五大模块公式与同一人物一致性法则（角色立绘出图必读）"),
                 ("references/好剧本.md", "优秀剧本范例（核心梗/故事梗概/一句话卖点的结构示范）"),
                 ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板"),
@@ -76,6 +77,7 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             aspect_ratios=("16:9", "9:16", "4:3"),
             readable_files=(
                 ("SKILL.md", "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）"),
+                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：国风山水、水墨空镜与场景变换分镜规则"),
                 ("references/上美影风格指南.md", "风格权威定义：上美影风格块/色盘/造型规范/资产模板（涉国风风格以此为准）"),
                 ("references/人物特写与三视图立绘设计规范.md", "16:9 人物立绘专门技能规范：半身大头照主视图+三张侧式图排版结构、国风造型与五大模块公式（角色立绘出图必读）"),
                 ("references/上美影原始提示词.txt", "上美影原始提示词素材与实测范例"),
@@ -91,9 +93,24 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             aspect_ratios=("16:9", "9:16", "3:4"),
             readable_files=(
                 ("SKILL.md", "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）"),
+                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：手绘风光、场景变换分镜规则"),
                 ("references/人物特写与三视图立绘设计规范.md", "16:9 人物立绘设计规范与出图公式"),
                 ("references/好剧本.md", "优秀剧本范例"),
                 ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板"),
+            ),
+        ),
+        StyleEntry(
+            key="scenery",
+            name="纯景意境",
+            description="纯景意境与风光漫游（无剧情/无人物），专注于光影变迁、空间层次与场景变换分镜",
+            skill_dir="seedance-storyboard-generator",
+            aspect_ratios=("16:9", "9:16", "4:3"),
+            readable_files=(
+                ("SKILL.md", "技能主文档：完整工作流、分镜格式规范与关键帧出图提示词规则（生成前必读）"),
+                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：无剧情/无人物风光流转、空镜光影、场景流转分镜与关键帧出图规则（必读）"),
+                ("references/seedance-manual.md", "Seedance 2.0 平台手册与风景旅拍/空镜提示词模板"),
+                ("references/分镜优化与声音设计.md", "分镜优化与声音设计进阶指南（空镜与环境音效）"),
+                ("references/优化分镜.md", "分镜优化速查"),
             ),
         ),
     )

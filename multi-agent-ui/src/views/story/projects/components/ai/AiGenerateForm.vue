@@ -226,6 +226,7 @@ dictStore.ensureLoaded();
 
 /** 风格专属推荐基调映射表（结合各技能包权威定义，用于下拉高频置顶） */
 const STYLE_TONES_MAP: Record<string, string[]> = {
+  scenery: ["空灵", "仙气", "禅意", "治愈", "苍凉", "庄严", "史诗", "幽静"],
   shangmeiying: ["仙气", "禅意", "史诗", "悲壮", "苍凉", "神性", "诡秘", "诙谐"],
   generic: ["史诗", "空灵", "治愈", "悬疑", "热血", "庄严", "幽默", "科幻"],
   handdrawn: ["温馨", "治愈", "童趣", "幽默", "怀旧", "轻松"],
@@ -308,6 +309,9 @@ const inputPlaceholder = computed(() => {
   const exts = COMMON_FILE_EXTENSIONS.join("、");
   if (isImageMode.value) {
     return `[生图模式] 输入画面提示词（人物立绘、分镜关键帧、场景氛围等），支持上传文件：${exts}`;
+  }
+  if (form.value.style_key === "scenery") {
+    return `[纯景意境] 输入意境与景色需求（如江南烟雨西湖四季流转、晨曦到夜幕的光影变幻等），无需人物剧情，支持上传文件：${exts}`;
   }
   return `输入故事设定与创作需求，支持上传文件：${exts}`;
 });

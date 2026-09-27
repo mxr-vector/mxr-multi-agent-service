@@ -78,6 +78,7 @@ class StoryGenerationService:
         episodes: int | None = None,
         tone: str | None = None,
         episode_duration: int | None = None,
+        mode: str | None = None,
         image_file: str | None = None,
         images: list[str] | None = None,
     ):
@@ -108,6 +109,7 @@ class StoryGenerationService:
             "episodes": episodes,
             "tone": tone,
             "episode_duration": episode_duration or 15,
+            "mode": mode or "story",
             "image_file": primary_image,
             "images": all_images,
         }

@@ -71,7 +71,7 @@ async function handleSubmit() {
           v-model="form.description"
           type="textarea"
           :rows="5"
-          placeholder="故事设定/需求描述，是剧本生成的输入"
+          placeholder="故事设定或意境景色描述（如短剧剧情设定，或江南烟雨、赛博夜景等纯景变换意境）"
         />
       </el-form-item>
     </el-form>

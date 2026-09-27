@@ -47,6 +47,10 @@ class ScriptGenerateRequest(BaseModel):
     episode_duration: Optional[int] = Field(
         default=None, ge=5, le=60, description="每集大致生成秒数（建议最多15s或30s）"
     )
+    mode: Optional[str] = Field(
+        default="story",
+        description="创作模式：story(剧情短剧) / scenery(纯景意境/场景变换，无剧情人物)",
+    )
     image_file: Optional[str] = Field(default=None, description="主图片相对路径")
     images: Optional[list[str]] = Field(default=None, description="多模态输入图片相对路径列表")
 
@@ -104,6 +108,7 @@ async def generate_script(
         episodes=payload.episodes,
         tone=payload.tone,
         episode_duration=payload.episode_duration,
+        mode=payload.mode,
         image_file=payload.image_file,
         images=payload.images,
     )

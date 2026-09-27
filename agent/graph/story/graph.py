@@ -333,7 +333,9 @@ class StoryGraph:
         for key, value in params_snapshot.items():
             if not value:
                 continue
-            if key == "episode_duration":
+            if key == "mode":
+                continue
+            elif key == "episode_duration":
                 params_hint_items.append(
                     f"- 每集生成时长（大致生成秒数）: {value}秒（单集生成上限最多15s或30s）"
                 )
@@ -342,11 +344,16 @@ class StoryGraph:
             elif key == "aspect_ratio":
                 params_hint_items.append(f"- 画面画幅: {value}")
             elif key == "tone":
-                params_hint_items.append(f"- 故事基调: {value}")
+                params_hint_items.append(f"- 基调/氛围: {value}")
             elif key == "style_name":
                 params_hint_items.append(f"- 视觉风格: {value}")
             elif key not in ("style_key", "image_file", "images"):
                 params_hint_items.append(f"- {key}: {value}")
+        if style.key == "scenery":
+            params_hint_items.insert(
+                0,
+                "- 风格定位: 【纯景意境/场景变换】（该风格专用于纯场景流转、自然风光、空镜光影与空间意境，无人物与剧情冲突，严禁捏造角色，characters 必须输出为空数组 []，重点输出高质量变换关键帧）",
+            )
         params_hint = "\n".join(params_hint_items)
         skill_hint = readable_file_hint(style)
         budget = _input_budget(model_role.context_window)
