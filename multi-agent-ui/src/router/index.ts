@@ -101,6 +101,34 @@ const routes: RouteRecordRaw[] = [
         } satisfies NavigationItem,
         children: [],
       },
+      // 角色编辑与新建：独立页面，脱离弹窗以方便修改资料和浏览立绘
+      {
+        path: "story/character/edit/:id?",
+        name: "story-character-edit",
+        component: () => import("@/views/story/character/edit.vue"),
+        meta: {
+          path: "/story/character/edit",
+          name: "story-character-edit",
+          label: "角色编辑",
+          icon: "User",
+          description: "角色信息设定与立绘管理。",
+        } satisfies NavigationItem,
+        children: [],
+      },
+      // 剧本编辑与版本浏览：独立页面，支持长剧本沉浸式修改、版本切换及分集大纲
+      {
+        path: "story/projects/:id/script-edit",
+        name: "story-script-edit",
+        component: () => import("@/views/story/projects/script-edit.vue"),
+        meta: {
+          path: "/story/projects/:id/script-edit",
+          name: "story-script-edit",
+          label: "剧本编辑",
+          icon: "Document",
+          description: "剧本版本编辑与分集浏览。",
+        } satisfies NavigationItem,
+        children: [],
+      },
     ],
   },
 ];

@@ -2,7 +2,8 @@
 /**
  * 剧本面板：多版本列表、保存新版本、切换当前版本、编辑既有版本。
  */
-import { onMounted, reactive, ref } from "vue";
+import { onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { scriptApi, type StoryScriptVO } from "@/api/story";
 import { formatDateTime } from "@/utils/format";
@@ -15,6 +16,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "changed"): void;
 }>();
+
+const router = useRouter();
 
 const SOURCE_LABEL: Record<string, string> = {
   ai: "AI 生成",
@@ -43,40 +46,16 @@ onMounted(() => {
   loadScripts();
 });
 
-// —— 保存新版本 ——
-const saveVisible = ref(false);
-const saveSubmitting = ref(false);
-const saveForm = reactive({
-  content: "",
-  title: "",
-  set_current: true,
-});
-
+// —— 跳转独立剧本编辑页面 ——
 function openSave() {
-  Object.assign(saveForm, { content: "", title: "", set_current: true });
-  saveVisible.value = true;
+  router.push(`/story/projects/${props.projectId}/script-edit`);
 }
 
-async function handleSave() {
-  if (!saveForm.content.trim()) {
-    ElMessage.error("剧本内容不能为空");
-    return;
-  }
-  saveSubmitting.value = true;
-  try {
-    await scriptApi.save(props.projectId, {
-      content: saveForm.content.trim(),
-      title: saveForm.title.trim() || null,
-      source: "user",
-      set_current: saveForm.set_current,
-    });
-    ElMessage.success("新版本已保存");
-    saveVisible.value = false;
-    await loadScripts();
-    emit("changed");
-  } finally {
-    saveSubmitting.value = false;
-  }
+function openEdit(script: StoryScriptVO) {
+  router.push({
+    path: `/story/projects/${props.projectId}/script-edit`,
+    query: { scriptId: script.id },
+  });
 }
 
 // —— 切换当前版本 ——
@@ -85,39 +64,6 @@ async function handleSwitch(script: StoryScriptVO) {
   ElMessage.success(`已切换到 v${script.version}`);
   await loadScripts();
   emit("changed");
-}
-
-// —— 编辑既有版本 ——
-const editVisible = ref(false);
-const editSubmitting = ref(false);
-const editing = ref<StoryScriptVO | null>(null);
-const editForm = reactive({ content: "", title: "" });
-
-function openEdit(script: StoryScriptVO) {
-  editing.value = script;
-  Object.assign(editForm, { content: script.content, title: script.title ?? "" });
-  editVisible.value = true;
-}
-
-async function handleEdit() {
-  if (!editing.value) return;
-  if (!editForm.content.trim()) {
-    ElMessage.error("剧本内容不能为空");
-    return;
-  }
-  editSubmitting.value = true;
-  try {
-    await scriptApi.update(editing.value.id, {
-      content: editForm.content.trim(),
-      title: editForm.title.trim() || null,
-    });
-    ElMessage.success("剧本已更新");
-    editVisible.value = false;
-    await loadScripts();
-    emit("changed");
-  } finally {
-    editSubmitting.value = false;
-  }
 }
 </script>
 
@@ -141,9 +87,9 @@ async function handleEdit() {
       <el-table-column label="来源" width="110">
         <template #default="{ row }">{{ SOURCE_LABEL[row.source] ?? row.source }}</template>
       </el-table-column>
-      <el-table-column label="内容摘要" min-width="220">
+      <el-table-column label="内容摘要" min-width="240">
         <template #default="{ row }">
-          <span class="content-brief">
+          <span class="content-brief clickable-brief" title="点击新页面编辑与查看完整剧本" @click="openEdit(row)">
             {{ row.content.slice(0, 60) }}{{ row.content.length > 60 ? "…" : "" }}
           </span>
         </template>
@@ -156,7 +102,7 @@ async function handleEdit() {
           <el-button v-if="!row.is_current" size="small" link @click="handleSwitch(row)">
             设为当前
           </el-button>
-          <el-button size="small" link @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" link type="primary" @click="openEdit(row)">编辑/浏览</el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -173,70 +119,6 @@ async function handleEdit() {
         @change="loadScripts"
       />
     </div>
-
-    <!-- 保存新版本 -->
-    <el-dialog v-model="saveVisible" title="保存新剧本版本" width="680px" append-to-body destroy-on-close>
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 12px"
-        title="剧本创作规范：每集需注明预估生成秒数（建议最多15s或30s，如：第1集（预估生成时长：15秒））。"
-      />
-      <el-form label-width="88px">
-        <el-form-item label="版本标题">
-          <el-input v-model="saveForm.title" placeholder="可选，如：第二稿" />
-        </el-form-item>
-        <el-form-item label="剧本内容">
-          <el-input
-            v-model="saveForm.content"
-            type="textarea"
-            :rows="12"
-            placeholder="完整剧本文本"
-          />
-        </el-form-item>
-        <el-form-item label="设为当前">
-          <el-switch v-model="saveForm.set_current" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="saveVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saveSubmitting" @click="handleSave">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 编辑既有版本 -->
-    <el-dialog
-      v-model="editVisible"
-      :title="`编辑 v${editing?.version ?? ''}`"
-      width="680px"
-      append-to-body
-      destroy-on-close
-    >
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 12px"
-        title="剧本创作规范：每集需注明预估生成秒数（建议最多15s或30s，如：第1集（预估生成时长：15秒））。"
-      />
-      <el-form label-width="88px">
-        <el-form-item label="版本标题">
-          <el-input v-model="editForm.title" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="剧本内容">
-          <el-input
-            v-model="editForm.content"
-            type="textarea"
-            :rows="12"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSubmitting" @click="handleEdit">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -253,6 +135,14 @@ async function handleEdit() {
 }
 .content-brief {
   color: #4b5563;
+}
+.clickable-brief {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.clickable-brief:hover {
+  color: #409eff;
+  text-decoration: underline;
 }
 .panel-pagination {
   margin-top: 14px;

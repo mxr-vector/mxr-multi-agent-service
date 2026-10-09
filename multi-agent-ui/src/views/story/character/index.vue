@@ -11,8 +11,10 @@ import {
 } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
+import { useRouter } from "vue-router";
 import Pagination from "@/components/ui/Pagination.vue";
-import CharacterDetailDialog from "./CharacterDetailDialog.vue";
+
+const router = useRouter();
 
 const ROLE_LABEL: Record<string, string> = {
   protagonist: "主角",
@@ -52,18 +54,16 @@ const keyword = useDebouncedKeyword(() => {
 
 onMounted(loadCharacters);
 
-// —— 新建 / 编辑 / 详情（共用最全弹窗） ——
-const dialogVisible = ref(false);
-const activeCharacterId = ref<string | null>(null);
-
+// —— 新建 / 编辑 / 详情（跳转独立页面） ——
 function openCreate() {
-  activeCharacterId.value = null;
-  dialogVisible.value = true;
+  router.push("/story/character/edit");
 }
 
 function openDetail(character: StoryCharacterVO) {
-  activeCharacterId.value = character.id;
-  dialogVisible.value = true;
+  router.push({
+    path: "/story/character/edit",
+    query: { id: character.id },
+  });
 }
 
 // —— 删除 ——
@@ -139,12 +139,6 @@ async function handleDelete(character: StoryCharacterVO) {
       </div>
     </div>
 
-    <!-- 统一详情/编辑/新建对话框 -->
-    <CharacterDetailDialog
-      v-model:visible="dialogVisible"
-      :character-id="activeCharacterId"
-      @changed="loadCharacters"
-    />
   </div>
 </template>
 
