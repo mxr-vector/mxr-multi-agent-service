@@ -37,6 +37,9 @@ const ROLE_TYPE_OPTIONS: { value: StoryRoleType; label: string }[] = [
   { value: "supporting", label: "配角" },
   { value: "antagonist", label: "反派" },
   { value: "npc", label: "NPC" },
+  { value: "scenery", label: "景物/建筑" },
+  { value: "building", label: "建筑" },
+  { value: "landscape", label: "风景" },
   { value: "other", label: "其他" },
 ];
 const ROLE_LABEL: Record<string, string> = Object.fromEntries(
@@ -45,7 +48,11 @@ const ROLE_LABEL: Record<string, string> = Object.fromEntries(
 
 const roleOptions = computed(() => {
   const options = dictStore.getOptions("story_role_type");
-  if (options && options.length > 0) return options;
+  if (options && options.length > 0) {
+    const existing = new Set(options.map((o) => o.value));
+    const extra = ROLE_TYPE_OPTIONS.filter((item) => !existing.has(item.value));
+    return [...options, ...extra];
+  }
   return ROLE_TYPE_OPTIONS;
 });
 

@@ -224,10 +224,12 @@ const artBadgeCount = computed(() => {
   return ai.messages.value.filter(isCharacterOrArt).length;
 });
 
+const isPureScenery = computed(() => props.project?.style_key === "scenery");
+
 const tabs = computed(() => [
   {
     key: "script" as OutputTabKey,
-    label: "剧情",
+    label: isPureScenery.value ? "分镜" : "剧情",
     count: scriptBadgeCount.value,
   },
   {
@@ -237,7 +239,7 @@ const tabs = computed(() => [
   },
   {
     key: "art" as OutputTabKey,
-    label: "人物立绘",
+    label: isPureScenery.value ? "景物立绘" : "角色/景物",
     count: artBadgeCount.value,
   },
   {
@@ -250,13 +252,17 @@ const tabs = computed(() => [
 /** Tab 空态文案提示 */
 const tabEmptyDescription = computed(() => {
   if (activeTab.value === "script") {
-    return "暂无剧情内容，向 AI 描述你的故事开始创作";
+    return isPureScenery.value
+      ? "暂无意境分镜内容，向 AI 描述意境景色开始创作"
+      : "暂无剧情内容，向 AI 描述你的故事开始创作";
   }
   if (activeTab.value === "keyframe") {
     return "暂无分镜关键帧，生成剧本后将自动拆解分镜关键帧";
   }
   if (activeTab.value === "art") {
-    return "暂无人物立绘与角色卡，点击下方按钮「从剧本提取角色」后可生成立绘";
+    return isPureScenery.value
+      ? "暂无景物立绘与场景设定卡，点击下方按钮「从剧本提取景物」后可生成立绘"
+      : "暂无人物/景物立绘与设定卡，点击下方按钮「从剧本提取角色与景物」后可生成立绘";
   }
   return "向 AI 描述你的故事，生成剧本与角色卡";
 });
@@ -545,21 +551,21 @@ defineExpose({
         </el-button>
       </div>
 
-      <!-- 人物立绘快捷 Banner（在人物立绘或全部 tab 展示） -->
+      <!-- 角色/景物资产快捷 Banner（在立绘或全部 tab 展示） -->
       <div
         v-if="activeTab === 'art' || (activeTab === 'all' && (characterCardsCount > 0 || hasScriptMessage))"
         class="tab-action-banner art-action-banner"
       >
         <div class="banner-info">
-          <span class="banner-icon">👤</span>
+          <span class="banner-icon">{{ isPureScenery ? "🏛️" : "👤" }}</span>
           <span v-if="characterCardsCount > 0">
-            角色卡：<strong>{{ characterCardsCount }}</strong> 个
+            {{ isPureScenery ? "景物卡：" : "角色/景物卡：" }}<strong>{{ characterCardsCount }}</strong> 个
             <template v-if="unsavedCharacterCount > 0">
               （待入库 <strong>{{ unsavedCharacterCount }}</strong> 个）
             </template>
           </span>
           <span v-else>
-            暂无角色卡，可从剧本直接提取
+            {{ isPureScenery ? "暂无景物设定卡，可从剧本直接提取" : "暂无角色与景物卡，可从剧本直接提取" }}
           </span>
         </div>
         <div class="banner-actions">
@@ -569,7 +575,7 @@ defineExpose({
             :loading="extractingCharacters"
             @click="handleExtractCharacters"
           >
-            {{ characterCardsCount > 0 ? "重新提取角色" : "从剧本提取角色" }}
+            {{ isPureScenery ? (characterCardsCount > 0 ? "重新提取景物" : "从剧本提取景物") : (characterCardsCount > 0 ? "重新提取角色与景物" : "从剧本提取角色与景物") }}
           </el-button>
           <el-button
             v-if="unsavedCharacterCount > 0"

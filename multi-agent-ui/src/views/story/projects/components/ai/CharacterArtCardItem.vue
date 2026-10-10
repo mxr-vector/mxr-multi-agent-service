@@ -34,7 +34,7 @@ const cardName = computed(() => {
   const raw = props.message.content || "";
   return (
     raw
-      .replace(/^(立绘|生成人物立绘|生成图像|图像|关键帧|图片|创建图片)[：:]\s*/, "")
+      .replace(/^(立绘|景物立绘|角色立绘|生成人物立绘|生成景物立绘|生成图像|图像|关键帧|图片|创建图片)[：:]\s*/, "")
       .trim() || ""
   );
 });
@@ -45,6 +45,8 @@ const cardTitle = computed(() => {
   if (!name) return "图片生成";
   if (
     name.startsWith("立绘") ||
+    name.startsWith("景物立绘") ||
+    name.startsWith("角色立绘") ||
     name.startsWith("关键帧") ||
     name.startsWith("图片") ||
     name.startsWith("镜头")

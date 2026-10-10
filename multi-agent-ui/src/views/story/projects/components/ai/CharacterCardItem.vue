@@ -284,40 +284,68 @@ async function saveToLibrary() {
   }
 }
 
-/** 角色类型展示名兜底映射 */
+/** 角色/景物类型展示名兜底映射 */
 const ROLE_LABEL: Record<string, string> = {
   protagonist: "主角",
   supporting: "配角",
   antagonist: "反派",
   npc: "NPC",
+  scenery: "景物/建筑",
+  building: "建筑",
+  landscape: "风景",
   other: "其他",
 };
 
 /** 从字典获取角色类型选项列表，兜底用本地映射 */
 const roleTypeOptions = computed(() => {
   const options = dictStore.getOptions("story_role_type");
-  if (options && options.length > 0) return options;
+  if (options && options.length > 0) {
+    // 确保包含景物/建筑/风景类型选项
+    const existingValues = new Set(options.map((o) => o.value));
+    const extra = Object.entries(ROLE_LABEL)
+      .filter(([val]) => !existingValues.has(val))
+      .map(([value, label]) => ({ value, label }));
+    return [...options, ...extra];
+  }
   return Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }));
+});
+
+const isBuilding = computed(() => {
+  const rt = card.value?.role_type;
+  if (rt === "building") return true;
+  if (rt === "scenery") {
+    return ["城", "楼", "阁", "殿", "寺", "庙", "塔", "桥", "馆", "庄", "站", "建筑", "街道", "遗迹", "天空之城"].some((k) =>
+      card.value?.name?.includes(k)
+    );
+  }
+  return false;
+});
+
+const isScenery = computed(() => {
+  const rt = card.value?.role_type;
+  return rt === "scenery" || rt === "landscape";
 });
 </script>
 
 <template>
   <div v-if="card" class="character-card">
     <div class="card-head">
-      <span class="card-title">👤 {{ card.name }}</span>
+      <span class="card-title">
+        {{ isBuilding ? "🏛️" : isScenery ? "🏞️" : "👤" }} {{ card.name }}
+      </span>
       <el-tag v-if="card.role_type" size="small" type="info">
         {{ dictStore.getLabel("story_role_type", card.role_type) || (ROLE_LABEL[card.role_type] ?? card.role_type) }}
       </el-tag>
       <el-tag v-if="sedimentedId" size="small" type="success">已入库</el-tag>
     </div>
     <div v-if="profileSummary" class="card-line">
-      <span class="line-label">人设：</span>{{ profileSummary }}
+      <span class="line-label">{{ isBuilding || isScenery ? "定位/属性：" : "人设：" }}</span>{{ profileSummary }}
     </div>
     <div v-if="card.visual_profile && Object.keys(card.visual_profile).length" class="card-line">
-      <span class="line-label">视觉：</span>{{ Object.values(card.visual_profile).join(" / ") }}
+      <span class="line-label">{{ isBuilding || isScenery ? "视觉/空间：" : "视觉：" }}</span>{{ Object.values(card.visual_profile).join(" / ") }}
     </div>
     <div v-if="card.appearance_prompt" class="card-line">
-      <span class="line-label">外观：</span>{{ card.appearance_prompt }}
+      <span class="line-label">{{ isBuilding || isScenery ? "规制/材质：" : "外观：" }}</span>{{ card.appearance_prompt }}
     </div>
     <div v-if="card.art_prompt" class="card-line prompt-line">
       <span class="line-label">出图提示词：</span>{{ card.art_prompt }}
@@ -332,7 +360,7 @@ const roleTypeOptions = computed(() => {
         :loading="!!artTask && ['pending', 'queued', 'generating'].includes(artTask.status)"
         @click="openArtSpec"
       >
-        生成立绘
+        {{ isBuilding || isScenery ? "生成概念图" : "生成立绘" }}
       </el-button>
       <el-button
         v-if="!sedimentedId"
@@ -342,7 +370,7 @@ const roleTypeOptions = computed(() => {
         :loading="saving"
         @click="saveToLibrary"
       >
-        存入角色库
+        {{ isBuilding || isScenery ? "存入资产库" : "存入角色库" }}
       </el-button>
     </div>
 
@@ -383,7 +411,7 @@ const roleTypeOptions = computed(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="artSpecVisible" title="生成立绘" width="380px" append-to-body destroy-on-close>
+    <el-dialog v-model="artSpecVisible" :title="isBuilding || isScenery ? '生成景物概念图' : '生成立绘'" width="380px" append-to-body destroy-on-close>
       <el-form label-width="72px">
         <el-form-item label="尺寸">
           <el-select v-model="artSize" clearable placeholder="跟随模型配置" style="width: 100%">
@@ -427,7 +455,7 @@ const roleTypeOptions = computed(() => {
                   <Picture v-if="!uploadingRefImage" />
                   <Loading v-else />
                 </el-icon>
-                <span class="ref-upload-text">{{ uploadingRefImage ? '上传中...' : '上传形象参考图' }}</span>
+                <span class="ref-upload-text">{{ uploadingRefImage ? '上传中...' : (isBuilding || isScenery ? '上传场景参考图' : '上传形象参考图') }}</span>
               </div>
             </el-upload>
             <div v-if="refImageFile" class="ref-clear-box">
@@ -435,7 +463,9 @@ const roleTypeOptions = computed(() => {
                 移除参考图
               </el-button>
             </div>
-            <div class="ref-field-tip">上传人物形象、发型或姿势参考图，根据参考图生成立绘</div>
+            <div class="ref-field-tip">
+              {{ isBuilding || isScenery ? '上传建筑规制、空间结构或材质参考图，根据参考图生成设定图' : '上传人物形象、发型或姿势参考图，根据参考图生成立绘' }}
+            </div>
           </div>
         </el-form-item>
       </el-form>
