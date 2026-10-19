@@ -99,6 +99,8 @@ class StoryGenerationService:
                 f"画幅 {aspect_ratio} 不属于风格 {style.key}"
                 f"（可选：{'/'.join(style.aspect_ratios)}）"
             )
+        if episode_duration and episode_duration not in (15, 30):
+            bad_except("视频模型目前仅支持 15s 或 30s 时长（可选：15/30）")
         all_images = list(images) if images else ([image_file] if image_file else [])
         primary_image = all_images[0] if all_images else None
 

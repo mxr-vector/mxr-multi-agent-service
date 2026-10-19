@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, File, Path, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from exception.bad_except import bad_except
 from service.story.generation import StoryGenerationService
@@ -45,8 +45,15 @@ class ScriptGenerateRequest(BaseModel):
     episodes: Optional[int] = Field(default=None, ge=1, le=100)
     tone: Optional[str] = None
     episode_duration: Optional[int] = Field(
-        default=None, ge=5, le=60, description="每集大致生成秒数（建议最多15s或30s）"
+        default=None, description="每集大致生成秒数（目前视频模型仅支持 15 或 30 秒，默认 15）"
     )
+
+    @field_validator("episode_duration")
+    @classmethod
+    def validate_episode_duration(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v not in (15, 30):
+            raise ValueError("单集生成时长目前仅支持 15 秒或 30 秒（15s 或 30s）")
+        return v
     mode: Optional[str] = Field(
         default="story",
         description="创作模式：story(剧情短剧) / scenery(纯景意境/场景变换，无剧情人物)",

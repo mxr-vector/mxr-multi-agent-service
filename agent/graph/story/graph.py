@@ -337,7 +337,7 @@ class StoryGraph:
                 continue
             elif key == "episode_duration":
                 params_hint_items.append(
-                    f"- 每集生成时长（大致生成秒数）: {value}秒（单集生成上限最多15s或30s）"
+                    f"- 每集生成时长: {value}秒（目前视频模型仅支持 15s 或 30s）"
                 )
             elif key == "episodes":
                 params_hint_items.append(f"- 规划集数: {value}集")

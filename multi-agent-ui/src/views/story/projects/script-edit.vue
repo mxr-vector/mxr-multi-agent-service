@@ -451,7 +451,7 @@ function scrollToEpisode(lineIndex: number) {
             <el-icon class="spec-icon"><InfoFilled /></el-icon>
             <span class="spec-title">剧本创作规范</span>
           </div>
-          <p class="spec-desc">每集需注明预估生成秒数（建议最多15s或30s），例如：</p>
+          <p class="spec-desc">每集需注明预估生成秒数（目前视频模型仅支持 15s 或 30s），例如：</p>
           <div class="spec-example">
             ### 第1集（预估生成时长：15秒）
             <br />

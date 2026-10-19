@@ -54,7 +54,7 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             key="generic",
             name="通用短剧",
             description="Seedance 分镜工作流，风格开放（写实/动画/水墨/科幻等），"
-            "△剧本+人物小传+关键帧出图提示词",
+            "分镜剧本+人物小传+关键帧出图提示词",
             skill_dir="seedance-storyboard-generator",
             aspect_ratios=("16:9", "9:16", "4:3"),
             readable_files=(
