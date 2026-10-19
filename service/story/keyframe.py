@@ -25,6 +25,7 @@ from agent.constants.enums.story import (
 )
 from core.config_snapshot import CFG
 from database.postgre_client import get_session
+from entity.story.project import StoryKeyframe
 from entity.story.session import StoryGenerationTask
 from database.story.character import CharacterArtRepository, CharacterRepository
 from database.story.project import (
@@ -80,6 +81,9 @@ _KEYFRAME_NAME_MAX = 200
 
 # 运行期在途关键帧生图协程注册表（keyframe_id_hex -> asyncio.Task）
 _keyframe_tasks: dict[str, asyncio.Task] = {}
+
+# 关键帧生图最大并发线程数（按项目维度控制）
+MAX_CONCURRENT_KEYFRAME_TASKS = 5
 
 
 def _keyframe_image_directory(project, keyframe) -> str:
@@ -298,8 +302,27 @@ class KeyframeService:
             project = await ProjectRepository(session).get(keyframe.project_id)
             if project is None:
                 bad_except("所属项目不存在")
-            if await GenerationTaskRepository(session).has_running(project.id):
-                bad_except("本项目已有生成任务进行中，请稍候")
+            task_repo = GenerationTaskRepository(session)
+            # 剧本生成全局互斥检查：若项目正处于剧本生成任务中，则等待
+            stmt_script = (
+                select(StoryGenerationTask.id)
+                .where(
+                    StoryGenerationTask.project_id == project.id,
+                    StoryGenerationTask.task_type == StoryTaskType.SCRIPT.value,
+                    StoryGenerationTask.status.in_(task_repo.RUNNING_STATUSES),
+                )
+                .limit(1)
+            )
+            if await session.scalar(stmt_script) is not None:
+                bad_except("本项目剧本生成进行中，请稍候")
+
+            running_kf_count = await task_repo.count_running(
+                project.id, task_type=StoryTaskType.KEYFRAME.value
+            )
+            if running_kf_count >= MAX_CONCURRENT_KEYFRAME_TASKS:
+                bad_except(
+                    f"本项目关键帧生图并发已达上限（最多支持 {MAX_CONCURRENT_KEYFRAME_TASKS} 个并发线程生成），请稍候"
+                )
 
             # 汇总关键帧绑定的出场角色与立绘
             kfc_repo = KeyframeCharacterRepository(session)
@@ -604,6 +627,55 @@ class KeyframeService:
                 f"[STORY] 关键帧生成任务已中止 keyframe={keyframe_id.hex} cancelled={cancelled}"
             )
             return cancelled
+
+    async def stop_all(self, ctx, project_id: uuid.UUID) -> int:
+        """中断/取消本项目下全部在途关键帧图片生成任务。"""
+        if not ctx.user_id:
+            bad_except("关键帧操作仅支持用户通道调用")
+        stopped_count = 0
+        async with get_session() as session:
+            project = await ProjectRepository(session).get(project_id)
+            if project is None:
+                bad_except("所属项目不存在")
+
+            # 1. 查找本项目下所有生成中的关键帧
+            stmt_kf = select(StoryKeyframe).where(
+                StoryKeyframe.project_id == project_id,
+                StoryKeyframe.status == StoryKeyframeStatus.GENERATING.value,
+            )
+            generating_kfs = (await session.scalars(stmt_kf)).all()
+            for kf in generating_kfs:
+                task = _keyframe_tasks.get(kf.id.hex)
+                if task and not task.done():
+                    task.cancel()
+                kf.status = StoryKeyframeStatus.FAILED.value
+                kf.error_message = "用户主动中止生成"
+                kf.updated_at = datetime.now(timezone.utc)
+                stopped_count += 1
+
+            # 2. 终止数据库中关联的在途任务
+            task_repo = GenerationTaskRepository(session)
+            stmt_tasks = select(StoryGenerationTask).where(
+                StoryGenerationTask.project_id == project_id,
+                StoryGenerationTask.task_type == StoryTaskType.KEYFRAME.value,
+                StoryGenerationTask.status.in_(task_repo.RUNNING_STATUSES),
+            )
+            running_tasks = (await session.scalars(stmt_tasks)).all()
+            for t in running_tasks:
+                await task_repo.update_fields(
+                    t,
+                    {
+                        "status": StoryTaskStatus.CANCELLED.value,
+                        "error_message": "用户主动中止生成",
+                        "finished_at": datetime.now(timezone.utc),
+                    },
+                )
+
+            await session.commit()
+            logger.info(
+                f"[STORY] 本项目关键帧生图任务已全部中止 project={project_id.hex} count={stopped_count}"
+            )
+            return stopped_count
 
     async def _relocate_image(self, session, project, keyframe, old_name) -> None:
         """关键帧改名后把图片迁至新名称目录（缺失文件保留原路径，不阻断改名）。"""

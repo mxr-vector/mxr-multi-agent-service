@@ -291,6 +291,18 @@ class GenerationTaskRepository:
         )
         return await self.session.scalar(stmt) is not None
 
+    async def count_running(
+        self, project_id: uuid.UUID, task_type: str | None = None
+    ) -> int:
+        """项目在途任务计数（按类型可选）。"""
+        stmt = select(func.count(StoryGenerationTask.id)).where(
+            StoryGenerationTask.project_id == project_id,
+            StoryGenerationTask.status.in_(self.RUNNING_STATUSES),
+        )
+        if task_type is not None:
+            stmt = stmt.where(StoryGenerationTask.task_type == task_type)
+        return (await self.session.scalar(stmt)) or 0
+
     async def reset_stale_running(self) -> int:
         """全库残留在途状态的任务统一置为 failed（启动清扫崩溃恢复路径）。
 

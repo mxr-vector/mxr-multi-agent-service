@@ -2,10 +2,10 @@
 /**
  * 关键帧面板：五段式描述维护、编号冲突由后端校验、出场角色登记、导出选择。
  */
-import { onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Loading, QuestionFilled } from "@element-plus/icons-vue";
+import { Loading, Picture, QuestionFilled } from "@element-plus/icons-vue";
 import {
   collectPages,
   keyframeApi,
@@ -118,10 +118,39 @@ async function loadKeyframes() {
   }
 }
 
-// —— 关键帧生图与轮询 ——
-const generatingImageId = ref<string | null>(null);
-const stoppingImageId = ref<string | null>(null);
+// —— 关键帧生图与多线程并发轮询 ——
+const MAX_CONCURRENT_THREADS = 5;
+const generatingImageMap = reactive<Record<string, boolean>>({});
+const stoppingImageMap = reactive<Record<string, boolean>>({});
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+// 表格多选行
+const tableSelectedRows = ref<StoryKeyframeVO[]>([]);
+function onTableSelectionChange(rows: StoryKeyframeVO[]) {
+  tableSelectedRows.value = rows;
+}
+
+// 批量生成控制与进度状态
+const batchDialogVisible = ref(false);
+const batchConcurrency = ref(5);
+const batchTargets = ref<StoryKeyframeVO[]>([]);
+const batchRunning = ref(false);
+const batchStopping = ref(false);
+const batchProgress = reactive({
+  total: 0,
+  finished: 0,
+  success: 0,
+  failed: 0,
+  active: 0,
+});
+let batchAbortController = { aborted: false };
+
+const batchNoCharCount = computed(() =>
+  batchTargets.value.filter((k) => !k.characters || k.characters.length === 0).length
+);
+const hasGeneratingKeyframes = computed(() =>
+  list.value.some((k) => k.status === "generating")
+);
 
 function checkAndStartPolling() {
   if (list.value.some((k) => k.status === "generating")) {
@@ -134,17 +163,19 @@ function checkAndStartPolling() {
           total.value = res.data?.total ?? 0;
           emit("changed");
 
-          // 比较前后状态变化，完成或失败时给出明确通知
-          for (const item of list.value) {
-            const prev = oldList.find((k) => k.id === item.id);
-            if (prev && prev.status === "generating") {
-              const label = item.name ? `「${item.name}」` : numbering(item);
-              if (item.status === "done") {
-                ElMessage.success(`关键帧 ${label} 图片已生成完成`);
-              } else if (item.status === "failed") {
-                ElMessage.error(
-                  `关键帧 ${label} 图片生成失败${item.error_message ? "：" + item.error_message : ""}`
-                );
+          // 比较前后状态变化，完成或失败时给出明确通知（若当前正在批量任务中，由总进度条提示，免过多弹窗打扰）
+          if (!batchRunning.value) {
+            for (const item of list.value) {
+              const prev = oldList.find((k) => k.id === item.id);
+              if (prev && prev.status === "generating") {
+                const label = item.name ? `「${item.name}」` : numbering(item);
+                if (item.status === "done") {
+                  ElMessage.success(`关键帧 ${label} 图片已生成完成`);
+                } else if (item.status === "failed") {
+                  ElMessage.error(
+                    `关键帧 ${label} 图片生成失败${item.error_message ? "：" + item.error_message : ""}`
+                  );
+                }
               }
             }
           }
@@ -173,6 +204,7 @@ onMounted(() => {
   loadKeyframes();
 });
 onUnmounted(() => {
+  batchAbortController.aborted = true;
   stopPolling();
   clearCreateImage();
 });
@@ -192,6 +224,14 @@ async function handleGenerateImage(keyframe: StoryKeyframeVO) {
   const prompt = (keyframe.prompt || "").trim();
   if (!prompt) {
     ElMessage.warning("关键帧缺少出图提示词，请先编辑补充提示词");
+    return;
+  }
+
+  const currentGenerating = list.value.filter((k) => k.status === "generating").length;
+  if (currentGenerating >= MAX_CONCURRENT_THREADS) {
+    ElMessage.warning(
+      `当前已有 ${MAX_CONCURRENT_THREADS} 个关键帧正在生成中，已达并发上限，请等待部分任务完成`
+    );
     return;
   }
 
@@ -233,24 +273,24 @@ async function handleGenerateImage(keyframe: StoryKeyframeVO) {
     }
   }
 
-  generatingImageId.value = keyframe.id;
+  generatingImageMap[keyframe.id] = true;
   try {
     await keyframeApi.generateImage(keyframe.id);
     keyframe.status = "generating";
-    ElMessage.success("已发起关键帧生成任务");
+    ElMessage.success(`已发起关键帧「${keyframe.name || numbering(keyframe)}」生成任务`);
     checkAndStartPolling();
     emit("changed");
   } catch {
     // 错误拦截器统一处理
   } finally {
-    generatingImageId.value = null;
+    delete generatingImageMap[keyframe.id];
   }
 }
 
 async function handleStopGeneration(keyframe: StoryKeyframeVO) {
   try {
     await ElMessageBox.confirm(
-      `确定中断关键帧「${keyframe.name || numbering(keyframe)}」的图片生成吗？\n中断后将释放任务互斥锁定，可重新编辑或生成。`,
+      `确定中断关键帧「${keyframe.name || numbering(keyframe)}」的图片生成吗？\n中断后将释放任务并发槽位，可重新编辑或生成。`,
       "中断生图任务",
       {
         confirmButtonText: "确定中断",
@@ -262,18 +302,215 @@ async function handleStopGeneration(keyframe: StoryKeyframeVO) {
     return;
   }
 
-  stoppingImageId.value = keyframe.id;
+  stoppingImageMap[keyframe.id] = true;
   try {
     await keyframeApi.stopGeneration(keyframe.id);
     keyframe.status = "failed";
     keyframe.error_message = "用户主动中止生成";
-    ElMessage.warning("已中断关键帧生成任务");
+    ElMessage.warning(`已中断关键帧「${keyframe.name || numbering(keyframe)}」生成任务`);
     await loadKeyframes();
     emit("changed");
   } catch {
     // 错误拦截器统一处理
   } finally {
-    stoppingImageId.value = null;
+    delete stoppingImageMap[keyframe.id];
+  }
+}
+
+// —— 批量多线程生图调度 ——
+
+// 单个关键帧轮询直到完成或失败
+async function pollKeyframeUntilDone(
+  keyframeId: string,
+  abortSignal: { aborted: boolean }
+): Promise<StoryKeyframeVO | null> {
+  const maxAttempts = 120; // 5分钟保护
+  let attempts = 0;
+  while (!abortSignal.aborted && attempts < maxAttempts) {
+    attempts++;
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    if (abortSignal.aborted) break;
+    try {
+      const res = await keyframeApi.detail(keyframeId);
+      const kf = res.data;
+      if (kf) {
+        const idx = list.value.findIndex((k) => k.id === kf.id);
+        if (idx !== -1) {
+          list.value[idx] = kf;
+        }
+        if (kf.status !== "generating") {
+          return kf;
+        }
+      }
+    } catch {
+      // 容忍单次网络抖动
+    }
+  }
+  return null;
+}
+
+// 启动多线程工作池执行批量生成（最多支持 5 线程并发）
+async function runBatchGeneration(targets: StoryKeyframeVO[], concurrency = 5) {
+  if (!targets.length) return;
+  batchRunning.value = true;
+  batchAbortController = { aborted: false };
+  batchProgress.total = targets.length;
+  batchProgress.finished = 0;
+  batchProgress.success = 0;
+  batchProgress.failed = 0;
+  batchProgress.active = 0;
+
+  const queue = [...targets];
+  const actualConcurrency = Math.min(
+    Math.max(1, concurrency),
+    MAX_CONCURRENT_THREADS,
+    targets.length
+  );
+
+  async function worker() {
+    while (queue.length > 0 && !batchAbortController.aborted) {
+      const kf = queue.shift();
+      if (!kf) break;
+
+      const prompt = (kf.prompt || "").trim();
+      if (!prompt) {
+        batchProgress.finished++;
+        batchProgress.failed++;
+        ElMessage.warning(`关键帧「${kf.name || numbering(kf)}」缺少出图提示词，已跳过`);
+        continue;
+      }
+
+      batchProgress.active++;
+      generatingImageMap[kf.id] = true;
+      try {
+        await keyframeApi.generateImage(kf.id);
+        kf.status = "generating";
+        checkAndStartPolling();
+        emit("changed");
+
+        const finishedKf = await pollKeyframeUntilDone(kf.id, batchAbortController);
+        batchProgress.finished++;
+        if (finishedKf?.status === "done") {
+          batchProgress.success++;
+        } else {
+          batchProgress.failed++;
+        }
+      } catch (err: any) {
+        batchProgress.finished++;
+        batchProgress.failed++;
+        ElMessage.error(
+          `关键帧「${kf.name || numbering(kf)}」发起失败: ${err.message || "请求异常"}`
+        );
+      } finally {
+        delete generatingImageMap[kf.id];
+        batchProgress.active--;
+      }
+    }
+  }
+
+  const workers = Array.from({ length: actualConcurrency }, () => worker());
+
+  try {
+    await Promise.all(workers);
+    if (!batchAbortController.aborted) {
+      ElMessage.success(
+        `多线程批量生图完成！成功 ${batchProgress.success} 个，失败 ${batchProgress.failed} 个`
+      );
+    }
+  } catch (err: any) {
+    ElMessage.error(`批量生图过程异常: ${err.message || "未知错误"}`);
+  } finally {
+    batchRunning.value = false;
+    await loadKeyframes();
+    emit("changed");
+  }
+}
+
+async function handleBatchGenerateCommand(command: string) {
+  let targets: StoryKeyframeVO[] = [];
+  if (command === "selected") {
+    targets = tableSelectedRows.value.filter((k) => k.status !== "generating");
+    if (!targets.length) {
+      ElMessage.warning("请先勾选需要生成的关键帧");
+      return;
+    }
+  } else if (command === "pending") {
+    loading.value = true;
+    try {
+      const all = await collectPages((params) => keyframeApi.list(props.projectId, params));
+      targets = all.filter((k) => k.status !== "done" && k.status !== "generating");
+    } finally {
+      loading.value = false;
+    }
+    if (!targets.length) {
+      ElMessage.info("当前没有未完成（草稿/失败）的关键帧");
+      return;
+    }
+  } else if (command === "all") {
+    loading.value = true;
+    try {
+      const all = await collectPages((params) => keyframeApi.list(props.projectId, params));
+      targets = all.filter((k) => k.status !== "generating");
+    } finally {
+      loading.value = false;
+    }
+    if (!targets.length) {
+      ElMessage.info("当前没有可生成的关键帧");
+      return;
+    }
+  }
+
+  batchTargets.value = targets;
+  batchDialogVisible.value = true;
+}
+
+function handleBatchGenerateClick() {
+  if (tableSelectedRows.value.length > 0) {
+    handleBatchGenerateCommand("selected");
+  } else {
+    handleBatchGenerateCommand("pending");
+  }
+}
+
+async function confirmStartBatch() {
+  batchDialogVisible.value = false;
+  await runBatchGeneration(batchTargets.value, batchConcurrency.value);
+}
+
+async function handleStopAllGenerations() {
+  try {
+    await ElMessageBox.confirm(
+      "确定中断本项目所有正在生成的关键帧图片任务吗？\n队列中尚未开始的任务也将被取消。",
+      "中断全部生图",
+      {
+        confirmButtonText: "确定中断",
+        cancelButtonText: "继续生成",
+        type: "warning",
+      }
+    );
+  } catch {
+    return;
+  }
+
+  batchAbortController.aborted = true;
+  batchStopping.value = true;
+  try {
+    const res = await keyframeApi.stopAll(props.projectId);
+    const stoppedCount = res.data?.stopped_count ?? 0;
+    for (const key of Object.keys(generatingImageMap)) {
+      delete generatingImageMap[key];
+    }
+    for (const key of Object.keys(stoppingImageMap)) {
+      delete stoppingImageMap[key];
+    }
+    ElMessage.warning(`已中断全部生图任务（共终止 ${stoppedCount} 个在途任务）`);
+    await loadKeyframes();
+    emit("changed");
+  } catch (err: any) {
+    ElMessage.error(`中断生图任务失败: ${err.message || "请求异常"}`);
+  } finally {
+    batchStopping.value = false;
+    batchRunning.value = false;
   }
 }
 
@@ -540,11 +777,72 @@ function numbering(keyframe: StoryKeyframeVO): string {
 <template>
   <div class="keyframe-panel">
     <div class="panel-toolbar">
-      <span class="panel-hint">关键帧是视频生成的视觉锚点；被选中的关键帧参与导出。</span>
+      <div class="toolbar-left">
+        <span class="panel-hint">关键帧是视频生成的视觉锚点；支持多线程并发批量生成图片（最多 5 线程）。</span>
+      </div>
       <div class="toolbar-actions">
+        <el-button
+          v-if="hasGeneratingKeyframes"
+          type="danger"
+          plain
+          :loading="batchStopping"
+          @click="handleStopAllGenerations"
+        >
+          中断全部生成
+        </el-button>
+        <el-dropdown
+          v-if="!batchRunning"
+          split-button
+          type="success"
+          @click="handleBatchGenerateClick"
+          @command="handleBatchGenerateCommand"
+        >
+          <el-icon class="el-icon--left"><Picture /></el-icon>
+          {{ tableSelectedRows.length ? `批量生图 (${tableSelectedRows.length})` : "批量生成图片" }}
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="tableSelectedRows.length" command="selected">
+                生成选中的 {{ tableSelectedRows.length }} 个关键帧
+              </el-dropdown-item>
+              <el-dropdown-item command="pending">
+                生成全部未完成关键帧（草稿/失败）
+              </el-dropdown-item>
+              <el-dropdown-item command="all">
+                重新生成项目全部关键帧
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button v-else type="warning" plain :loading="true">
+          生图中 ({{ batchProgress.finished }}/{{ batchProgress.total }})
+        </el-button>
         <el-button @click="openSelection">导出选择</el-button>
         <el-button type="primary" @click="openCreate">新建关键帧</el-button>
       </div>
+    </div>
+
+    <!-- 批量进度展示条 -->
+    <div v-if="batchRunning" class="batch-progress-bar">
+      <div class="batch-progress-info">
+        <div class="batch-progress-title">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span class="batch-title-text">
+            多线程批量生图中（最多 {{ batchConcurrency }} 线程并发）：已完成 {{ batchProgress.finished }} / {{ batchProgress.total }}
+          </span>
+          <span class="batch-sub-text">
+            (进行中 {{ batchProgress.active }} | 成功 {{ batchProgress.success }} | 失败 {{ batchProgress.failed }})
+          </span>
+        </div>
+        <el-button size="small" type="danger" plain :loading="batchStopping" @click="handleStopAllGenerations">
+          中断批量生成
+        </el-button>
+      </div>
+      <el-progress
+        :percentage="batchProgress.total > 0 ? Math.round((batchProgress.finished / batchProgress.total) * 100) : 0"
+        :status="batchProgress.failed > 0 ? 'warning' : 'success'"
+        :stroke-width="6"
+        class="batch-progress-slider"
+      />
     </div>
 
     <input
@@ -555,7 +853,18 @@ function numbering(keyframe: StoryKeyframeVO): string {
       @change="onImagePicked"
     />
 
-    <el-table v-loading="loading" :data="list" stripe :row-class-name="tableRowClassName">
+    <el-table
+      v-loading="loading"
+      :data="list"
+      stripe
+      :row-class-name="tableRowClassName"
+      @selection-change="onTableSelectionChange"
+    >
+      <el-table-column
+        type="selection"
+        width="46"
+        :selectable="(row: StoryKeyframeVO) => row.status !== 'generating'"
+      />
       <el-table-column label="场景-镜头" width="100">
         <template #default="{ row }">{{ numbering(row) }}</template>
       </el-table-column>
@@ -569,7 +878,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
               link
               type="danger"
               class="kf-generating-stop-btn"
-              :loading="stoppingImageId === row.id"
+              :loading="stoppingImageMap[row.id]"
               @click="handleStopGeneration(row)"
             >
               中断
@@ -653,7 +962,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
             size="small"
             link
             type="danger"
-            :loading="stoppingImageId === row.id"
+            :loading="stoppingImageMap[row.id]"
             @click="handleStopGeneration(row)"
           >
             中断生成
@@ -663,7 +972,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
             size="small"
             link
             type="primary"
-            :loading="generatingImageId === row.id"
+            :loading="generatingImageMap[row.id]"
             @click="handleGenerateImage(row)"
           >
             {{ row.status === "failed" ? "重新生成" : "生成图片" }}
@@ -879,6 +1188,49 @@ function numbering(keyframe: StoryKeyframeVO): string {
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量多线程生图确认弹窗 -->
+    <el-dialog
+      v-model="batchDialogVisible"
+      title="批量生成关键帧图片（多线程）"
+      width="540px"
+      append-to-body
+      destroy-on-close
+    >
+      <div class="batch-dialog-content">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="系统将自动组装各关键帧提示词与绑定的出场角色立绘，按设定的线程并发数进行后台多线程异步生成。"
+          style="margin-bottom: 16px;"
+        />
+        <el-form label-width="110px">
+          <el-form-item label="待生成关键帧">
+            <span class="batch-dialog-count">{{ batchTargets.length }} 个关键帧</span>
+            <div v-if="batchNoCharCount > 0" class="muted" style="margin-top: 4px; font-size: 12px; line-height: 1.4;">
+              提示：其中 {{ batchNoCharCount }} 个关键帧尚未设置出场角色，将直接按正向提示词出图。
+            </div>
+          </el-form-item>
+          <el-form-item label="并发线程数">
+            <el-select v-model="batchConcurrency" style="width: 240px;">
+              <el-option :value="5" label="5 线程 (推荐，最快)" />
+              <el-option :value="4" label="4 线程" />
+              <el-option :value="3" label="3 线程" />
+              <el-option :value="2" label="2 线程" />
+              <el-option :value="1" label="1 线程 (单任务串行)" />
+            </el-select>
+            <div class="form-item-tip">最多支持 5 个线程并发生成，各线程独立向模型出图。</div>
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="batchDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchRunning" @click="confirmStartBatch">
+          开始多线程生成
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1006,5 +1358,48 @@ function numbering(keyframe: StoryKeyframeVO): string {
   to {
     background-color: #e0f2fe;
   }
+}
+.batch-progress-bar {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+}
+.batch-progress-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.batch-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #166534;
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+.batch-title-text {
+  font-weight: 600;
+}
+.batch-sub-text {
+  font-size: 12px;
+  color: #15803d;
+  font-weight: normal;
+}
+.batch-progress-slider {
+  margin-top: 8px;
+}
+.batch-dialog-count {
+  font-weight: 600;
+  color: #1f2937;
+}
+.form-item-tip {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 </style>

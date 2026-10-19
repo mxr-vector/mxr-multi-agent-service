@@ -153,4 +153,10 @@ export const keyframeApi = {
       STORY_KEYFRAME_URL.stop(id)
     );
   },
+  /** 中断本项目下所有在途关键帧图片生成任务 */
+  stopAll(projectId: string) {
+    return request.post<{ stopped_count: number }, ApiResult<{ stopped_count: number }>>(
+      STORY_KEYFRAME_URL.stopAll(projectId)
+    );
+  },
 };

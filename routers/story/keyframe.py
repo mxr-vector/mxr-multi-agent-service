@@ -224,3 +224,13 @@ async def stop_keyframe_generation(
     cancelled = await _keyframe_service.stop(ctx, keyframe_id)
     return R.success(data={"cancelled": cancelled})
 
+
+@router.post("/projects/{project_id}/keyframes/stop-all")
+async def stop_all_keyframe_generations(
+    project_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """中断本项目下所有在途的关键帧图片生成任务。"""
+    stopped_count = await _keyframe_service.stop_all(ctx, project_id)
+    return R.success(data={"stopped_count": stopped_count})
+
