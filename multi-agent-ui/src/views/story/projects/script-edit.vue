@@ -14,13 +14,10 @@ import {
   InfoFilled,
   List,
 } from "@element-plus/icons-vue";
-import {
-  projectApi,
-  scriptApi,
-  type StoryProjectDetailVO,
-  type StoryScriptVO,
-} from "@/api/story";
+import { projectApi, scriptApi, type StoryProjectDetailVO, type StoryScriptVO } from "@/api/story";
 import { formatDateTime } from "@/utils/format";
+import { VMdEditor, NormalToolbar, MD_PREVIEW_DEFAULTS } from "@/utils/md-editor-v3";
+import type { ToolbarNames, Footers, ExposeParam } from "md-editor-v3";
 
 const route = useRoute();
 const router = useRouter();
@@ -44,9 +41,75 @@ const form = reactive({
   setCurrent: true,
 });
 
-// 编辑区辅助状态
+// 编辑区辅助状态与编辑器实例
 const editorFontSize = ref(15);
-const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const editorRef = ref<ExposeParam | null>(null);
+
+// 剧本分集规范模板
+const SCRIPT_TEMPLATE = `### 第1集（预估生成时长：15秒）
+
+**[场景]** 晨光初醒的旧书店，阳光透过斑驳玻璃照在落灰书架上。
+**[角色]** 林晚，神色迷茫地翻开桌上的泛黄日记本。
+**[旁白]** 那是故事开始的第一天。
+**[台词]**
+- **林晚**：（低语）这段记忆……为什么我不记得发生过？
+`;
+
+// 插入规范模板到编辑器
+function handleInsertTemplate() {
+  if (!form.content.trim()) {
+    form.content = SCRIPT_TEMPLATE;
+  } else {
+    const editorInstance = editorRef.value;
+    if (editorInstance) {
+      editorInstance.insert((_selectedText: string) => {
+        return {
+          targetValue: "\n\n" + SCRIPT_TEMPLATE,
+          select: false,
+          deviationStart: 0,
+          deviationEnd: 0,
+        };
+      });
+    } else {
+      form.content += "\n\n" + SCRIPT_TEMPLATE;
+    }
+  }
+  ElMessage.success("已插入剧本规范模板");
+}
+
+// Markdown 编辑器工具栏配置
+const toolbars: ToolbarNames[] = [
+  "bold",
+  "underline",
+  "italic",
+  "strikeThrough",
+  "-",
+  "title",
+  "quote",
+  "unorderedList",
+  "orderedList",
+  "task",
+  "-",
+  "table",
+  "code",
+  "link",
+  "image",
+  "-",
+  "revoke",
+  "next",
+  "save",
+  0, // 自定义插槽：插入分集模板
+  "=",
+  "prettier",
+  "pageFullscreen",
+  "fullscreen",
+  "preview",
+  "previewOnly",
+  "catalog",
+];
+
+// 编辑器页脚配置
+const footers: Footers[] = ["markdownTotal", "=", "scrollSwitch"];
 
 // 统计
 const stats = computed(() => {
@@ -54,7 +117,8 @@ const stats = computed(() => {
   const charCount = text.length;
   const lineCount = text ? text.split("\n").length : 0;
   // 匹配分集（如 第1集、第2幕、第3场、Scene 1）
-  const episodeMatches = text.match(/(第[0-9一二三四五六七八九十百]+[集幕场]|Scene\s*[0-9]+)/gi) || [];
+  const episodeMatches =
+    text.match(/(第[0-9一二三四五六七八九十百]+[集幕场]|Scene\s*[0-9]+)/gi) || [];
   return {
     charCount,
     lineCount,
@@ -62,18 +126,18 @@ const stats = computed(() => {
   };
 });
 
-// 分集大纲导航列表
+// 分集大纲导航列表（支持常规格式与 Markdown 标题前缀，如 ### 第1集）
 const episodes = computed(() => {
   const text = form.content || "";
   const lines = text.split("\n");
   const result: { label: string; lineIndex: number }[] = [];
-  const epRegex = /^\s*(第[0-9一二三四五六七八九十百]+[集幕场]|Scene\s*[0-9]+.*)/i;
+  const epRegex = /^\s*(?:#{1,6}\s*)?(第[0-9一二三四五六七八九十百]+[集幕场]|Scene\s*[0-9]+.*)/i;
 
   lines.forEach((line, index) => {
     const trimmed = line.trim();
     if (epRegex.test(trimmed)) {
       result.push({
-        label: trimmed.slice(0, 30),
+        label: trimmed.replace(/^#{1,6}\s*/, "").slice(0, 30),
         lineIndex: index,
       });
     }
@@ -240,17 +304,30 @@ async function handleSetCurrent() {
 // 跳转到指定行
 function scrollToEpisode(lineIndex: number) {
   nextTick(() => {
-    const textarea = textareaRef.value;
-    if (!textarea) return;
+    const editorInstance = editorRef.value;
+    if (!editorInstance) return;
+    const view = editorInstance.getEditorView();
+    if (view) {
+      try {
+        const targetLine = Math.min(Math.max(1, lineIndex + 1), view.state.doc.lines);
+        const line = view.state.doc.line(targetLine);
+        view.dispatch({
+          selection: { anchor: line.from },
+          scrollIntoView: true,
+        });
+        view.focus();
+        return;
+      } catch (err) {
+        console.warn("EditorView scroll failed:", err);
+      }
+    }
+    // 回退方案：字符位置定位
     const lines = form.content.split("\n");
     let charPos = 0;
     for (let i = 0; i < lineIndex && i < lines.length; i++) {
       charPos += lines[i].length + 1;
     }
-    textarea.focus();
-    textarea.setSelectionRange(charPos, charPos);
-    const lineHeight = editorFontSize.value * 1.6;
-    textarea.scrollTop = Math.max(0, lineIndex * lineHeight - 120);
+    editorInstance.focus({ cursorPos: charPos });
   });
 }
 </script>
@@ -260,9 +337,7 @@ function scrollToEpisode(lineIndex: number) {
     <!-- 顶栏导航与操作 -->
     <div class="topbar">
       <div class="topbar-left">
-        <el-button :icon="ArrowLeft" text class="back-btn" @click="goBack">
-          返回工作区
-        </el-button>
+        <el-button :icon="ArrowLeft" text class="back-btn" @click="goBack">返回工作区</el-button>
         <el-divider direction="vertical" />
         <div class="project-info">
           <span class="project-title">{{ project?.title || "剧本项目" }}</span>
@@ -272,7 +347,12 @@ function scrollToEpisode(lineIndex: number) {
             </template>
             <template v-else>
               <el-tag size="small" type="success">v{{ currentScript?.version }}</el-tag>
-              <el-tag v-if="currentScript?.is_current" size="small" type="warning" class="current-badge">
+              <el-tag
+                v-if="currentScript?.is_current"
+                size="small"
+                type="warning"
+                class="current-badge"
+              >
                 当前生效
               </el-tag>
             </template>
@@ -291,29 +371,15 @@ function scrollToEpisode(lineIndex: number) {
         </el-button-group>
 
         <template v-if="!isCreate">
-          <el-button
-            v-if="!currentScript?.is_current"
-            size="default"
-            @click="handleSetCurrent"
-          >
+          <el-button v-if="!currentScript?.is_current" size="default" @click="handleSetCurrent">
             设为当前版本
           </el-button>
-          <el-button
-            size="default"
-            :icon="DocumentCopy"
-            :loading="saving"
-            @click="handleSaveAsNew"
-          >
+          <el-button size="default" :icon="DocumentCopy" :loading="saving" @click="handleSaveAsNew">
             另存为新版本
           </el-button>
         </template>
 
-        <el-button
-          type="primary"
-          :icon="Check"
-          :loading="saving"
-          @click="handleSave"
-        >
+        <el-button type="primary" :icon="Check" :loading="saving" @click="handleSave">
           {{ isCreate ? "保存新版本" : "保存修改" }}
         </el-button>
       </div>
@@ -353,7 +419,13 @@ function scrollToEpisode(lineIndex: number) {
                 <span class="ver-title" :title="ver.title || '无标题'">
                   {{ ver.title || "（未命名版本）" }}
                 </span>
-                <el-tag v-if="ver.is_current" size="small" type="success" effect="dark" class="active-tag">
+                <el-tag
+                  v-if="ver.is_current"
+                  size="small"
+                  type="success"
+                  effect="dark"
+                  class="active-tag"
+                >
                   生效
                 </el-tag>
               </div>
@@ -379,21 +451,32 @@ function scrollToEpisode(lineIndex: number) {
             <el-icon class="spec-icon"><InfoFilled /></el-icon>
             <span class="spec-title">剧本创作规范</span>
           </div>
-          <p class="spec-desc">
-            每集需注明预估生成秒数（建议最多15s或30s），例如：
-          </p>
+          <p class="spec-desc">每集需注明预估生成秒数（建议最多15s或30s），例如：</p>
           <div class="spec-example">
-            第1集（预估生成时长：15秒）<br />
-            [场景] 繁华雨夜街道<br />
-            [台词] ...
+            ### 第1集（预估生成时长：15秒）
+            <br />
+            **[场景]** 繁华雨夜街道
+            <br />
+            **[台词]** ...
           </div>
+          <el-button
+            size="small"
+            type="warning"
+            plain
+            :icon="DocumentAdd"
+            class="insert-spec-btn"
+            @click="handleInsertTemplate"
+          >
+            插入规范模板
+          </el-button>
         </div>
 
         <!-- 分集大纲导航 -->
         <div v-if="episodes.length" class="sidebar-section episode-nav-section">
           <div class="sidebar-header">
             <span class="sidebar-title">
-              <el-icon><List /></el-icon> 分集大纲 ({{ episodes.length }})
+              <el-icon><List /></el-icon>
+              分集大纲 ({{ episodes.length }})
             </span>
           </div>
           <div class="episode-list-scroll">
@@ -428,27 +511,57 @@ function scrollToEpisode(lineIndex: number) {
               设为当前版本
             </el-checkbox>
             <span class="stats-text">
-              共 <strong>{{ stats.charCount }}</strong> 字 · <strong>{{ stats.lineCount }}</strong> 行 · <strong>{{ stats.episodes }}</strong> 个分集/场景
+              共
+              <strong>{{ stats.charCount }}</strong>
+              字 ·
+              <strong>{{ stats.lineCount }}</strong>
+              行 ·
+              <strong>{{ stats.episodes }}</strong>
+              个分集/场景
             </span>
           </div>
         </div>
 
         <!-- 核心文本编辑浏览区 -->
         <div class="editor-body">
-          <textarea
-            ref="textareaRef"
+          <v-md-editor
+            ref="editorRef"
             v-model="form.content"
-            class="script-textarea"
-            :style="{ fontSize: `${editorFontSize}px` }"
-            placeholder="在此输入或粘贴完整剧本文本...
+            editor-id="story-script-editor"
+            class="script-md-editor"
+            :preview-theme="MD_PREVIEW_DEFAULTS.previewTheme"
+            :code-theme="MD_PREVIEW_DEFAULTS.codeTheme"
+            :toolbars="toolbars"
+            :footers="footers"
+            :show-code-row-number="true"
+            :scroll-auto="true"
+            placeholder="在此输入或编辑剧本文本（支持 Markdown 排版，可实时双栏预览）...
 
 示例规范：
-第1集（预估生成时长：15秒）
-[场景] 晨光初醒的旧书店，阳光透过斑驳玻璃照在落灰书架上。
-[角色] 林晚，神色迷茫地翻开桌上的泛黄日记本。
-[旁白] 那是故事开始的第一天。"
-            spellcheck="false"
-          ></textarea>
+### 第1集（预估生成时长：15秒）
+**[场景]** 晨光初醒的旧书店，阳光透过斑驳玻璃照在落灰书架上。
+**[角色]** 林晚，神色迷茫地翻开桌上的泛黄日记本。
+**[旁白]** 那是故事开始的第一天。
+**[台词]**
+- **林晚**：（低语）这段记忆……为什么我不记得发生过？"
+            :style="{ '--script-editor-font-size': `${editorFontSize}px` }"
+            @on-save="handleSave"
+          >
+            <template #defToolbars>
+              <NormalToolbar
+                title="插入规范模板"
+                @click="handleInsertTemplate"
+                @on-click="handleInsertTemplate"
+              >
+                <template #trigger>
+                  <span class="custom-toolbar-btn" title="插入分集规范模板">
+                    <el-icon><DocumentAdd /></el-icon>
+                    <span class="btn-text">模板</span>
+                  </span>
+                </template>
+              </NormalToolbar>
+            </template>
+          </v-md-editor>
         </div>
       </div>
     </div>
@@ -767,25 +880,98 @@ function scrollToEpisode(lineIndex: number) {
 .editor-body {
   flex: 1;
   display: flex;
-  padding: 12px 16px;
+  padding: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
-.script-textarea {
+.script-md-editor {
   width: 100%;
-  height: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
-  line-height: 1.8;
-  color: #2c3e50;
+  height: 100% !important;
+  border: none !important;
   background: transparent;
-  padding: 4px;
-  box-sizing: border-box;
 }
 
-.script-textarea::placeholder {
-  color: #c0c4cc;
+/* 动态字体与行高绑定 */
+:deep(.script-md-editor .cm-content),
+:deep(.script-md-editor .cm-line) {
+  font-size: var(--script-editor-font-size, 15px) !important;
+  line-height: 1.8 !important;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", monospace;
+}
+
+:deep(.script-md-editor .md-editor-preview) {
+  font-size: var(--script-editor-font-size, 15px) !important;
+  line-height: 1.8 !important;
+}
+
+:deep(.script-md-editor .md-editor-preview p),
+:deep(.script-md-editor .md-editor-preview li) {
+  font-size: var(--script-editor-font-size, 15px) !important;
+  line-height: 1.8 !important;
+}
+
+/* 剧本特定 Markdown 样式优化：高亮场景与角色提示 */
+:deep(.script-md-editor .md-editor-preview blockquote) {
+  border-left: 4px solid #409eff;
+  background: #f4f8fe;
+  padding: 8px 14px;
+  margin: 10px 0;
+  border-radius: 0 4px 4px 0;
+  color: #334155;
+}
+
+:deep(.script-md-editor .md-editor-preview h1),
+:deep(.script-md-editor .md-editor-preview h2),
+:deep(.script-md-editor .md-editor-preview h3) {
+  color: #1e293b;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 6px;
+  margin-top: 18px;
+  margin-bottom: 10px;
+}
+
+:deep(.script-md-editor .md-editor-toolbar-wrapper) {
+  border-bottom: 1px solid #f0f2f5;
+  background: #fafbfc;
+}
+
+:deep(.script-md-editor .md-editor-footer) {
+  border-top: 1px solid #f0f2f5;
+  background: #fafbfc;
+  font-size: 12px;
+}
+
+.insert-spec-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.custom-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #409eff;
+  cursor: pointer;
+  padding: 0 6px;
+  height: 24px;
+  border-radius: 4px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.custom-toolbar-btn:hover {
+  background: #409eff;
+  color: #fff;
+  border-color: #409eff;
+}
+
+.custom-toolbar-btn .btn-text {
+  font-size: 11px;
 }
 </style>
