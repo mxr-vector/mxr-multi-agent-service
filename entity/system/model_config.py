@@ -14,11 +14,12 @@ class ModelConfig(Base):
     """
     模型配置 ORM 模型（映射 sys_model_config）。
 
-    - 每行对应一个模型角色（chat/rewrite/visual/rerank），role 全局唯一，
-      前端以一行渲染为一张配置卡片；
+    - 每行对应一个模型角色（chat/rewrite/visual/rerank/image/video，角色集合由
+      字典 model_types 决定），role 全局唯一，前端以一行渲染为一张配置卡片；
     - api_key 落盘明文，掩码仅在 service 层做（to_dict 返回原值，禁止直接对外）；
-    - provider 目前仅 rerank 使用；timeout/max_retries 目前 chat/visual 使用；
-      extra 为角色特有参数兜底；
+    - provider 目前仅 rerank 使用；timeout 目前 chat/visual/image/video 使用，
+      max_retries 目前 chat/visual/image 使用；extra 为角色特有参数兜底
+      （image 存 size/quality，video 存 resolution/ratio/duration）；
     - is_builtin 为内置行删除保护标记，禁删但允许更新其余字段；
     - updated_at 由业务层在更新时显式赋值，不依赖数据库触发器。
     """

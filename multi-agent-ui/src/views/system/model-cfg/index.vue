@@ -17,6 +17,9 @@ const providerOptions = computed(() => dictStore.getOptions("embedding_provider"
 // 存储值，上游换供应商时增删字典项即可）；输出格式后端写死 webp，不做配置项
 const imageSizeOptions = computed(() => dictStore.getOptions("image_size"));
 const imageQualityOptions = computed(() => dictStore.getOptions("image_quality"));
+// 视频模型合成规格档位（字典 video_resolution / video_ratio，值即 extra 的存储值）
+const videoResolutionOptions = computed(() => dictStore.getOptions("video_resolution"));
+const videoRatioOptions = computed(() => dictStore.getOptions("video_ratio"));
 
 const loading = ref(false);
 const list = ref<ModelConfig[]>([]);
@@ -49,6 +52,10 @@ const form = reactive({
   // 图像角色可调生图规格（落 extra）：字典下拉存储值为字符串
   image_size: "",
   image_quality: "",
+  // 视频角色可调合成规格（落 extra）：分辨率/画幅为字典字符串，时长为数字
+  video_resolution: "",
+  video_ratio: "",
+  video_duration: null as number | null,
   remark: "",
 });
 
@@ -133,17 +140,32 @@ const rules: FormRules = {
   api_url: [{ required: true, message: "请输入接口地址", trigger: "blur" }],
 };
 
-// chat/visual/image 显示超时/重试；仅 rerank 显示 provider；仅 chat 显示上下文窗口；
-// 仅 image 显示可调生图规格（size/quality，落 extra；输出侧后端写死，不入配置）
-const showTimeout = computed(() => ["chat", "visual", "image"].includes(editing.value?.role ?? ""));
+// chat/visual/image/video 显示超时；chat/visual/image 显示重试（视频为异步任务，重试由轮询逻辑处理）；
+// 仅 rerank 显示 provider；仅 chat 显示上下文窗口；
+// 仅 image 显示可调生图规格（size/quality，落 extra；输出侧后端写死，不入配置）；
+// 仅 video 显示可调合成规格（resolution/ratio/duration，落 extra）
+const showTimeout = computed(() =>
+  ["chat", "visual", "image", "video"].includes(editing.value?.role ?? "")
+);
+const showMaxRetries = computed(() =>
+  ["chat", "visual", "image"].includes(editing.value?.role ?? "")
+);
 const showProvider = computed(() => editing.value?.role === "rerank");
 const showContextWindow = computed(() => editing.value?.role === "chat");
 const showImageSpec = computed(() => editing.value?.role === "image");
+const showVideoSpec = computed(() => editing.value?.role === "video");
 
 /** 取 extra 中的字符串型规格值（非字符串/缺失视为未配置，下拉回落占位） */
 function extraText(extra: Record<string, unknown>, key: string): string {
   const raw = extra[key];
   return typeof raw === "string" ? raw : "";
+}
+
+/** 取 extra 中的数字型规格值（兼容手工写入的数字字符串），非法返回 null */
+function extraNumber(extra: Record<string, unknown>, key: string): number | null {
+  const raw = extra[key];
+  const value = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 /**
@@ -167,6 +189,19 @@ function buildImageExtra(): Record<string, unknown> {
   return extra;
 }
 
+/** 视频角色：把合成规格打包为 extra（浅合并保留未知键，空值删键回落工厂缺省） */
+function buildVideoExtra(): Record<string, unknown> {
+  const extra: Record<string, unknown> = { ...(editing.value?.extra ?? {}) };
+  const put = (key: string, value: string | number | null | undefined) => {
+    if (value === "" || value === null || value === undefined) delete extra[key];
+    else extra[key] = value;
+  };
+  put("resolution", form.video_resolution);
+  put("ratio", form.video_ratio);
+  put("duration", form.video_duration);
+  return extra;
+}
+
 function openEdit(config: ModelConfig) {
   editing.value = config;
   dialogTestResult.value = null;
@@ -184,6 +219,9 @@ function openEdit(config: ModelConfig) {
     context_window: config.context_window != null ? String(config.context_window) : "",
     image_size: extraText(extra, "size"),
     image_quality: extraText(extra, "quality"),
+    video_resolution: extraText(extra, "resolution"),
+    video_ratio: extraText(extra, "ratio"),
+    video_duration: extraNumber(extra, "duration"),
     remark: config.remark ?? "",
   });
   dialogVisible.value = true;
@@ -205,15 +243,19 @@ async function submit() {
       api_key: form.api_key.trim() || undefined,
       provider: showProvider.value ? form.provider || null : undefined,
       timeout: showTimeout.value ? form.timeout : undefined,
-      max_retries: showTimeout.value ? form.max_retries : undefined,
+      max_retries: showMaxRetries.value ? form.max_retries : undefined,
       // 上下文窗口字典存字符串，提交转数字；非 chat 角色不提交
       context_window: showContextWindow.value
         ? form.context_window
           ? Number(form.context_window)
           : null
         : undefined,
-      // 生图规格仅 image 角色提交（合并进 extra，保留未知键）；其余角色不触碰 extra
-      extra: showImageSpec.value ? buildImageExtra() : undefined,
+      // 角色规格仅 image / video 提交（合并进 extra，保留未知键）；其余角色不触碰 extra
+      extra: showImageSpec.value
+        ? buildImageExtra()
+        : showVideoSpec.value
+          ? buildVideoExtra()
+          : undefined,
       remark: form.remark || null,
     });
     // 后端在保存成功后触发配置快照刷新，refreshed 透出是否热更新生效
@@ -237,7 +279,7 @@ onMounted(loadConfigs);
     <header class="model-cfg-page__head">
       <h2 class="model-cfg-page__title">模型配置</h2>
       <p class="model-cfg-page__subtitle">
-        对话 / 改写 / 多模态 / 重排序 / 图像模型的运行参数，保存后免重启、自下一请求生效。
+        对话 / 改写 / 多模态 / 重排序 / 图像 / 视频模型的运行参数，保存后免重启、自下一请求生效。
       </p>
     </header>
 
@@ -334,19 +376,17 @@ onMounted(loadConfigs);
             />
           </el-select>
         </el-form-item>
-        <template v-if="showTimeout">
-          <el-form-item label="超时(秒)">
-            <el-input-number v-model="form.timeout" :min="1" :max="600" controls-position="right" />
-          </el-form-item>
-          <el-form-item label="重试次数">
-            <el-input-number
-              v-model="form.max_retries"
-              :min="0"
-              :max="10"
-              controls-position="right"
-            />
-          </el-form-item>
-        </template>
+        <el-form-item v-if="showTimeout" label="超时(秒)">
+          <el-input-number v-model="form.timeout" :min="1" :max="600" controls-position="right" />
+        </el-form-item>
+        <el-form-item v-if="showMaxRetries" label="重试次数">
+          <el-input-number
+            v-model="form.max_retries"
+            :min="0"
+            :max="10"
+            controls-position="right"
+          />
+        </el-form-item>
         <el-form-item v-if="showContextWindow" label="上下文窗口">
           <el-select v-model="form.context_window" placeholder="选择上下文窗口" clearable>
             <el-option
@@ -378,6 +418,37 @@ onMounted(loadConfigs);
                 :value="item.value"
               />
             </el-select>
+          </el-form-item>
+        </template>
+        <!-- 视频模型可调合成规格：落 extra，后端拼入 video-synthesis 的 parameters -->
+        <template v-if="showVideoSpec">
+          <el-form-item label="分辨率">
+            <el-select v-model="form.video_resolution" placeholder="选择分辨率" clearable>
+              <el-option
+                v-for="item in videoResolutionOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="画幅比例">
+            <el-select v-model="form.video_ratio" placeholder="选择画幅比例" clearable>
+              <el-option
+                v-for="item in videoRatioOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="时长(秒)">
+            <el-input-number
+              v-model="form.video_duration"
+              :min="1"
+              :max="30"
+              controls-position="right"
+            />
           </el-form-item>
         </template>
         <el-form-item label="备注">

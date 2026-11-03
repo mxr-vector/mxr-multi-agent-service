@@ -75,22 +75,22 @@ CREATE TABLE sys.sys_config (
 
 -- ------------------------------------------------------------
 -- 3.1 模型配置表 sys_model_config
---    每行一个模型角色(chat/rewrite/visual/rerank), role 全局唯一;
+--    每行一个模型角色(角色集合由字典 model_types 决定), role 全局唯一;
 --    一行对应前端一张配置卡片; is_builtin 内置行禁止删除(允许改值);
 --    api_key 落盘明文, 查询接口返回掩码(脱敏在 service 层)
 -- ------------------------------------------------------------
 CREATE TABLE sys.sys_model_config (
     id           UUID PRIMARY KEY DEFAULT uuidv7(),
-    role         VARCHAR(20) NOT NULL,          -- 'chat'/'rewrite'/'visual'/'rerank', 全局唯一
+    role         VARCHAR(20) NOT NULL,          -- 角色 key, 全局唯一, 取值见字典 model_types
     name         VARCHAR(100) NOT NULL,         -- 卡片标题(中文名), 如 '对话模型'
     model_name   VARCHAR(200) NOT NULL,         -- 模型名
-    api_url      TEXT NOT NULL,                 -- 接口地址(OpenAI 兼容 base_url)
+    api_url      TEXT NOT NULL,                 -- 接口地址(OpenAI 兼容 base_url 或 DashScope/MaaS 基地址)
     api_key      TEXT NOT NULL,                 -- 凭证, 落盘明文, 响应掩码
     provider     VARCHAR(50),                   -- provider 标识, 目前仅 rerank 使用
-    timeout      INT,                           -- 单请求超时(秒), 目前 chat/visual 使用
-    max_retries  INT,                           -- 失败重试次数, 目前 chat/visual 使用
+    timeout      INT,                           -- 单请求超时(秒), 目前 chat/visual/image/video 使用
+    max_retries  INT,                           -- 失败重试次数, 目前 chat/visual/image 使用
     context_window INT NOT NULL DEFAULT 200000, -- 上下文窗口(token), 目前 chat 使用
-    extra        JSONB,                         -- 角色特有参数兜底
+    extra        JSONB,                         -- 角色特有参数兜底(image: size/quality; video: resolution/ratio/duration)
     is_builtin   BOOLEAN NOT NULL DEFAULT TRUE, -- 内置行删除保护
     remark       TEXT,
 

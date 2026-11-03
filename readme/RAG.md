@@ -81,7 +81,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 ### 3.4 权限与配置
 
 - **数据权限**：知识库可见性 `private / department / public` + 用户部门 data_scope，服务端强制收口（不可见与不存在同文案，不泄露存在性）
-- **配置双轨**：`EMBEDDING_*` 保留在 env（换模型即毁向量库，部署级钉死）；chat/rewrite/visual/rerank 四角色模型在 `sys.sys_model_config`，经配置快照 `CFG` 读取，写后热更新（校验失败保留旧快照 last-known-good）
+- **配置双轨**：`EMBEDDING_*` 保留在 env（换模型即毁向量库，部署级钉死）；模型角色（chat/rewrite/visual/rerank/image/video，角色集合由字典 model_types 决定）在 `sys.sys_model_config`，经配置快照 `CFG` 读取，写后热更新（校验失败保留旧快照 last-known-good）
 
 ## 4. 基准测试
 

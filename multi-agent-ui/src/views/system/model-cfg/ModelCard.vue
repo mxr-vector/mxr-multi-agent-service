@@ -60,15 +60,17 @@ function tagType(role: string) {
 /** 角色展示名：命中字典 model_types 取中文 label，未命中回退英文 role */
 const roleLabel = computed(() => dictStore.getLabel("model_types", props.config.role));
 
-// ---------- 图像角色生图规格（存于 extra，由后端 model/image/factory.py 消费） ----------
-/** 是否为图像模型（仅该角色展示/可配生图规格参数） */
+// ---------- 角色规格（存于 extra，由后端对应 model/*/factory.py 消费） ----------
+/** 是否为图像模型（仅该角色展示生图规格参数） */
 const isImage = computed(() => props.config.role === "image");
+/** 是否为视频模型（仅该角色展示合成规格参数） */
+const isVideo = computed(() => props.config.role === "video");
 
-const imageExtra = computed(() => (props.config.extra ?? {}) as Record<string, unknown>);
+const roleExtra = computed(() => (props.config.extra ?? {}) as Record<string, unknown>);
 
 /** 取 extra 中的字符串型规格值，非字符串/空白视为未配置 */
 function extraText(key: string): string {
-  const raw = imageExtra.value[key];
+  const raw = roleExtra.value[key];
   return typeof raw === "string" && raw.trim() ? raw.trim() : "";
 }
 
@@ -80,6 +82,25 @@ function extraDictLabel(dictType: string, key: string): string {
 
 const imageSizeLabel = computed(() => extraDictLabel("image_size", "size"));
 const imageQualityLabel = computed(() => extraDictLabel("image_quality", "quality"));
+
+/** 超时/重试展示：视频为异步任务，timeout 仅作用于提交请求，重试由轮询逻辑处理 */
+const timeoutLabel = computed(() => {
+  if (props.config.timeout === null && props.config.max_retries === null) return "";
+  if (isVideo.value) {
+    return props.config.timeout != null ? `${props.config.timeout}s（提交请求）` : "SDK 默认";
+  }
+  return `${props.config.timeout ?? "—"}s / ${props.config.max_retries ?? "—"} 次`;
+});
+
+// ---------- 视频角色合成规格（存于 extra，由后端 model/video/factory.py 消费） ----------
+const videoResolutionLabel = computed(() => extraDictLabel("video_resolution", "resolution"));
+const videoRatioLabel = computed(() => extraDictLabel("video_ratio", "ratio"));
+/** 时长在 extra 中为数字（非字典值，兼容手工写入的数字字符串），未配置显示占位 */
+const videoDurationLabel = computed(() => {
+  const raw = roleExtra.value["duration"];
+  const value = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  return Number.isFinite(value) && value > 0 ? `${value} 秒` : "—";
+});
 </script>
 
 <template>
@@ -108,9 +129,9 @@ const imageQualityLabel = computed(() => extraDictLabel("image_quality", "qualit
         <dt>Provider</dt>
         <dd>{{ providerLabel }}</dd>
       </div>
-      <div v-if="config.timeout !== null || config.max_retries !== null" class="model-card__row">
-        <dt>超时 / 重试</dt>
-        <dd>{{ config.timeout ?? "—" }}s / {{ config.max_retries ?? "—" }} 次</dd>
+      <div v-if="timeoutLabel" class="model-card__row">
+        <dt>{{ isVideo ? "请求超时" : "超时 / 重试" }}</dt>
+        <dd>{{ timeoutLabel }}</dd>
       </div>
       <div v-if="config.role === 'chat'" class="model-card__row">
         <dt>上下文窗口</dt>
@@ -125,6 +146,21 @@ const imageQualityLabel = computed(() => extraDictLabel("image_quality", "qualit
         <div class="model-card__row">
           <dt>图像质量</dt>
           <dd>{{ imageQualityLabel }}</dd>
+        </div>
+      </template>
+      <!-- 视频模型：可调合成规格（extra），对应 DashScope video-synthesis 的 parameters -->
+      <template v-if="isVideo">
+        <div class="model-card__row">
+          <dt>分辨率</dt>
+          <dd>{{ videoResolutionLabel }}</dd>
+        </div>
+        <div class="model-card__row">
+          <dt>画幅比例</dt>
+          <dd>{{ videoRatioLabel }}</dd>
+        </div>
+        <div class="model-card__row">
+          <dt>时长</dt>
+          <dd>{{ videoDurationLabel }}</dd>
         </div>
       </template>
     </dl>

@@ -4,7 +4,7 @@ import { MODEL_CONFIG_URL } from "./index";
 /** 模型配置实体（对应后端 sys_model_config.to_dict；api_key 为掩码值） */
 export interface ModelConfig {
   id: string;
-  /** 模型角色：chat / rewrite / visual / rerank / image，全局唯一，创建后不可变 */
+  /** 模型角色：chat / rewrite / visual / rerank / image / video，全局唯一，创建后不可变 */
   role: string;
   /** 卡片标题（中文名），如 '对话模型' */
   name: string;
@@ -14,7 +14,7 @@ export interface ModelConfig {
   api_key: string;
   /** provider 标识，目前仅 rerank 使用 */
   provider: string | null;
-  /** 单请求超时（秒），chat/visual 使用；image 为 NULL 时表示无超时（回落 SDK 默认） */
+  /** 单请求超时（秒），chat/visual/image/video 使用；NULL 时回落 SDK 默认 */
   timeout: number | null;
   /** 失败重试次数，chat/visual/image 使用 */
   max_retries: number | null;

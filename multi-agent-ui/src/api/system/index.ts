@@ -54,7 +54,7 @@ export const CONFIG_URL = {
   byId: (id: string) => `${BASE}/configs/${id}`,
 } as const;
 
-/** 模型配置管理接口地址（chat/rewrite/visual/rerank 角色卡片） */
+/** 模型配置管理接口地址（角色卡片，角色集合由字典 model_types 决定） */
 export const MODEL_CONFIG_URL = {
   /** 全量列表（api_key 掩码） */
   root: `${BASE}/model-configs`,
