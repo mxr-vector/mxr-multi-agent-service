@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
             reset_stale_draw_generating(),
         ),
         _guarded(
-            "[STORY]（确认已执行 story_alter_ai_workspace.sql 后重启恢复）",
+            "[STORY]（确认已执行 story_alter_ai_workspace.sql / story_alter_video_generation.sql 后重启恢复）",
             reset_stale_story_generating(),
         ),
         _guarded(

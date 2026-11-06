@@ -1,15 +1,19 @@
 """
-剧本模块视频成品路由：上传登记（抽首帧封面）、列表与维护。
+剧本模块视频路由：
+1. 外部成品回收：上传登记（抽首帧封面）、列表与维护；
+2. 章节化片段生成：读取剧本编排 → 用户确认整章提示词 → 一次生成/下载。
 
 上传守卫对齐既有模式（格式白名单 + 大小上限），视频大小上限与图片分离
 （VIDEO_UPLOAD_MAX_SIZE_MB）；封面默认服务端抽帧，失败降级手动上传。
+生成接口接收用户确认后的整章提示词与该章全部关键帧（参考图一次性提交）。
 """
 
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, Path, Query, UploadFile
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from exception.bad_except import bad_except
 from service.story.storage import IMAGE_EXTENSIONS
@@ -17,6 +21,8 @@ from service.story.video import (
     VIDEO_EXTENSIONS,
     VideoService,
 )
+from service.story.video_generation import VideoGenerationService
+from service.story.video_plan import VideoPlanService
 from utils.env import ENV
 from utils.page import build_page_result
 from utils.response import R
@@ -26,6 +32,15 @@ from utils.file_ingest import read_upload_capped
 router = APIRouter(prefix="/story", tags=["OpenAPI - 剧本视频成品"])
 
 _video_service = VideoService()
+_video_generation_service = VideoGenerationService()
+_video_plan_service = VideoPlanService()
+
+_VIDEO_MEDIA_TYPES = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+}
 
 
 class VideoUpdateRequest(BaseModel):
@@ -36,6 +51,99 @@ class VideoUpdateRequest(BaseModel):
     target_platform: Optional[str] = None
     external_task_id: Optional[str] = None
     remark: Optional[str] = None
+
+
+class ChapterVideoGenerateRequest(BaseModel):
+    """章节片段生成请求体：一章一份提示词 + 该章全部关键帧。"""
+
+    chapter_no: Optional[int] = None
+    title: Optional[str] = None
+    prompt: str = Field(..., min_length=1)
+    keyframe_ids: list[uuid.UUID] = Field(default_factory=list)
+    chapter_content: Optional[str] = None
+    use_images: bool = True
+    resolution: Optional[str] = None
+    ratio: Optional[str] = None
+    duration: Optional[int] = Field(default=None, ge=2, le=30)
+
+
+@router.get("/projects/{project_id}/video-plan")
+async def project_video_plan(
+    project_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """章节化编排：把该章剧本正文与全部关键帧按位置组合成一份生成单元。"""
+    return R.success(data=await _video_plan_service.plan(ctx, project_id))
+
+
+@router.post("/projects/{project_id}/videos/generate")
+async def generate_project_video(
+    project_id: uuid.UUID = Path(...),
+    payload: ChapterVideoGenerateRequest = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """生成一个章节片段：一次提交该章提示词与全部关键帧参考图。"""
+    return R.success(
+        data=await _video_generation_service.generate_chapter(
+            ctx,
+            project_id,
+            prompt=payload.prompt,
+            keyframe_ids=payload.keyframe_ids,
+            title=payload.title,
+            chapter_no=payload.chapter_no,
+            chapter_content=payload.chapter_content,
+            use_images=payload.use_images,
+            resolution=payload.resolution,
+            ratio=payload.ratio,
+            duration=payload.duration,
+        )
+    )
+
+
+@router.get("/videos/generation-options")
+async def video_generation_options(
+    ctx: UserContext = Depends(get_user_context),
+):
+    """生成面板公共配置：默认规格与并发上限（不含敏感凭证）。"""
+    return R.success(data=_video_generation_service.generation_options())
+
+
+@router.post("/videos/{video_id}/stop")
+async def stop_video_generation(
+    video_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """中止在途视频生成任务，状态置为 cancelled。"""
+    cancelled = await _video_generation_service.stop(ctx, video_id)
+    return R.success(data={"cancelled": cancelled})
+
+
+@router.post("/projects/{project_id}/videos/stop-all")
+async def stop_all_video_generations(
+    project_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """中止本项目下全部在途视频生成任务。"""
+    stopped_count = await _video_generation_service.stop_all(ctx, project_id)
+    return R.success(data={"stopped_count": stopped_count})
+
+
+@router.get("/videos/{video_id}/download")
+async def download_video(
+    video_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """下载单个视频片段（附件流式下发，文件名取片段标题）。"""
+    path, filename = await _video_service.download(ctx, video_id)
+    media_type = _VIDEO_MEDIA_TYPES.get(
+        path.suffix.lower(), "application/octet-stream"
+    )
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        headers={"Access-Control-Expose-Headers": "Content-Disposition"},
+    )
 
 
 @router.post("/projects/{project_id}/videos")
@@ -96,12 +204,23 @@ async def list_videos(
     keyframe_id: Optional[uuid.UUID] = Query(
         default=None, description="按关键帧过滤（关键帧反查片段）"
     ),
+    source: Optional[str] = Query(
+        default=None, description="来源过滤：upload/generated"
+    ),
+    status: Optional[str] = Query(
+        default=None, description="状态过滤：queued/generating/done/failed/cancelled"
+    ),
+    brief: bool = Query(
+        default=False, description="精简模式：省略提示词/生成参数等大字段"
+    ),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """项目视频列表（可选按关键帧过滤），创建时间倒序。"""
-    items, total = await _video_service.list(ctx, project_id, keyframe_id, page, size)
+    """项目视频列表（可选按关键帧/来源/状态过滤），创建时间倒序。"""
+    items, total = await _video_service.list(
+        ctx, project_id, keyframe_id, page, size, source, status, brief
+    )
     return R.success(data=build_page_result(items, total, page, size))
 
 

@@ -31,7 +31,12 @@ from database.story.project import (
 from database.story.video import VideoRepository
 from exception.bad_except import bad_except
 from service.story.project import ProjectService
-from service.story.storage import assert_asset_relative
+from service.story.storage import (
+    assert_asset_relative,
+    resolve_upload_path,
+    sanitize_dir_name,
+    unlink_quietly,
+)
 from utils.env import ENV
 from utils.logger import logger
 
@@ -276,14 +281,26 @@ class VideoService:
         keyframe_id: uuid.UUID | None = None,
         page: int = 1,
         size: int = 20,
+        source: str | None = None,
+        status: str | None = None,
+        brief: bool = False,
     ):
-        """项目视频列表（可选按关键帧过滤），创建时间倒序。"""
+        """项目视频列表（可按关键帧/来源/状态过滤），创建时间倒序。
+
+        brief=True 时剔除长提示词/生成参数，供前端轮询时降低传输量。
+        """
         async with get_session() as session:
             await self._project_service._assert_owned(session, project_id, ctx)
             items, total = await VideoRepository(session).list(
-                project_id, keyframe_id, page, size
+                project_id, keyframe_id, page, size, source, status
             )
-            return [item.to_dict() for item in items], total
+            result = [item.to_dict() for item in items]
+            if brief:
+                for item in result:
+                    item.pop("prompt", None)
+                    item.pop("negative_prompt", None)
+                    item.pop("generation_params", None)
+            return result, total
 
     async def update(self, ctx, video_id: uuid.UUID, payload) -> dict:
         """编辑视频登记字段（白名单内显式传入；溯源字段不可改）。"""
@@ -305,15 +322,48 @@ class VideoService:
             return video.to_dict()
 
     async def delete(self, ctx, video_id: uuid.UUID) -> None:
-        """删除视频登记（不级联溯源对象），重算项目计数。"""
+        """删除视频登记（不级联溯源对象），重算项目计数。
+
+        仅对模型生成/合成的本地文件做精确清理；外部上传文件沿用既有
+        「不追删」约定，避免误删用户手工归档的原始素材。
+        """
         async with get_session() as session:
             video = await self._assert_video_owned(session, video_id, ctx)
             project_id = video.project_id
+            source = video.source
+            video_file = video.video_file
+            cover_file = video.cover_file
+            if source == "generated" and video.status in ("queued", "generating"):
+                # 在途任务先取消，避免删除后仍继续消耗上游额度
+                from service.story.video_generation import cancel_video_task
+
+                cancel_video_task(video.id)
             await VideoRepository(session).delete(video)
             project_repo = ProjectRepository(session)
             project = await project_repo.get(project_id)
             await project_repo.recount_assets(project)
             await session.commit()
+
+        if source == "generated":
+            def _cleanup() -> None:
+                if video_file:
+                    unlink_quietly(video_file)
+                if cover_file:
+                    unlink_quietly(cover_file)
+
+            await asyncio.to_thread(_cleanup)
+
+    async def download(self, ctx, video_id: uuid.UUID) -> tuple[Path, str]:
+        """校验归属并返回视频文件与下载文件名（供路由流式下发）。"""
+        async with get_session() as session:
+            video = await self._assert_video_owned(session, video_id, ctx)
+            if not video.video_file:
+                bad_except("视频尚未生成完成")
+            path = resolve_upload_path(video.video_file)
+            if not path.is_file():
+                bad_except("视频文件不存在或已被清理")
+            stem = sanitize_dir_name(video.title or "视频片段", video.id.hex)
+            return path, f"{stem}{path.suffix}"
 
     async def set_cover(self, ctx, video_id: uuid.UUID, cover_file: str) -> dict:
         """手动设置封面（抽帧降级路径或自定义封面）。"""

@@ -30,6 +30,23 @@ const size = ref(12);
 const total = ref(0);
 const keyframeNames = ref<Record<string, string>>({});
 
+const STATUS_LABEL: Record<string, string> = {
+  draft: "草稿",
+  queued: "排队中",
+  generating: "生成中",
+  done: "已完成",
+  failed: "失败",
+  cancelled: "已中止",
+};
+const STATUS_TAG: Record<string, "info" | "warning" | "success" | "danger"> = {
+  draft: "info",
+  queued: "info",
+  generating: "warning",
+  done: "success",
+  failed: "danger",
+  cancelled: "info",
+};
+
 async function loadVideos() {
   loading.value = true;
   try {
@@ -209,6 +226,10 @@ const playVisible = ref(false);
 const playing = ref<StoryVideoVO | null>(null);
 
 function openPlay(video: StoryVideoVO) {
+  if (!video.video_file) {
+    ElMessage.info("该视频尚未生成完成");
+    return;
+  }
   playing.value = video;
   playVisible.value = true;
 }
@@ -266,7 +287,9 @@ function formatDuration(ms: number | null): string {
           上传视频片段
         </el-button>
       </div>
-      <div class="upload-hint">外部平台生成后下载的视频，以单镜头片段粒度回收登记。</div>
+      <div class="upload-hint">
+        外部平台生成后下载的视频可在此回收登记；「生成视频」面板产出的镜头片段也会同步展示。
+      </div>
     </div>
 
     <!-- 列表 -->
@@ -297,6 +320,16 @@ function formatDuration(ms: number | null): string {
           <div class="video-body">
             <div class="video-title">{{ video.title || "未命名片段" }}</div>
             <div class="video-meta">
+              <el-tag v-if="video.source === 'generated'" size="small" type="success">
+                AI 生成
+              </el-tag>
+              <el-tag
+                v-if="video.status !== 'done'"
+                size="small"
+                :type="STATUS_TAG[video.status] || 'info'"
+              >
+                {{ STATUS_LABEL[video.status] || video.status }}
+              </el-tag>
               <el-tag v-if="video.keyframe_id" size="small" type="info">
                 {{ keyframeNames[video.keyframe_id] ?? "关键帧溯源" }}
               </el-tag>
@@ -352,7 +385,7 @@ function formatDuration(ms: number | null): string {
       destroy-on-close
     >
       <video
-        v-if="playing"
+        v-if="playing?.video_file"
         :src="storyFileUrl(playing.video_file)"
         controls
         autoplay

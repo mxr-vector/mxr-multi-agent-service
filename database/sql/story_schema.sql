@@ -2,7 +2,7 @@
 -- Story 剧本生成平台表结构 (最终版, 合并 story_schema.sql v1 + story_schema_v3.sql)
 --
 -- 业务模型 (项目为聚合根 + 用户级角色库):
---   产品闭环: 本地备料(角色/剧本/关键帧) -> 外部视频网站生成 -> 视频成品回收到项目
+--   产品闭环: 本地备料(角色/剧本/关键帧) -> 视频模型一键生成或外部平台生成 -> 视频成品回收/合成
 --   角色库 (用户级, 跨项目复用)
 --     角色 Character                    —— 结构化人设(profile) + 视觉风格(style)
 --       └── 角色立绘 Character Art      —— 外部视频平台的角色参考资产
@@ -10,7 +10,7 @@
 --     ├── 剧情/剧本 Script          —— 生成/编辑的剧本文本, 视频大模型核心文本输入
 --     ├── 出演角色                  —— 编排登记引用角色库角色(选择 + 顺序)
 --     ├── 关键帧 Keyframe          —— 故事关键场景(画面提示词/参考图/镜头描述), 视频大模型视觉输入
---     ├── 视频成品 Video           —— 外部视频网站生成的单镜头片段, 回收登记与溯源
+--     ├── 视频成品 Video           —— 模型按章节生成/外部回收的单镜头片段
 --     ├── 生成会话 Session         —— AI 生成过程与消息流(可追溯, 确认后才沉淀资产)
 --     ├── 生成任务 Generation Task —— 统一追踪 script/character/art/keyframe 等 AI 任务
 --     ├── 资产编排 Project Asset   —— 表达"项目当前要使用"哪些资产(出演登记 + 选择 + 导出顺序)
@@ -27,8 +27,9 @@
 --   6. 生成任务统一追踪 image/script/keyframe 等 AI 任务的状态与进度
 --   7. 导出包为不可变快照, 统一为"角色+剧本+关键帧"单一格式(不做平台模板),
 --      整理项目内容后可直接复制到外部视频大模型网站
---   8. 视频成品按单镜头片段粒度回收登记, 溯源关键帧/剧本/导出包;
---      系统不做视频生成, 整集装配发生在外部剪辑环节
+--   8. 视频成品按单镜头片段粒度登记, 溯源关键帧/剧本/导出包;
+--      来源分两类: 外部平台回收上传(upload)与视频模型按章节编排生成(generated);
+--      系统只产出可下载的单镜头片段, 整片由用户下载后外部组装
 --
 -- 相对 v3 的主要调整:
 --   - 删除 story_projects.current_script_id/current_export_id:
@@ -436,12 +437,14 @@ CREATE TABLE story.story_export_packages (
 -- ============================================================
 -- ------------------------------------------------------------
 -- 12. 视频成品表 story_videos
---     承接"成品回收"环节: 用户在外部视频生成网站产出的视频, 以单镜头片段
---     粒度登记回项目; 系统不做视频生成, 也不建模"整集"装配(剪辑在外部完成);
+--     单镜头片段统一登记: 来源 source 区分外部回收上传(upload)与
+--     视频模型按章节编排生成(generated);
 --     keyframe_id 为主溯源轴(一帧可多条重抽), script_id / export_package_id
 --     并列保留溯源; episode_no 语义放宽为可选分组/排序号;
---     cover_file 默认由服务端抽取视频首帧, 抽帧失败留空由用户手动上传;
---     target_platform 为自由文本备注(导出格式统一, 不做平台字典)
+--     video_file 在生成中(queued/generating)为空, 完成后落盘回填;
+--     cover_file 优先复用关键帧图片或抽视频首帧, 失败留空可手动上传;
+--     target_platform 为自由文本备注(导出格式统一, 不做平台字典);
+--     prompt/negative_prompt/model/generation_params 记录生成输入, 支持重抽与审计
 -- ------------------------------------------------------------
 CREATE TABLE story.story_videos (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -449,17 +452,24 @@ CREATE TABLE story.story_videos (
     keyframe_id         UUID,                        -- 主溯源: 来源关键帧(逻辑关联 story.story_keyframes.id), 可空
     script_id           UUID,                        -- 溯源: 基于剧本版本(逻辑关联 story.story_scripts.id), 可空
     export_package_id   UUID,                        -- 溯源: 使用的导出包(逻辑关联 story.story_export_packages.id), 可空
+    source              VARCHAR(20) NOT NULL DEFAULT 'upload', -- 'upload'/'generated'
     title               TEXT,                        -- 片段标题(如"决战-镜头03"), 可空
     episode_no          INT,                         -- 语义放宽: 集号/分组/排序号, 可空
-    video_file          VARCHAR(500) NOT NULL,       -- 视频存储相对路径(data/ 下)
-    cover_file          VARCHAR(500),                -- 封面(默认抽视频首帧), 可空
+    video_file          VARCHAR(500),                -- 视频存储相对路径(data/ 下), 生成中为空
+    cover_file          VARCHAR(500),                -- 封面(关键帧图/视频首帧), 可空
     duration_ms         INT,                         -- 时长(毫秒), 可空
     file_size           BIGINT,                      -- 文件字节数, 可空
     width               INT,                         -- 视频宽(px), 可空
     height              INT,                         -- 视频高(px), 可空
+    prompt              TEXT,                        -- 生成正向提示词(视频模型/合成说明), 可空
+    negative_prompt     TEXT,                        -- 生成负向提示词, 可空
+    provider            VARCHAR(100),                -- 生成服务商标识(video), 可空
+    model               VARCHAR(200),                -- 生成模型名, 可空
+    generation_params   JSONB,                       -- 生成参数(分辨率/画幅/时长/首帧等), 可空
     target_platform     VARCHAR(100),                -- 生成平台自由文本备注(可灵/即梦/...), 可空
     external_task_id    VARCHAR(200),                -- 外部平台任务号(回溯用), 可空
-    status              VARCHAR(20) NOT NULL DEFAULT 'done', -- 'draft'/'done', 业务层校验
+    status              VARCHAR(20) NOT NULL DEFAULT 'done', -- 'queued'/'generating'/'done'/'failed'/'cancelled'
+    error_message       TEXT,                        -- 生成失败信息, 可空
     remark              TEXT,                        -- 备注(如"第二次重抽版本"), 可空
 
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -468,6 +478,7 @@ CREATE TABLE story.story_videos (
 
 CREATE INDEX idx_story_videos_project  ON story.story_videos (project_id);
 CREATE INDEX idx_story_videos_keyframe ON story.story_videos (keyframe_id);
+CREATE INDEX idx_story_videos_source_status ON story.story_videos (project_id, source, status);
 
 -- ============================================================
 -- 13. 项目当前导出资产视图

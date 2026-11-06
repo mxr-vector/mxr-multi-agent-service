@@ -21,6 +21,7 @@ UPLOAD_DIR 经 {BASE_URL}/public/files 无鉴权静态挂载，若仅按角色�
 """
 
 import base64
+import io
 import os
 import re
 import shutil
@@ -55,6 +56,13 @@ IMAGE_EXTENSION_MIME = {
     "webp": "image/webp",
 }
 
+# 视频参考图内联上限：关键帧原图常为 1~4MB，章节多图 base64 内联会超过
+# 上游请求体上限（413），因此统一缩边 + JPEG 重编码后再内联。
+VIDEO_REFERENCE_MAX_SIDE = 1280
+VIDEO_REFERENCE_JPEG_QUALITY = 80
+VIDEO_REFERENCE_MIN_QUALITY = 55
+VIDEO_REFERENCE_MAX_BYTES = 700 * 1024
+
 
 def image_to_data_uri(relative_path: str) -> str:
     """读取 UPLOAD_DIR 下的图片文件并转为 base64 data URI。"""
@@ -65,6 +73,44 @@ def image_to_data_uri(relative_path: str) -> str:
     mime = IMAGE_EXTENSION_MIME.get(ext, "image/png")
     encoded = base64.b64encode(path.read_bytes()).decode()
     return f"data:{mime};base64,{encoded}"
+
+
+def image_to_reference_data_uri(relative_path: str) -> str:
+    """读取图片并压缩为适合视频参考图内联的 JPEG data URI（同步阻塞）。
+
+    先按最长边 1280 等比缩小，再以 JPEG 质量 80 编码；仍超过单图预算时
+    逐步降质量（下限 55）。透明图统一铺白底，避免转 RGB 后出现黑底。
+    """
+    from PIL import Image, ImageOps
+
+    path = resolve_upload_path(relative_path)
+    if not path.is_file():
+        bad_except("图片文件不存在或已被清理")
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source)
+        if image.mode in ("RGBA", "LA", "P"):
+            rgba = image.convert("RGBA")
+            background = Image.new("RGB", rgba.size, (255, 255, 255))
+            background.paste(rgba, mask=rgba.getchannel("A"))
+            image = background
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+        image.thumbnail(
+            (VIDEO_REFERENCE_MAX_SIDE, VIDEO_REFERENCE_MAX_SIDE),
+            Image.Resampling.LANCZOS,
+        )
+        quality = VIDEO_REFERENCE_JPEG_QUALITY
+        while True:
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=quality, optimize=True)
+            if (
+                buffer.tell() <= VIDEO_REFERENCE_MAX_BYTES
+                or quality <= VIDEO_REFERENCE_MIN_QUALITY
+            ):
+                break
+            quality -= 10
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    return f"data:image/jpeg;base64,{encoded}"
 
 
 def save_story_upload(user_id: str, filename: str, data: bytes) -> str:

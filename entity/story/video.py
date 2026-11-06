@@ -1,15 +1,15 @@
 """
 剧本模块视频成品域 ORM 模型（映射 story.story_videos）。
 
-视频成品为外部视频网站生成的单镜头片段，由用户手动上传回收登记；
-系统不做视频生成，也不建模整集装配。
+视频成品来源分两类：外部平台回收上传（upload）、视频模型按章节编排生成
+（generated）；生成中 video_file 为空，完成后落盘回填。
 """
 
 import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Integer, String, Text, func, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from entity.base import Base
@@ -23,7 +23,7 @@ class StoryVideo(Base):
 
     keyframe_id 为主溯源轴（一帧可多条重抽），script_id / export_package_id
     并列溯源；episode_no 语义放宽为可选分组/排序号；
-    cover_file 默认抽视频首帧，失败留空可手动上传。
+    cover_file 优先复用关键帧图片或抽视频首帧，失败留空可手动上传。
     """
 
     __tablename__ = "story_videos"
@@ -45,19 +45,28 @@ class StoryVideo(Base):
     export_package_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'upload'")
+    )
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     episode_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    video_file: Mapped[str] = mapped_column(String(500), nullable=False)
+    video_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cover_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    generation_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     target_platform: Mapped[str | None] = mapped_column(String(100), nullable=True)
     external_task_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'done'")
     )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -75,6 +84,7 @@ class StoryVideo(Base):
             "keyframe_id": format_id(self.keyframe_id),
             "script_id": format_id(self.script_id),
             "export_package_id": format_id(self.export_package_id),
+            "source": self.source,
             "title": self.title,
             "episode_no": self.episode_no,
             "video_file": self.video_file,
@@ -83,9 +93,15 @@ class StoryVideo(Base):
             "file_size": self.file_size,
             "width": self.width,
             "height": self.height,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "provider": self.provider,
+            "model": self.model,
+            "generation_params": self.generation_params,
             "target_platform": self.target_platform,
             "external_task_id": self.external_task_id,
             "status": self.status,
+            "error_message": self.error_message,
             "remark": self.remark,
             "created_at": format_datetime(self.created_at),
             "updated_at": format_datetime(self.updated_at),

@@ -178,11 +178,13 @@ values  ('019fb5e7-d9ce-7c78-8917-1e8e5dac84dc', 'visual', '多模态模型', 'g
         ('019fb5e7-d9ce-7c89-9d32-f87aa2af9749', 'rerank', '重排序模型', 'Qwen3-Embedding-4B', 'http://192.168.245.213:9527', '95279527', 'cohere', null, null, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-08-09 10:23:47.546437 +00:00', 200000),
         ('019fb5e7-d9ce-76ec-ac2e-34c3c8a588b7', 'chat', '对话模型', 'deepseek-v4-flash', 'https://api.deepseek.com', '95279527', null, 60, 2, null, true, null, '2026-07-31 02:01:38.510209 +00:00', '2026-08-09 16:01:45.555195 +00:00', 200000),
         ('019ff50f-47ad-767b-98fe-f3fa59f511f1', 'image', '图像模型', 'gpt-image-2', 'https://api.openai.com/v1', '95279527', null, 600, 2, '{"size": "1024x1024", "quality": "auto"}'::jsonb, true, '可调生图规格存 extra(size/quality), 输出侧写死 webp + 压缩率 80, 前端「模型管理」可配、免重启生效', '2026-08-12 08:20:47.149101 +00:00', '2026-09-03 06:00:00 +00:00', 200000),
-        -- video 角色: DashScope 视频合成为异步任务(提交 → 轮询 → 取视频地址), 由 model/video/factory.py 封装;
-        --             可调规格(resolution/ratio/duration)落 extra; timeout 为提交请求超时(任务查询由 SDK 固定 300s),
-        --             总等待上限由工厂 DEFAULT_WAIT_TIMEOUT 控制; api_url 填 .../api/v1 基地址或完整
-        --             video-synthesis 地址均可 (MaaS 工作空间填 https://<workspace-id>.cn-beijing.maas.aliyuncs.com/api/v1)
-        ('01a0e1d2-0003-7000-8000-000000000401', 'video', '视频模型', 'wan3.0-video', 'https://dashscope.aliyuncs.com/api/v1', '95279527', null, 600, null, '{"resolution": "480P", "ratio": "adaptive", "duration": 5}'::jsonb, true, '视频合成规格存 extra(resolution/ratio/duration), 端点支持 DashScope/MaaS 基地址, 前端「模型管理」可配、免重启生效', '2026-11-03 06:00:00 +00:00', '2026-11-03 06:00:00 +00:00', 200000);
+        -- video 角色: 视频合成为异步任务(提交 → 轮询 → 取视频地址), 由 model/video/factory.py 封装;
+        --             可调规格(resolution/ratio/duration)落 extra; timeout 为单次 HTTP 请求超时,
+        --             总等待上限由工厂 DEFAULT_WAIT_TIMEOUT 控制;
+        --             协议按 api_url 自动判定: DashScope/MaaS 主机走原生 video-synthesis, 其余
+        --             (聚合网关, 如 https://tokenrhythm.studio/v1) 走 POST /videos/generations;
+        --             也可在 extra 配 "video_protocol": "dashscope" | "openai" 显式覆盖
+        ('01a0e1d2-0003-7000-8000-000000000401', 'video', '视频模型', 'wan3.0-video', 'https://dashscope.aliyuncs.com/api/v1', '95279527', null, 600, null, '{"resolution": "480P", "ratio": "adaptive", "duration": 5}'::jsonb, true, '视频合成规格存 extra(resolution/ratio/duration), 协议按端点自动判定(可用 extra.video_protocol 覆盖), 前端「模型管理」可配、免重启生效', '2026-11-03 06:00:00 +00:00', '2026-11-03 06:00:00 +00:00', 200000);
 
 --
 -- TOC entry 5160 (class 0 OID 24962)

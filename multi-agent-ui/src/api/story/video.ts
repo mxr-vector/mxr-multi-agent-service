@@ -6,6 +6,17 @@ import { STORY_PROJECT_URL, STORY_VIDEO_URL } from "./index";
 // 类型定义（对齐后端 routers/story 契约，字段一律 snake_case）
 // ============================================================
 
+/** 视频来源：外部上传回收 / 视频模型生成 */
+export type StoryVideoSource = "upload" | "generated";
+
+/** 视频状态：生成中排队 / 生成中 / 完成 / 失败 / 已中止 */
+export type StoryVideoStatus =
+  | "queued"
+  | "generating"
+  | "done"
+  | "failed"
+  | "cancelled";
+
 /** 视频成品 VO（单镜头片段） */
 export interface StoryVideoVO {
   id: string;
@@ -13,17 +24,25 @@ export interface StoryVideoVO {
   keyframe_id: string | null;
   script_id: string | null;
   export_package_id: string | null;
+  source: StoryVideoSource;
   title: string | null;
   episode_no: number | null;
-  video_file: string;
+  /** 生成中为空，完成后回填 */
+  video_file: string | null;
   cover_file: string | null;
   duration_ms: number | null;
   file_size: number | null;
   width: number | null;
   height: number | null;
+  prompt?: string | null;
+  negative_prompt?: string | null;
+  provider: string | null;
+  model: string | null;
+  generation_params?: Record<string, unknown> | null;
   target_platform: string | null;
   external_task_id: string | null;
-  status: string;
+  status: StoryVideoStatus;
+  error_message: string | null;
   remark: string | null;
   created_at: string;
   updated_at: string;
@@ -50,11 +69,99 @@ export interface StoryVideoUpdatePayload {
   remark?: string | null;
 }
 
+/** 章节编排中的文本/图片块：图片落在剧本对应关键帧位置 */
+export type StoryVideoPlanBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      keyframe_id: string;
+      image_file: string | null;
+      has_image: boolean;
+      label: string;
+      name: string;
+      scene_no: number | null;
+      shot_no: number | null;
+    };
+
+/** 章节编排中的镜头元数据 */
+export interface StoryVideoPlanShot {
+  keyframe_id: string;
+  scene_no: number | null;
+  shot_no: number | null;
+  name: string;
+  image_file: string | null;
+  has_image: boolean;
+  shot_content: string;
+}
+
+/** 章节化编排中的一个生成单元（一章生成一个片段） */
+export interface StoryVideoPlanChapter {
+  chapter_no: number | null;
+  title: string;
+  /** 章节完整正文 */
+  content: string;
+  /** 按剧本顺序内嵌关键帧的文本/图片块 */
+  blocks: StoryVideoPlanBlock[];
+  /** 自动组合、可编辑的整章提示词 */
+  prompt: string;
+  /** 本章参考图对应的关键帧顺序 */
+  keyframe_ids: string[];
+  shots: StoryVideoPlanShot[];
+  /** 是否为剧本中未匹配到章节的兜底分组 */
+  unmatched: boolean;
+}
+
+/** 当前剧本与章节化编排结果 */
+export interface StoryVideoPlan {
+  script: {
+    id: string;
+    version: number;
+    title: string | null;
+    is_current: boolean;
+  } | null;
+  chapters: StoryVideoPlanChapter[];
+}
+
+/** 章节片段生成请求体：一章一份提示词 + 该章全部关键帧 */
+export interface StoryChapterVideoGeneratePayload {
+  chapter_no?: number | null;
+  title?: string;
+  prompt: string;
+  keyframe_ids: string[];
+  chapter_content?: string | null;
+  /** 是否把关键帧作为参考图提交 */
+  use_images?: boolean;
+  resolution?: string;
+  ratio?: string;
+  duration?: number;
+}
+
+/** 生成面板公共配置（后端 CFG.video.extra 兜底值，不含敏感凭证） */
+export interface StoryVideoGenerationOptions {
+  model: string;
+  resolution: string;
+  ratio: string;
+  duration: number;
+  max_concurrent: number;
+}
+
 // ============================================================
 // API
 // ============================================================
 
 export const videoApi = {
+  /** 生成面板公共配置 */
+  generationOptions() {
+    return request.get<StoryVideoGenerationOptions, ApiResult<StoryVideoGenerationOptions>>(
+      STORY_VIDEO_URL.options
+    );
+  },
+  /** 章节化编排：自动对齐剧本章节/镜头文本与关键帧 */
+  plan(projectId: string) {
+    return request.get<StoryVideoPlan, ApiResult<StoryVideoPlan>>(
+      STORY_PROJECT_URL.videoPlan(projectId)
+    );
+  },
   /** 上传视频片段并登记（服务端抽首帧封面） */
   upload(projectId: string, file: File, fields: StoryVideoRegisterFields = {}) {
     const form = new FormData();
@@ -73,11 +180,41 @@ export const videoApi = {
       { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }
     );
   },
-  /** 项目视频列表（可选按关键帧过滤） */
-  list(projectId: string, params: { page?: number; size?: number; keyframe_id?: string } = {}) {
+  /** 项目视频列表（可选按关键帧/来源/状态过滤） */
+  list(
+    projectId: string,
+    params: {
+      page?: number;
+      size?: number;
+      keyframe_id?: string;
+      source?: StoryVideoSource;
+      status?: StoryVideoStatus;
+      /** 精简模式：省略提示词/生成参数等大字段 */
+      brief?: boolean;
+    } = {}
+  ) {
     return request.get<PageResult<StoryVideoVO>, ApiResult<PageResult<StoryVideoVO>>>(
       STORY_PROJECT_URL.videos(projectId),
       { params }
+    );
+  },
+  /** 生成一个章节片段（一次提交该章提示词与全部关键帧参考图） */
+  generate(projectId: string, payload: StoryChapterVideoGeneratePayload) {
+    return request.post<StoryVideoVO, ApiResult<StoryVideoVO>>(
+      STORY_PROJECT_URL.generateVideos(projectId),
+      payload
+    );
+  },
+  /** 中止在途视频生成 */
+  stop(id: string) {
+    return request.post<{ cancelled: boolean }, ApiResult<{ cancelled: boolean }>>(
+      STORY_VIDEO_URL.stop(id)
+    );
+  },
+  /** 中止项目下全部在途视频任务 */
+  stopAll(projectId: string) {
+    return request.post<{ stopped_count: number }, ApiResult<{ stopped_count: number }>>(
+      STORY_PROJECT_URL.stopAllVideos(projectId)
     );
   },
   /** 编辑视频登记字段 */

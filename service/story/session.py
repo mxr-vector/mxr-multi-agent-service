@@ -25,6 +25,7 @@ from database.story.session import (
     MessageRepository,
     SessionRepository,
 )
+from database.story.video import VideoRepository
 from exception.bad_except import bad_except
 from service.story.storage import SESSION_ASSET_ROOT, rmdir_if_empty, unlink_quietly
 from utils.logger import logger
@@ -76,11 +77,24 @@ async def reset_stale_generating_messages() -> int:
         task_count = await GenerationTaskRepository(session).reset_stale_running()
         keyframe_count = await KeyframeRepository(session).reset_stale_generating()
         await session.commit()
-    total = message_count + task_count + keyframe_count
+    # 视频清扫独立事务：存量库未执行 story_alter_video_generation.sql 时
+    # 仅跳过视频部分，不拖累消息/任务/关键帧的启动恢复
+    video_count = 0
+    try:
+        async with get_session() as session:
+            video_count = await VideoRepository(session).reset_stale_generating()
+            await session.commit()
+    except Exception as exc:
+        logger.warning(
+            "[STORY] 中断视频任务清扫失败（确认已执行 "
+            f"story_alter_video_generation.sql）: {exc}"
+        )
+    total = message_count + task_count + keyframe_count + video_count
     if total:
         logger.warning(
             f"[STORY] 启动清扫：{message_count} 条残留 generating 消息、"
-            f"{task_count} 个残留在途任务、{keyframe_count} 个残留 generating 关键帧已置为 failed"
+            f"{task_count} 个残留在途任务、{keyframe_count} 个残留 generating 关键帧、"
+            f"{video_count} 个中断的视频生成任务已置为 failed"
         )
     return total
 

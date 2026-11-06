@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 项目工作区：项目详情 + 子视图 tabs（概览/剧本/关键帧/出演角色/视频成品/导出包）
+ * 项目工作区：项目详情 + 子视图 tabs（概览/剧本/关键帧/出演角色/生成视频/视频成品/导出包）
  * + 右栏常驻可收起的 AI 创作抽屉。
  * 子视图标识进 URL query（?tab=keyframe）支持深链接；项目不存在统一失败提示。
  */
@@ -18,6 +18,7 @@ import ProjectFormDialog from "./ProjectFormDialog.vue";
 import OverviewPanel from "./components/OverviewPanel.vue";
 import ScriptPanel from "./components/ScriptPanel.vue";
 import KeyframePanel from "./components/KeyframePanel.vue";
+import VideoGenPanel from "./components/VideoGenPanel.vue";
 import CastingPanel from "./components/CastingPanel.vue";
 import VideoPanel from "./components/VideoPanel.vue";
 import ExportPanel from "./components/ExportPanel.vue";
@@ -32,6 +33,7 @@ const TAB_KEYS = [
   "script",
   "keyframe",
   "casting",
+  "video-gen",
   "video",
   "export",
   "session",
@@ -156,6 +158,13 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
               <el-tab-pane label="出演角色" name="casting">
                 <CastingPanel
                   v-if="activeTab === 'casting'"
+                  :project-id="projectId"
+                  @changed="loadProject"
+                />
+              </el-tab-pane>
+              <el-tab-pane label="生成视频" name="video-gen">
+                <VideoGenPanel
+                  v-if="activeTab === 'video-gen'"
                   :project-id="projectId"
                   @changed="loadProject"
                 />

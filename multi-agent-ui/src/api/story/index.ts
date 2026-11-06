@@ -47,6 +47,12 @@ export const STORY_PROJECT_URL = {
   keyframeSelection: (projectId: string) => `${BASE}/projects/${projectId}/keyframe-selection`,
   /** 视频上传登记 / 列表 */
   videos: (projectId: string) => `${BASE}/projects/${projectId}/videos`,
+  /** 一键批量生成视频 */
+  generateVideos: (projectId: string) => `${BASE}/projects/${projectId}/videos/generate`,
+  /** 章节化视频编排（剧本内容 + 关键帧自动对齐） */
+  videoPlan: (projectId: string) => `${BASE}/projects/${projectId}/video-plan`,
+  /** 中止项目下全部在途视频任务 */
+  stopAllVideos: (projectId: string) => `${BASE}/projects/${projectId}/videos/stop-all`,
   /** 导出包生成 / 列表 */
   exports: (projectId: string) => `${BASE}/projects/${projectId}/exports`,
 } as const;
@@ -79,6 +85,12 @@ export const STORY_KEYFRAME_URL = {
 export const STORY_VIDEO_URL = {
   /** 编辑 / 删除 */
   byId: (id: string) => `${BASE}/videos/${id}`,
+  /** 生成面板公共配置（默认规格/并发上限） */
+  options: `${BASE}/videos/generation-options`,
+  /** 中止在途生成 */
+  stop: (id: string) => `${BASE}/videos/${id}/stop`,
+  /** 下载视频片段（附件流） */
+  download: (id: string) => `${BASE}/videos/${id}/download`,
   /** 手动上传封面（multipart） */
   cover: (id: string) => `${BASE}/videos/${id}/cover`,
   /** 设为项目封面 */
