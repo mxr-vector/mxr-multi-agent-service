@@ -247,18 +247,7 @@ class ExportService:
                 f"场景{keyframe.get('scene_no')}-镜头{keyframe.get('shot_no')}"
             )
             lines.append(f"### {title}")
-            for label, key in (
-                ("场景描述", "scene_description"),
-                ("画面", "visual_description"),
-                ("镜头", "camera_description"),
-                ("光线", "lighting_description"),
-                ("风格", "style_description"),
-            ):
-                if keyframe.get(key):
-                    lines.append(f"- {label}：{keyframe[key]}")
-            lines.append(f"- 正向提示词：{keyframe['prompt']}")
-            if keyframe.get("negative_prompt"):
-                lines.append(f"- 负向提示词：{keyframe['negative_prompt']}")
+            lines.append(f"- 提示词：{keyframe['prompt']}")
             characters_in_shot = keyframe.get("characters") or []
             if characters_in_shot:
                 names = "、".join(
@@ -504,14 +493,8 @@ class ExportService:
                     prefix = f"{prefix}_{safe_title}"
 
                 kf_overview_lines.append(f"## {idx}. {kf_title}")
-                if kf.get("scene_description"):
-                    kf_overview_lines.append(f"- 场景描述：{kf['scene_description']}")
-                if kf.get("visual_description"):
-                    kf_overview_lines.append(f"- 画面描述：{kf['visual_description']}")
-                if kf.get("camera_description"):
-                    kf_overview_lines.append(f"- 镜头运镜：{kf['camera_description']}")
                 if kf.get("prompt"):
-                    kf_overview_lines.append(f"- 正向提示词：{kf['prompt']}")
+                    kf_overview_lines.append(f"- 提示词：{kf['prompt']}")
                 kf_overview_lines.append("")
 
                 # 关键帧独立提示词文件
@@ -519,15 +502,6 @@ class ExportService:
                     f"关键帧：{kf_title}",
                     f"镜头定位：场景 {scene_no}，镜头 {shot_no}",
                 ]
-                for label, key in (
-                    ("场景描述", "scene_description"),
-                    ("画面描述", "visual_description"),
-                    ("镜头运镜", "camera_description"),
-                    ("光线说明", "lighting_description"),
-                    ("画面风格", "style_description"),
-                ):
-                    if kf.get(key):
-                        kf_info_lines.append(f"{label}：{kf[key]}")
 
                 chars_in_shot = kf.get("characters") or []
                 if chars_in_shot:
@@ -537,9 +511,7 @@ class ExportService:
                     )
                     kf_info_lines.append(f"出场角色：{names}")
 
-                kf_info_lines.append(f"\n【正向提示词】\n{kf.get('prompt') or ''}")
-                if kf.get("negative_prompt"):
-                    kf_info_lines.append(f"\n【负向提示词】\n{kf['negative_prompt']}")
+                kf_info_lines.append(f"\n【提示词】\n{kf.get('prompt') or ''}")
 
                 zf.writestr(f"关键帧/{prefix}_提示词.txt", "\n".join(kf_info_lines))
 

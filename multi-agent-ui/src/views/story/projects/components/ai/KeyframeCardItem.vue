@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 关键帧卡片：AI 生成关键帧的呈现、五段式描述展示、提示词复制与"存入关键帧"沉淀。
+ * 关键帧卡片：AI 生成关键帧的呈现、出图提示词复制与"存入关键帧"沉淀。
  */
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -28,13 +28,6 @@ const isSedimented = computed(() => {
   const params = props.message.params ?? {};
   return !!(params["sedimented_keyframe_id"] || params["is_sedimented"]);
 });
-
-/** 限制标签文本字数，超出截断并以悬浮提示展示完整内容 */
-function truncateTagText(text: string | null | undefined, maxChars = 10): string {
-  if (!text) return "";
-  const trimmed = text.trim();
-  return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars)}…` : trimmed;
-}
 
 const saving = ref(false);
 
@@ -131,67 +124,6 @@ async function handleSaveKeyframe() {
       </div>
     </div>
 
-    <!-- 标签特征：限制显示字数，鼠标悬停展示完整内容 -->
-    <div
-      v-if="kf?.camera_description || kf?.lighting_description || kf?.style_description"
-      class="card-tags"
-    >
-      <el-tooltip
-        v-if="kf?.camera_description"
-        :content="`镜头：${kf.camera_description}`"
-        placement="top"
-        :show-after="200"
-      >
-        <el-tag size="small" effect="plain" type="info" class="meta-tag">
-          📷 {{ truncateTagText(kf.camera_description, 10) }}
-        </el-tag>
-      </el-tooltip>
-      <el-tooltip
-        v-if="kf?.lighting_description"
-        :content="`光影：${kf.lighting_description}`"
-        placement="top"
-        :show-after="200"
-      >
-        <el-tag size="small" effect="plain" type="warning" class="meta-tag">
-          💡 {{ truncateTagText(kf.lighting_description, 10) }}
-        </el-tag>
-      </el-tooltip>
-      <el-tooltip
-        v-if="kf?.style_description"
-        :content="`风格：${kf.style_description}`"
-        placement="top"
-        :show-after="200"
-      >
-        <el-tag size="small" effect="plain" type="success" class="meta-tag">
-          🎨 {{ truncateTagText(kf.style_description, 10) }}
-        </el-tag>
-      </el-tooltip>
-    </div>
-
-    <!-- 核心视觉描述 -->
-    <div v-if="kf?.visual_description" class="desc-row">
-      <span class="desc-label">画面：</span>
-      <span class="desc-text">{{ kf.visual_description }}</span>
-    </div>
-
-    <!-- 剧情与完整描述 -->
-    <div v-if="kf?.scene_description" class="desc-row">
-      <span class="desc-label">剧情：</span>
-      <span class="desc-text">{{ kf.scene_description }}</span>
-    </div>
-    <div v-if="kf?.camera_description" class="desc-row">
-      <span class="desc-label">镜头：</span>
-      <span class="desc-text">{{ kf.camera_description }}</span>
-    </div>
-    <div v-if="kf?.lighting_description" class="desc-row">
-      <span class="desc-label">光影：</span>
-      <span class="desc-text">{{ kf.lighting_description }}</span>
-    </div>
-    <div v-if="kf?.style_description" class="desc-row">
-      <span class="desc-label">风格：</span>
-      <span class="desc-text">{{ kf.style_description }}</span>
-    </div>
-
     <!-- 提示词区域 -->
     <div v-if="kf?.prompt" class="prompt-box">
       <div class="prompt-head">
@@ -276,34 +208,6 @@ async function handleSaveKeyframe() {
 
 .head-right {
   flex-shrink: 0;
-}
-
-.card-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.meta-tag {
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.desc-row {
-  font-size: 12px;
-  line-height: 1.6;
-  color: #475569;
-  margin-bottom: 6px;
-}
-
-.desc-label {
-  font-weight: 600;
-  color: #64748b;
-}
-
-.desc-text {
-  color: #334155;
 }
 
 .prompt-box {

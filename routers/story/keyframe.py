@@ -1,5 +1,5 @@
 """
-剧本模块关键帧路由：五段式描述维护、出场角色登记。
+剧本模块关键帧路由：出图提示词维护、出场角色登记。
 """
 
 import uuid
@@ -32,7 +32,7 @@ class KeyframeCharacterEntry(BaseModel):
 
 
 class KeyframeCreateRequest(BaseModel):
-    """创建关键帧请求体：正向提示词必填，其余按需。"""
+    """创建关键帧请求体：出图提示词必填，其余按需。"""
 
     prompt: str
     script_id: Optional[uuid.UUID] = None
@@ -40,13 +40,6 @@ class KeyframeCreateRequest(BaseModel):
     scene_no: Optional[int] = None
     shot_no: Optional[int] = None
     name: Optional[str] = None
-    scene_description: Optional[str] = None
-    visual_description: Optional[str] = None
-    camera_description: Optional[str] = None
-    lighting_description: Optional[str] = None
-    style_description: Optional[str] = None
-    negative_prompt: Optional[str] = None
-    reference_images: list = []
     characters: list[KeyframeCharacterEntry] = []
 
 
@@ -62,14 +55,7 @@ class KeyframeUpdateRequest(BaseModel):
     scene_no: Optional[int] = None
     shot_no: Optional[int] = None
     name: Optional[str] = None
-    scene_description: Optional[str] = None
-    visual_description: Optional[str] = None
-    camera_description: Optional[str] = None
-    lighting_description: Optional[str] = None
-    style_description: Optional[str] = None
     prompt: Optional[str] = None
-    negative_prompt: Optional[str] = None
-    reference_images: Optional[list] = None
     status: Optional[str] = None
 
 
@@ -81,6 +67,12 @@ class KeyframeCharactersRequest(BaseModel):
 
 class KeyframeSelectionRequest(BaseModel):
     """关键帧选择请求体：按导出顺序给出关键帧 id（空列表清空）。"""
+
+    keyframe_ids: list[uuid.UUID]
+
+
+class KeyframeBatchDeleteRequest(BaseModel):
+    """批量删除关键帧请求体：关键帧须归属本项目。"""
 
     keyframe_ids: list[uuid.UUID]
 
@@ -126,6 +118,20 @@ async def create_keyframe(
 ):
     """创建关键帧：（场景号, 镜头号）冲突校验 + 出场角色登记。"""
     return R.success(data=await _keyframe_service.create(ctx, project_id, payload))
+
+
+@router.post("/projects/{project_id}/keyframes/batch-delete")
+async def batch_delete_keyframes(
+    project_id: uuid.UUID = Path(...),
+    payload: KeyframeBatchDeleteRequest = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """批量删除关键帧：整批校验归属，清理出场角色、编排引用与图片。"""
+    return R.success(
+        data=await _keyframe_service.delete_many(
+            ctx, project_id, payload.keyframe_ids
+        )
+    )
 
 
 @router.get("/keyframes/{keyframe_id}")

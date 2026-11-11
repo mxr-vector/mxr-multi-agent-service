@@ -1,5 +1,5 @@
 """
-剧本模块关键帧业务层：五段式描述维护、编号冲突校验与出场角色登记。
+剧本模块关键帧业务层：出图提示词维护、编号冲突校验与出场角色登记。
 
 - (场景号, 镜头号) 组合项目内唯一（编号均为非空时参与判定）；
 - 出场角色按关键帧整体替换（含参考立绘与镜头内局部描述）；
@@ -51,21 +51,14 @@ from utils.env import ENV
 from utils.logger import logger
 
 # 关键帧可更新字段白名单
-# 注意：image_file/image_width/image_height 不接受客户端直写（防路径穿越），
-# 图片仅能经 POST /keyframes/{id}/image 上传端点或后续 AI 生成流内部写入
+# 注意：image_file 不接受客户端直写（防路径穿越），图片仅能经
+# POST /keyframes/{id}/image 上传端点或后续 AI 生成流内部写入
 _KEYFRAME_UPDATABLE = {
     "chapter_no",
     "scene_no",
     "shot_no",
     "name",
-    "scene_description",
-    "visual_description",
-    "camera_description",
-    "lighting_description",
-    "style_description",
     "prompt",
-    "negative_prompt",
-    "reference_images",
     "script_id",
     "status",
 }
@@ -200,7 +193,7 @@ class KeyframeService:
         """创建关键帧：编号冲突校验 + 出场角色登记。"""
         prompt = (payload.prompt or "").strip()
         if not prompt:
-            bad_except("正向提示词不能为空")
+            bad_except("出图提示词不能为空")
         if payload.name and len(payload.name) > _KEYFRAME_NAME_MAX:
             bad_except(f"关键帧名称不能超过 {_KEYFRAME_NAME_MAX} 字符")
         async with get_session() as session:
@@ -331,19 +324,6 @@ class KeyframeService:
             kfc_list = await kfc_repo.list_by_keyframe(keyframe.id)
 
             reference_images: list[str] = []
-            # 保留关键帧本身已配置的参考图（校验本地文件存在性，跳过失效路径）
-            if keyframe.reference_images and isinstance(keyframe.reference_images, list):
-                for ref in keyframe.reference_images:
-                    if isinstance(ref, str) and ref.strip():
-                        val = ref.strip()
-                        if val.startswith(("http://", "https://", "data:image/")):
-                            reference_images.append(val)
-                        else:
-                            try:
-                                if resolve_upload_path(val).is_file():
-                                    reference_images.append(val)
-                            except Exception:
-                                pass
 
             char_descs: list[str] = []
             for entry in kfc_list:
@@ -398,7 +378,6 @@ class KeyframeService:
                 provider="image",
                 model=CFG.image.model_name,
                 prompt=effective_prompt,
-                negative_prompt=keyframe.negative_prompt,
                 params={
                     "keyframe_id": keyframe.id.hex,
                     "reference_images": reference_images,
@@ -410,7 +389,6 @@ class KeyframeService:
 
             keyframe.status = StoryKeyframeStatus.GENERATING.value
             keyframe.generation_task_id = gen_task.id
-            keyframe.reference_images = reference_images
             keyframe.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
@@ -739,7 +717,7 @@ class KeyframeService:
             if "status" in fields and fields["status"] not in _KEYFRAME_STATUS:
                 bad_except(f"关键帧状态非法: {fields['status']}")
             if "prompt" in fields and not (fields["prompt"] or "").strip():
-                bad_except("正向提示词不能为空")
+                bad_except("出图提示词不能为空")
             if (
                 "name" in fields
                 and fields["name"]
@@ -850,6 +828,56 @@ class KeyframeService:
                 rmdir_if_empty(project_dir)
 
             await asyncio.to_thread(_cleanup)
+
+    async def delete_many(
+        self, ctx, project_id: uuid.UUID, keyframe_ids: "list[uuid.UUID]"
+    ) -> dict:
+        """批量删除项目下关键帧：整批校验归属后清理出场角色、编排引用与图片。"""
+        # 入参保序去重，避免重复 id 造成计数与校验偏差
+        ids = list(dict.fromkeys(keyframe_ids))
+        async with get_session() as session:
+            project = await self._project_service._assert_owned(
+                session, project_id, ctx
+            )
+            if not ids:
+                return {"deleted_count": 0}
+            keyframes = await KeyframeRepository(session).get_many(set(ids))
+            if len(keyframes) != len(ids) or any(
+                keyframe.project_id != project_id for keyframe in keyframes.values()
+            ):
+                bad_except("关键帧不存在或不属于本项目")
+            image_dirs = [
+                (keyframe.image_file, _keyframe_image_directory(project, keyframe))
+                for keyframe in keyframes.values()
+                if keyframe.image_file
+            ]
+            # 先取消在途生图协程，避免删除后任务仍回写图片文件与状态
+            for keyframe in keyframes.values():
+                task = _keyframe_tasks.get(keyframe.id.hex)
+                if task and not task.done():
+                    task.cancel()
+            await KeyframeCharacterRepository(session).delete_by_keyframes(ids)
+            await ProjectAssetRepository(session).remove_many(
+                project_id, "keyframe", ids
+            )
+            await KeyframeRepository(session).delete_many(ids)
+            await ProjectRepository(session).recount_assets(project)
+            await session.commit()
+        # 提交成功后按 DB 记录精确清理图片与空目录（不整目录 rmtree，防误删同名目录）
+        if image_dirs:
+
+            def _cleanup() -> None:
+                for image_file, image_dir in image_dirs:
+                    project_dir = image_dir.rsplit("/", 1)[0]
+                    unlink_quietly(image_file)
+                    rmdir_if_empty(image_dir)
+                    rmdir_if_empty(project_dir)
+
+            await asyncio.to_thread(_cleanup)
+        logger.info(
+            f"[STORY] 关键帧批量删除完成 project={project_id.hex} count={len(ids)}"
+        )
+        return {"deleted_count": len(ids)}
 
     async def set_selection(
         self, ctx, project_id: uuid.UUID, keyframe_ids: "list[uuid.UUID]"

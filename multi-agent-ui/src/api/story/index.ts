@@ -43,6 +43,9 @@ export const STORY_PROJECT_URL = {
   scripts: (projectId: string) => `${BASE}/projects/${projectId}/scripts`,
   /** 关键帧列表 / 创建 */
   keyframes: (projectId: string) => `${BASE}/projects/${projectId}/keyframes`,
+  /** 批量删除关键帧 */
+  keyframesBatchDelete: (projectId: string) =>
+    `${BASE}/projects/${projectId}/keyframes/batch-delete`,
   /** 导出选中关键帧 */
   keyframeSelection: (projectId: string) => `${BASE}/projects/${projectId}/keyframe-selection`,
   /** 视频上传登记 / 列表 */

@@ -128,11 +128,7 @@ interface KeyframeData {
   scene_no?: number;
   shot_no?: number;
   name?: string;
-  scene_description?: string;
-  visual_description?: string;
-  camera_description?: string;
   prompt?: string;
-  negative_prompt?: string;
   image_file?: string;
   characters?: Array<{ character_name?: string }>;
 }
@@ -278,9 +274,6 @@ function getKeyframeCount(pkg: StoryExportPackageVO): number {
                 <div class="kf-title">
                   <el-tag size="small" effect="plain">场景 {{ kf.scene_no ?? '?' }}-镜头 {{ kf.shot_no ?? '?' }}</el-tag>
                   <span class="kf-name">{{ kf.name || '未命名' }}</span>
-                </div>
-                <div v-if="kf.visual_description || kf.scene_description" class="kf-desc">
-                  {{ kf.visual_description || kf.scene_description }}
                 </div>
                 <div class="kf-prompt" :title="kf.prompt">{{ kf.prompt }}</div>
               </div>
@@ -449,11 +442,6 @@ function getKeyframeCount(pkg: StoryExportPackageVO): number {
   font-weight: 500;
   font-size: 13px;
   color: #1e293b;
-}
-.kf-desc {
-  font-size: 12px;
-  color: #64748b;
-  line-height: 1.4;
 }
 .kf-prompt {
   font-size: 12px;

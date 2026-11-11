@@ -358,6 +358,13 @@ class KeyframeRepository:
         await self.session.delete(keyframe)
         await self.session.flush()
 
+    async def delete_many(self, keyframe_ids: "list[uuid.UUID]") -> int:
+        """按 id 批量物理删除关键帧行，返回影响行数。"""
+        if not keyframe_ids:
+            return 0
+        stmt = delete(StoryKeyframe).where(StoryKeyframe.id.in_(keyframe_ids))
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
 
 
 class KeyframeCharacterRepository:
@@ -423,6 +430,16 @@ class KeyframeCharacterRepository:
         result = await self.session.execute(stmt)
         return result.rowcount or 0
 
+    async def delete_by_keyframes(self, keyframe_ids: "list[uuid.UUID]") -> int:
+        """批量物理删除多个关键帧下的出场角色，返回影响行数。"""
+        if not keyframe_ids:
+            return 0
+        stmt = delete(StoryKeyframeCharacter).where(
+            StoryKeyframeCharacter.keyframe_id.in_(keyframe_ids)
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
     async def clear_art_reference(self, art_id: uuid.UUID) -> int:
         """立绘删除时置空全部指向它的出场角色参考立绘引用，返回影响行数。"""
         stmt = (
@@ -481,6 +498,23 @@ class ProjectAssetRepository:
             StoryProjectAsset.project_id == project_id,
             StoryProjectAsset.asset_type == asset_type,
             StoryProjectAsset.asset_id == asset_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
+    async def remove_many(
+        self,
+        project_id: uuid.UUID,
+        asset_type: str,
+        asset_ids: "list[uuid.UUID]",
+    ) -> int:
+        """按资产 id 批量删除编排行，返回影响行数。"""
+        if not asset_ids:
+            return 0
+        stmt = delete(StoryProjectAsset).where(
+            StoryProjectAsset.project_id == project_id,
+            StoryProjectAsset.asset_type == asset_type,
+            StoryProjectAsset.asset_id.in_(asset_ids),
         )
         result = await self.session.execute(stmt)
         return result.rowcount or 0

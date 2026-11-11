@@ -30,14 +30,7 @@ export interface StoryKeyframeVO {
   scene_no: number | null;
   shot_no: number | null;
   name: string | null;
-  scene_description: string | null;
-  visual_description: string | null;
-  camera_description: string | null;
-  lighting_description: string | null;
-  style_description: string | null;
   prompt: string;
-  negative_prompt: string | null;
-  reference_images: unknown[];
   image_file: string | null;
   status: StoryKeyframeStatus;
   created_at: string;
@@ -67,13 +60,6 @@ export interface StoryKeyframeCreatePayload {
   scene_no?: number | null;
   shot_no?: number | null;
   name?: string | null;
-  scene_description?: string | null;
-  visual_description?: string | null;
-  camera_description?: string | null;
-  lighting_description?: string | null;
-  style_description?: string | null;
-  negative_prompt?: string | null;
-  reference_images?: unknown[];
   characters?: StoryKeyframeCharacterEntry[];
 }
 
@@ -115,6 +101,13 @@ export const keyframeApi = {
   /** 删除关键帧 */
   remove(id: string) {
     return request.delete<null, ApiResult<null>>(STORY_KEYFRAME_URL.byId(id));
+  },
+  /** 批量删除项目下关键帧 */
+  removeMany(projectId: string, keyframeIds: string[]) {
+    return request.post<{ deleted_count: number }, ApiResult<{ deleted_count: number }>>(
+      STORY_PROJECT_URL.keyframesBatchDelete(projectId),
+      { keyframe_ids: keyframeIds }
+    );
   },
   /** 上传/替换关键帧图片（存入 项目名/关键帧名 目录） */
   uploadImage(id: string, file: File) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 关键帧面板：五段式描述维护、编号冲突由后端校验、出场角色登记、导出选择。
+ * 关键帧面板：出图提示词维护、编号冲突由后端校验、出场角色登记、导出选择。
  */
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
@@ -524,12 +524,6 @@ const form = reactive({
   scene_no: null as number | null,
   shot_no: null as number | null,
   prompt: "",
-  negative_prompt: "",
-  scene_description: "",
-  visual_description: "",
-  camera_description: "",
-  lighting_description: "",
-  style_description: "",
 });
 
 function resetForm() {
@@ -539,12 +533,6 @@ function resetForm() {
     scene_no: null,
     shot_no: null,
     prompt: "",
-    negative_prompt: "",
-    scene_description: "",
-    visual_description: "",
-    camera_description: "",
-    lighting_description: "",
-    style_description: "",
   });
 }
 
@@ -563,19 +551,13 @@ function openEdit(keyframe: StoryKeyframeVO) {
     scene_no: keyframe.scene_no,
     shot_no: keyframe.shot_no,
     prompt: keyframe.prompt,
-    negative_prompt: keyframe.negative_prompt ?? "",
-    scene_description: keyframe.scene_description ?? "",
-    visual_description: keyframe.visual_description ?? "",
-    camera_description: keyframe.camera_description ?? "",
-    lighting_description: keyframe.lighting_description ?? "",
-    style_description: keyframe.style_description ?? "",
   });
   formVisible.value = true;
 }
 
 async function handleSubmit() {
   if (!form.prompt.trim()) {
-    ElMessage.error("正向提示词不能为空");
+    ElMessage.error("出图提示词不能为空");
     return;
   }
   formSubmitting.value = true;
@@ -587,12 +569,6 @@ async function handleSubmit() {
         scene_no: form.scene_no,
         shot_no: form.shot_no,
         prompt: form.prompt.trim(),
-        negative_prompt: form.negative_prompt.trim() || null,
-        scene_description: form.scene_description.trim() || null,
-        visual_description: form.visual_description.trim() || null,
-        camera_description: form.camera_description.trim() || null,
-        lighting_description: form.lighting_description.trim() || null,
-        style_description: form.style_description.trim() || null,
       });
       ElMessage.success("关键帧已更新");
     } else {
@@ -603,12 +579,6 @@ async function handleSubmit() {
           scene_no: form.scene_no,
           shot_no: form.shot_no,
           prompt: form.prompt.trim(),
-          negative_prompt: form.negative_prompt.trim() || null,
-          scene_description: form.scene_description.trim() || null,
-          visual_description: form.visual_description.trim() || null,
-          camera_description: form.camera_description.trim() || null,
-          lighting_description: form.lighting_description.trim() || null,
-          style_description: form.style_description.trim() || null,
         })
       ).data;
       if (createImageFile.value) {
@@ -639,6 +609,34 @@ async function handleDelete(keyframe: StoryKeyframeVO) {
     emit("changed");
   } catch {
     // 后端错误已由响应拦截器统一提示
+  }
+}
+
+// —— 批量删除 ——
+const batchDeleting = ref(false);
+
+async function handleBatchDelete() {
+  const rows = tableSelectedRows.value;
+  if (!rows.length) return;
+  const confirmed = await confirmDanger(
+    `确定删除选中的 ${rows.length} 个关键帧吗？删除后图片与出场角色一并清理，且不可恢复。`
+  );
+  if (!confirmed) return;
+  batchDeleting.value = true;
+  try {
+    const res = await keyframeApi.removeMany(
+      props.projectId,
+      rows.map((row) => row.id)
+    );
+    ElMessage.success(`已删除 ${res.data?.deleted_count ?? rows.length} 个关键帧`);
+    // 当前页被删空时回退一页，避免停留在空页
+    if (rows.length >= list.value.length && page.value > 1) page.value -= 1;
+    await loadKeyframes();
+    emit("changed");
+  } catch {
+    // 后端错误已由响应拦截器统一提示
+  } finally {
+    batchDeleting.value = false;
   }
 }
 
@@ -816,6 +814,15 @@ function numbering(keyframe: StoryKeyframeVO): string {
         <el-button v-else type="warning" plain :loading="true">
           生图中 ({{ batchProgress.finished }}/{{ batchProgress.total }})
         </el-button>
+        <el-button
+          v-if="tableSelectedRows.length && !batchRunning"
+          type="danger"
+          plain
+          :loading="batchDeleting"
+          @click="handleBatchDelete"
+        >
+          批量删除 ({{ tableSelectedRows.length }})
+        </el-button>
         <el-button @click="openSelection">导出选择</el-button>
         <el-button type="primary" @click="openCreate">新建关键帧</el-button>
       </div>
@@ -936,7 +943,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="正向提示词" min-width="200" show-overflow-tooltip>
+      <el-table-column label="提示词" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">
           <span class="prompt-brief" :title="row.prompt">
             {{ row.prompt.slice(0, 50) }}{{ row.prompt.length > 50 ? "…" : "" }}
@@ -1064,55 +1071,12 @@ function numbering(keyframe: StoryKeyframeVO): string {
             <span class="muted">场景 + 镜头组合项目内唯一</span>
           </div>
         </el-form-item>
-        <el-form-item label="正向提示词">
+        <el-form-item label="出图提示词">
           <el-input
             v-model="form.prompt"
             type="textarea"
-            :rows="3"
-            placeholder="图片模型生成输入"
-          />
-        </el-form-item>
-        <el-form-item label="负向提示词">
-          <el-input v-model="form.negative_prompt" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="场景描述">
-          <el-input
-            v-model="form.scene_description"
-            type="textarea"
-            :rows="2"
-            placeholder="当前场景发生了什么"
-          />
-        </el-form-item>
-        <el-form-item label="画面描述">
-          <el-input
-            v-model="form.visual_description"
-            type="textarea"
-            :rows="2"
-            placeholder="画面应该长什么样"
-          />
-        </el-form-item>
-        <el-form-item label="镜头描述">
-          <el-input
-            v-model="form.camera_description"
-            type="textarea"
-            :rows="2"
-            placeholder="景别/机位/焦段/运动"
-          />
-        </el-form-item>
-        <el-form-item label="光线描述">
-          <el-input
-            v-model="form.lighting_description"
-            type="textarea"
-            :rows="2"
-            placeholder="光线/时间/氛围"
-          />
-        </el-form-item>
-        <el-form-item label="风格描述">
-          <el-input
-            v-model="form.style_description"
-            type="textarea"
-            :rows="2"
-            placeholder="与角色/项目风格一致"
+            :rows="6"
+            placeholder="写清景别与运镜、画面主体与构图、环境细节、光影色调、风格与画质质感，可直接用于图片模型出图"
           />
         </el-form-item>
       </el-form>
@@ -1209,7 +1173,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
           <el-form-item label="待生成关键帧">
             <span class="batch-dialog-count">{{ batchTargets.length }} 个关键帧</span>
             <div v-if="batchNoCharCount > 0" class="muted" style="margin-top: 4px; font-size: 12px; line-height: 1.4;">
-              提示：其中 {{ batchNoCharCount }} 个关键帧尚未设置出场角色，将直接按正向提示词出图。
+              提示：其中 {{ batchNoCharCount }} 个关键帧尚未设置出场角色，将直接按提示词出图。
             </div>
           </el-form-item>
           <el-form-item label="并发线程数">

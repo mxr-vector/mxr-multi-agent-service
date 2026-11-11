@@ -62,28 +62,14 @@ def _extract_keyframes_from_script(script_text: str) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        duration_str = m[2] or m[3]
-        try:
-            duration_seconds = int(duration_str) if duration_str else None
-        except (ValueError, TypeError):
-            duration_seconds = None
         camera_desc = (m[4] or "").strip() or None
         raw_desc = (m[5] or "").strip()
-        name = f"镜头 {scene_no}-{shot_no}"
-        visual_desc = raw_desc or None
         prompt = f"{camera_desc}，{raw_desc}" if camera_desc else raw_desc
         results.append({
             "scene_no": scene_no,
             "shot_no": shot_no,
-            "name": name,
-            "duration_seconds": duration_seconds,
-            "camera_description": camera_desc,
-            "scene_description": raw_desc,
-            "visual_description": visual_desc,
-            "lighting_description": None,
-            "style_description": None,
+            "name": f"镜头 {scene_no}-{shot_no}",
             "prompt": prompt or f"分镜镜头 {scene_no}-{shot_no}",
-            "negative_prompt": None,
         })
     return results[:_MAX_KEYFRAMES]
 
@@ -101,40 +87,24 @@ def _normalize_keyframe(item) -> dict | None:
     except (ValueError, TypeError):
         shot_no = 1
 
-    duration_val = item.get("duration_seconds") or item.get("duration")
-    try:
-        duration_seconds = int(duration_val) if duration_val is not None else None
-    except (ValueError, TypeError):
-        duration_seconds = None
-
     def _as_str(value) -> str | None:
         text = str(value).strip() if value is not None else ""
         return text or None
 
     name = _as_str(item.get("name")) or f"镜头 {scene_no}-{shot_no}"
-    camera_desc = _as_str(item.get("camera_description"))
-    scene_desc = _as_str(item.get("scene_description"))
-    visual_desc = _as_str(item.get("visual_description"))
-    lighting_desc = _as_str(item.get("lighting_description"))
-    style_desc = _as_str(item.get("style_description"))
-    prompt = _as_str(item.get("prompt"))
-    if not prompt:
-        parts = [visual_desc, camera_desc, lighting_desc]
-        prompt = "，".join(p for p in parts if p) or f"分镜镜头 {scene_no}-{shot_no}"
-    negative_prompt = _as_str(item.get("negative_prompt"))
+    # 兼容历史卡片：旧数据可能只有 visual_description 等描述字段而没有 prompt
+    prompt = (
+        _as_str(item.get("prompt"))
+        or _as_str(item.get("visual_description"))
+        or _as_str(item.get("scene_description"))
+        or f"分镜镜头 {scene_no}-{shot_no}"
+    )
 
     return {
         "scene_no": scene_no,
         "shot_no": shot_no,
         "name": name,
-        "duration_seconds": duration_seconds,
-        "camera_description": camera_desc,
-        "scene_description": scene_desc,
-        "visual_description": visual_desc,
-        "lighting_description": lighting_desc,
-        "style_description": style_desc,
         "prompt": prompt,
-        "negative_prompt": negative_prompt,
     }
 
 

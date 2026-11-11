@@ -306,9 +306,7 @@ CREATE INDEX idx_story_arts_character_primary ON story.story_character_arts (cha
 -- 8. 关键帧表 story_keyframes
 --    关键帧不是简单的一张图片, 而是"视频生成的视觉锚点":
 --      - 对应剧情(script_id)与章节/场景/镜头编号(scene_no/shot_no)
---      - 场景/画面/镜头/光线/风格五段式描述, 供拼装视频模型提示词
---      - 正向/负向提示词(图片模型生成用)
---      - 参考图列表(reference_images JSONB, 可引用角色立绘或其他图片)
+--      - prompt 为唯一的画面/镜头/光影/风格描述, 同时是图片模型生成输入
 --      - 最终生成图(image_file, 图片模型产出)
 --    status: 'draft'(仅编排未生成) -> 'generating' -> 'done'/'failed';
 --    'archived' 归档不参与统计与导出;
@@ -322,18 +320,8 @@ CREATE TABLE story.story_keyframes (
     scene_no            INT,                         -- 项目内场景序号(第几个关键场景)
     shot_no             INT,                         -- 同一场景下镜头编号
     name                VARCHAR(200),                -- 关键帧名称(如"决战-全景-01"), 可空
-    scene_description   TEXT,                        -- 当前场景发生了什么
-    visual_description  TEXT,                        -- 画面应该长什么样
-    camera_description  TEXT,                        -- 景别/机位/焦段/运动方向
-    lighting_description TEXT,                       -- 光线/时间/氛围
-    style_description   TEXT,                        -- 视觉风格(与角色/项目风格保持一致)
-    prompt              TEXT NOT NULL,               -- 正向提示词(图片模型生成输入)
-    negative_prompt     TEXT,                        -- 负向提示词
-    reference_images    JSONB NOT NULL DEFAULT '[]', -- [{"type":"character","character_id":"...","image_file":"..."},{"type":"image","image_file":"..."}]
+    prompt              TEXT NOT NULL,               -- 画面描述 + 出图提示词(图片模型生成输入)
     image_file          VARCHAR(500),                -- 最终生成图存储相对路径(data/ 下), 未生成为 NULL
-    image_width         INT,                         -- 图片宽(px)
-    image_height        INT,                         -- 图片高(px)
-    params              JSONB,                       -- 生成参数(模型/尺寸/seed 等)
     generation_task_id  UUID,                        -- 来源生成任务(逻辑关联 story.story_generation_tasks.id), 可空
     status              VARCHAR(20) NOT NULL DEFAULT 'draft', -- 'draft'/'generating'/'done'/'failed'/'archived'
 

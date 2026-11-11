@@ -612,15 +612,7 @@ class SedimentService:
                         update_fields["prompt"] = message.prompt
                 elif message.kind == StoryMessageKind.KEYFRAME.value:
                     kf = self._load_keyframe(message)
-                    for key in (
-                        "name",
-                        "scene_description",
-                        "visual_description",
-                        "camera_description",
-                        "lighting_description",
-                        "style_description",
-                        "prompt",
-                    ):
+                    for key in ("name", "prompt"):
                         if kf.get(key):
                             update_fields[key] = kf[key]
 
@@ -721,13 +713,7 @@ class SedimentService:
 
                     kf_fields = {
                         "name": art_name or kf.get("name"),
-                        "scene_description": kf.get("scene_description"),
-                        "visual_description": kf.get("visual_description"),
-                        "camera_description": kf.get("camera_description"),
-                        "lighting_description": kf.get("lighting_description"),
-                        "style_description": kf.get("style_description"),
                         "prompt": kf.get("prompt") or message.prompt or f"分镜镜头 {final_scene}-{final_shot}",
-                        "negative_prompt": kf.get("negative_prompt"),
                         "script_id": script_id,
                         "status": "done",
                     }
@@ -857,13 +843,7 @@ class SedimentService:
 
             kf_fields = {
                 "name": name or kf.get("name"),
-                "scene_description": kf.get("scene_description"),
-                "visual_description": kf.get("visual_description"),
-                "camera_description": kf.get("camera_description"),
-                "lighting_description": kf.get("lighting_description"),
-                "style_description": kf.get("style_description"),
                 "prompt": kf.get("prompt") or f"分镜镜头 {final_scene}-{final_shot}",
-                "negative_prompt": kf.get("negative_prompt"),
                 "script_id": script_id,
             }
 
@@ -1007,13 +987,7 @@ class SedimentService:
 
                 kf_fields = {
                     "name": kf.get("name"),
-                    "scene_description": kf.get("scene_description"),
-                    "visual_description": kf.get("visual_description"),
-                    "camera_description": kf.get("camera_description"),
-                    "lighting_description": kf.get("lighting_description"),
-                    "style_description": kf.get("style_description"),
                     "prompt": kf.get("prompt") or f"分镜镜头 {scene_no}-{shot_no}",
-                    "negative_prompt": kf.get("negative_prompt"),
                     "script_id": script_id,
                 }
 

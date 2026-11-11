@@ -121,20 +121,10 @@ def parse_script_chapters(content: str) -> list[dict]:
 
 
 def _shot_detail(keyframe, character_names: list[str] | None = None) -> str:
-    """关键帧的结构化画面描述（用于参考图说明与提示词补强）。"""
+    """关键帧的画面描述（用于参考图说明与提示词补强）。"""
     parts: list[str] = []
-    if keyframe.visual_description and keyframe.visual_description.strip():
-        parts.append(f"画面：{keyframe.visual_description.strip()}")
-    elif keyframe.prompt and keyframe.prompt.strip():
+    if keyframe.prompt and keyframe.prompt.strip():
         parts.append(f"画面：{keyframe.prompt.strip()}")
-    if keyframe.scene_description and keyframe.scene_description.strip():
-        parts.append(f"场景：{keyframe.scene_description.strip()}")
-    if keyframe.camera_description and keyframe.camera_description.strip():
-        parts.append(f"镜头：{keyframe.camera_description.strip()}")
-    if keyframe.lighting_description and keyframe.lighting_description.strip():
-        parts.append(f"光影：{keyframe.lighting_description.strip()}")
-    if keyframe.style_description and keyframe.style_description.strip():
-        parts.append(f"风格：{keyframe.style_description.strip()}")
     if character_names:
         parts.append(f"出场角色：{'、'.join(character_names)}")
     return "\n".join(parts)

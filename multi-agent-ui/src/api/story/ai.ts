@@ -99,14 +99,7 @@ export interface StoryKeyframeCard {
   scene_no: number;
   shot_no: number;
   name: string;
-  duration_seconds?: number | null;
-  camera_description: string | null;
-  scene_description: string | null;
-  visual_description: string | null;
-  lighting_description: string | null;
-  style_description: string | null;
   prompt: string;
-  negative_prompt: string | null;
 }
 
 /** 视频风格（风格注册表条目） */

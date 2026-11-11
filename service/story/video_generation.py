@@ -2,7 +2,7 @@
 剧本模块视频片段生成业务层：按章节编排结果一次生成一个章节视频片段。
 
 - 生成输入由编排层（service/story/video_plan.py）预填：章节正文 + 本镜头
-  文本 + 关键帧五段式描述 + 出场角色；用户在面板中编辑确认后提交；
+  文本 + 关键帧提示词 + 出场角色；用户在面板中编辑确认后提交；
 - 关键帧本地图片压缩后转 base64 data URI 作为参考图/首帧（DashScope 原生
   协议 wan3.0 走 media、旧模型走 img_url；聚合网关协议走 content 数组的
   first_frame / reference_image 角色），前端只提交必要字段，避免图片与
@@ -305,7 +305,6 @@ class VideoGenerationService:
                 provider="video",
                 model=model_name,
                 prompt=final_prompt,
-                negative_prompt=keyframes[0].negative_prompt,
                 generation_params=params,
                 target_platform="AI 生成",
             )
@@ -314,7 +313,7 @@ class VideoGenerationService:
             data = video.to_dict()
             video_id = video.id
             primary_keyframe_id = keyframes[0].id
-            negative_prompt = keyframes[0].negative_prompt
+            negative_prompt = None
             first_frame_file = reference_images[0] if len(reference_images) == 1 else None
             reference_image_files = (
                 reference_images if len(reference_images) > 1 else []

@@ -166,7 +166,7 @@ class StoryKeyframe(Base):
     """
     关键帧 ORM 模型（映射 story.story_keyframes）。
 
-    视频生成的视觉锚点：五段式描述 + 正负向提示词 + 参考图 + 最终生成图；
+    视频生成的视觉锚点：出图提示词 + 最终生成图；
     (project_id, scene_no, shot_no) 唯一，业务层创建前校验冲突。
     """
 
@@ -187,20 +187,8 @@ class StoryKeyframe(Base):
     scene_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     shot_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    scene_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    visual_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    camera_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    lighting_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    style_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reference_images: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
-    )
     image_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    image_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    image_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     generation_task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -225,18 +213,8 @@ class StoryKeyframe(Base):
             "scene_no": self.scene_no,
             "shot_no": self.shot_no,
             "name": self.name,
-            "scene_description": self.scene_description,
-            "visual_description": self.visual_description,
-            "camera_description": self.camera_description,
-            "lighting_description": self.lighting_description,
-            "style_description": self.style_description,
             "prompt": self.prompt,
-            "negative_prompt": self.negative_prompt,
-            "reference_images": self.reference_images,
             "image_file": self.image_file,
-            "image_width": self.image_width,
-            "image_height": self.image_height,
-            "params": self.params,
             "generation_task_id": format_id(self.generation_task_id),
             "status": self.status,
             "created_at": format_datetime(self.created_at),
