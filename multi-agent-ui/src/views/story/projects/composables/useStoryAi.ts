@@ -49,7 +49,7 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     style_key: "",
     aspect_ratio: "16:9",
     episodes: null,
-    episode_duration: 15,
+    episode_duration: 30,
     tone: null,
   });
 
@@ -112,13 +112,13 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       form.value.style_key = savedKey;
       form.value.aspect_ratio = (params.aspect_ratio as string) ?? "16:9";
       form.value.episodes = (params.episodes as number) ?? null;
-      form.value.episode_duration = (params.episode_duration as number) ?? 15;
+      form.value.episode_duration = (params.episode_duration as number) ?? 30;
       form.value.tone = (params.tone as string) ?? null;
     } else if (styles.value.length && !form.value.style_key) {
       form.value.style_key = styles.value[0].key;
       const ratios = styles.value[0].aspect_ratios ?? [];
       form.value.aspect_ratio = ratios.includes("16:9") ? "16:9" : ratios[0] ?? "16:9";
-      form.value.episode_duration = 15;
+      form.value.episode_duration = 30;
     }
     await loadSessions();
     const latest = await storyAiApi.latestSession(projectId.value).catch(() => null);

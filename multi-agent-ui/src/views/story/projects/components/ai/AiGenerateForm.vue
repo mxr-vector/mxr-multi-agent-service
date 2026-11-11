@@ -420,8 +420,8 @@ function handleSubmit() {
             class="modern-select duration-select"
             style="width: 105px"
           >
-            <el-option :value="15" label="15s / 集 (推荐)" />
-            <el-option :value="30" label="30s / 集 (长片段)" />
+            <el-option :value="30" label="30s / 集 (推荐)" />
+            <el-option :value="15" label="15s / 集 (短片段)" />
           </el-select>
 
           <el-select
