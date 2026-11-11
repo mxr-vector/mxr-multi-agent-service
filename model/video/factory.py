@@ -6,7 +6,9 @@ extra.video_protocol 显式覆盖（"dashscope" | "openai" | "auto"）：
 
 - dashscope：DashScope 原生异步任务协议，SDK 以 base_address 拼出
   `{base_address}/services/aigc/video-generation/video-synthesis`，任务查询走
-  `/tasks/{task_id}`。适用于 dashscope.aliyuncs.com 与 MaaS 工作空间端点。
+  `/tasks/{task_id}`。适用于 dashscope.aliyuncs.com 与 MaaS / Token Plan 端点；
+  接口地址填 OpenAI 兼容基地址（`.../compatible-mode/v1`）时会自动归一为
+  原生接口所在的 `/api/v1`。
 - openai：聚合网关（如 tokenrhythm.studio）的 OpenAI 风格视频接口
   `POST {base}/videos/generations`、`GET {base}/videos/{task_id}`，请求体为
   `content` 数组（text / image_url + first_frame|reference_image 角色），
@@ -53,6 +55,12 @@ DEFAULT_WAIT_TIMEOUT = 900
 
 # SDK 会把 base_address 之后的内容拼成 services/aigc/video-generation/video-synthesis
 _SERVICES_MARKER = "/services/"
+
+# 阿里云 MaaS / Token Plan 的 OpenAI 兼容基地址后缀。视频生成只有原生异步接口
+# 且位于 /api/v1 下，直接使用该地址会拼出 .../compatible-mode/v1/services/...
+# 并报 "url error, please check url"，因此归一为原生接口基地址
+_OPENAI_COMPATIBLE_MARKER = "/compatible-mode/v1"
+_NATIVE_API_PATH = "/api/v1"
 
 # 协议常量
 PROTOCOL_DASHSCOPE = "dashscope"
@@ -106,8 +114,9 @@ def _protocol(extra: dict) -> str:
 def _normalize_base_address(api_url: str) -> str:
     """把配置的接口地址归一为 DashScope SDK 的 base_address。
 
-    支持三种写法：完整合成地址（截断 /services 及之后）、`.../api/v1`
-    基地址（原样使用）、纯域名（补 `/api/v1`）。
+    支持四种写法：完整合成地址（截断 /services 及之后）、`.../api/v1`
+    基地址（原样使用）、OpenAI 兼容基地址（`.../compatible-mode/v1` 改写为
+    `.../api/v1`）、纯域名（补 `/api/v1`）。
     """
     url = (api_url or "").strip().rstrip("/")
     if not url:
@@ -121,8 +130,11 @@ def _normalize_base_address(api_url: str) -> str:
         raise ValueError(f"视频模型接口地址非法: {api_url!r}") from exc
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError(f"视频模型接口地址非法: {api_url!r}")
-    if not parsed.path.strip("/"):
-        url = f"{url}/api/v1"
+    path = parsed.path.rstrip("/")
+    if path.endswith(_OPENAI_COMPATIBLE_MARKER):
+        url = url[: -len(_OPENAI_COMPATIBLE_MARKER)].rstrip("/") + _NATIVE_API_PATH
+    elif not path.strip("/"):
+        url = f"{url}{_NATIVE_API_PATH}"
     return url
 
 
