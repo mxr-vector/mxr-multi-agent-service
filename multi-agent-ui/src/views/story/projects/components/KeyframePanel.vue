@@ -256,7 +256,7 @@ async function handleGenerateImage(keyframe: StoryKeyframeVO) {
   } else {
     try {
       await ElMessageBox.confirm(
-        "当前关键帧尚未设置出场角色。为了保证角色形象一致性，建议先点击「出场角色」绑定角色的参考立绘后再生成。\n\n若当前镜头无需角色或为场景空镜，也可直接按当前提示词生成。确定继续提交生成吗？",
+        "当前关键帧尚未设置出场角色。为了保证角色形象一致性，建议先点击「编辑」，在编辑弹窗中绑定出场角色与参考立绘后再生成。\n\n若当前镜头无需角色或为场景空镜，也可直接按当前提示词生成。确定继续提交生成吗？",
         "关键帧未设置出场角色",
         {
           confirmButtonText: "继续生成",
@@ -267,7 +267,7 @@ async function handleGenerateImage(keyframe: StoryKeyframeVO) {
       );
     } catch (action) {
       if (action === "cancel") {
-        openCastDialog(keyframe);
+        openEdit(keyframe);
       }
       return;
     }
@@ -540,6 +540,9 @@ function openCreate() {
   editing.value = null;
   resetForm();
   clearCreateImage();
+  castLoadToken++;
+  castOptions.value = [];
+  castLoaded.value = false;
   formVisible.value = true;
 }
 
@@ -553,6 +556,7 @@ function openEdit(keyframe: StoryKeyframeVO) {
     prompt: keyframe.prompt,
   });
   formVisible.value = true;
+  loadCastOptions(keyframe);
 }
 
 async function handleSubmit() {
@@ -570,6 +574,9 @@ async function handleSubmit() {
         shot_no: form.shot_no,
         prompt: form.prompt.trim(),
       });
+      if (castLoaded.value) {
+        await keyframeApi.setCharacters(editing.value.id, buildCastEntries());
+      }
       ElMessage.success("关键帧已更新");
     } else {
       const created = (
@@ -640,7 +647,7 @@ async function handleBatchDelete() {
   }
 }
 
-// —— 出场角色 ——
+// —— 出场角色（随编辑弹窗一并维护） ——
 interface CastOption {
   character_id: string;
   name: string;
@@ -651,12 +658,11 @@ interface CastOption {
   art_id: string;
 }
 
-const castVisible = ref(false);
-const castSubmitting = ref(false);
-const castTarget = ref<StoryKeyframeVO | null>(null);
 const castOptions = ref<CastOption[]>([]);
-// 版本令牌：弹窗快速切换关键帧时，作废在途加载，防止把 A 帧数据写进 B 帧
-let castDialogToken = 0;
+const castLoading = ref(false);
+const castLoaded = ref(false);
+// 版本令牌：快速切换编辑对象时作废在途加载，防止把 A 帧的数据写进 B 帧
+let castLoadToken = 0;
 
 const ART_TYPE_LABEL: Record<string, string> = {
   character_sheet: "主视图+三视图",
@@ -678,40 +684,39 @@ function formatArtLabel(art: StoryCharacterArtVO): string {
   return art.name || typeLabel || "立绘";
 }
 
-async function openCastDialog(keyframe: StoryKeyframeVO) {
-  const token = ++castDialogToken;
-  castTarget.value = keyframe;
+async function loadCastOptions(keyframe: StoryKeyframeVO) {
+  const token = ++castLoadToken;
   castOptions.value = [];
-  castVisible.value = true;
-  const res = await projectApi.listCasting(props.projectId);
-  if (token !== castDialogToken) return;
-  const existing = new Map(keyframe.characters.map((item) => [item.character_id, item]));
-  const options: CastOption[] = [];
-  for (const casting of res.data ?? []) {
-    const hit = existing.get(casting.id);
-    const arts: StoryCharacterArtVO[] = casting.arts ?? [];
-    const defaultArt = arts.find((a) => a.art_type === "character_sheet") || arts[0];
-    const initialArtId =
-      hit !== undefined ? (hit.character_art_id ?? "") : (defaultArt?.id ?? "");
-    options.push({
-      character_id: casting.id,
-      name: casting.name,
-      checked: hit !== undefined,
-      role: hit?.role ?? "main",
-      character_prompt: hit?.character_prompt ?? "",
-      arts,
-      art_id: initialArtId,
+  castLoaded.value = false;
+  castLoading.value = true;
+  try {
+    const res = await projectApi.listCasting(props.projectId);
+    if (token !== castLoadToken) return;
+    const existing = new Map(keyframe.characters.map((item) => [item.character_id, item]));
+    castOptions.value = (res.data ?? []).map((casting) => {
+      const hit = existing.get(casting.id);
+      const arts: StoryCharacterArtVO[] = casting.arts ?? [];
+      const defaultArt = arts.find((a) => a.art_type === "character_sheet") || arts[0];
+      return {
+        character_id: casting.id,
+        name: casting.name,
+        checked: hit !== undefined,
+        role: hit?.role ?? "main",
+        character_prompt: hit?.character_prompt ?? "",
+        arts,
+        art_id: hit !== undefined ? (hit.character_art_id ?? "") : (defaultArt?.id ?? ""),
+      };
     });
-  }
-  castOptions.value = options;
-  if (!options.length) {
-    ElMessage.warning("请先在「出演角色」子视图为项目选入角色");
+    castLoaded.value = true;
+  } catch {
+    if (token === castLoadToken) castOptions.value = [];
+  } finally {
+    if (token === castLoadToken) castLoading.value = false;
   }
 }
 
-async function handleCastSubmit() {
-  if (!castTarget.value) return;
-  const entries: StoryKeyframeCharacterEntry[] = castOptions.value
+function buildCastEntries(): StoryKeyframeCharacterEntry[] {
+  return castOptions.value
     .filter((option) => option.checked)
     .map((option) => ({
       character_id: option.character_id,
@@ -719,16 +724,6 @@ async function handleCastSubmit() {
       role: option.role || null,
       character_prompt: option.character_prompt.trim() || null,
     }));
-  castSubmitting.value = true;
-  try {
-    await keyframeApi.setCharacters(castTarget.value.id, entries);
-    ElMessage.success("出场角色已更新");
-    castVisible.value = false;
-    await loadKeyframes();
-    emit("changed");
-  } finally {
-    castSubmitting.value = false;
-  }
 }
 
 // —— 导出选择 ——
@@ -962,7 +957,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="row.status === 'generating'"
@@ -984,7 +979,6 @@ function numbering(keyframe: StoryKeyframeVO): string {
           >
             {{ row.status === "failed" ? "重新生成" : "生成图片" }}
           </el-button>
-          <el-button size="small" link @click="openCastDialog(row)">出场角色</el-button>
           <el-button size="small" link @click="openEdit(row)">编辑</el-button>
           <el-button size="small" link type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
@@ -1079,59 +1073,55 @@ function numbering(keyframe: StoryKeyframeVO): string {
             placeholder="写清景别与运镜、画面主体与构图、环境细节、光影色调、风格与画质质感，可直接用于图片模型出图"
           />
         </el-form-item>
+        <el-form-item label="出场角色">
+          <div v-if="editing" class="cast-form">
+            <div class="cast-form-hint muted">
+              勾选本镜头出场角色，可绑定参考立绘与局部状态描述，生成图片时一并提交给模型。
+            </div>
+            <div v-loading="castLoading" class="cast-list cast-list--form">
+              <el-empty
+                v-if="castLoaded && !castOptions.length"
+                description="项目还没有出演角色，请先在「出演角色」子视图选入"
+                :image-size="60"
+              />
+              <div v-for="option in castOptions" :key="option.character_id" class="cast-item">
+                <el-checkbox v-model="option.checked">{{ option.name }}</el-checkbox>
+                <template v-if="option.checked">
+                  <el-select v-model="option.role" size="small" class="cast-role">
+                    <el-option label="主要" value="main" />
+                    <el-option label="次要" value="secondary" />
+                    <el-option label="背景" value="background" />
+                  </el-select>
+                  <el-select
+                    v-model="option.art_id"
+                    size="small"
+                    clearable
+                    placeholder="参考立绘（默认主视图+三视图）"
+                    class="cast-art"
+                  >
+                    <el-option
+                      v-for="art in option.arts"
+                      :key="art.id"
+                      :label="formatArtLabel(art)"
+                      :value="art.id"
+                    />
+                  </el-select>
+                  <el-input
+                    v-model="option.character_prompt"
+                    size="small"
+                    placeholder="本镜头局部描述，如：愤怒的表情"
+                    class="cast-prompt"
+                  />
+                </template>
+              </div>
+            </div>
+          </div>
+          <span v-else class="muted">创建后可在编辑关键帧时绑定出场角色</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="formSubmitting" @click="handleSubmit">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 出场角色 -->
-    <el-dialog
-      v-model="castVisible"
-      :title="`出场角色 - ${castTarget?.name || '关键帧'}`"
-      width="680px"
-      append-to-body
-      destroy-on-close
-    >
-      <el-empty v-if="!castOptions.length" description="项目还没有出演角色" :image-size="80" />
-      <div v-else class="cast-list">
-        <div v-for="option in castOptions" :key="option.character_id" class="cast-item">
-          <el-checkbox v-model="option.checked">{{ option.name }}</el-checkbox>
-          <template v-if="option.checked">
-            <el-select v-model="option.role" size="small" class="cast-role">
-              <el-option label="主要" value="main" />
-              <el-option label="次要" value="secondary" />
-              <el-option label="背景" value="background" />
-            </el-select>
-            <el-select
-              v-model="option.art_id"
-              size="small"
-              clearable
-              placeholder="参考立绘（默认主视图+三视图）"
-              class="cast-art"
-            >
-              <el-option
-                v-for="art in option.arts"
-                :key="art.id"
-                :label="formatArtLabel(art)"
-                :value="art.id"
-              />
-            </el-select>
-            <el-input
-              v-model="option.character_prompt"
-              size="small"
-              placeholder="本镜头局部描述，如：愤怒的表情"
-              class="cast-prompt"
-            />
-          </template>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="castVisible = false">取消</el-button>
-        <el-button type="primary" :loading="castSubmitting" @click="handleCastSubmit">
-          保存
-        </el-button>
       </template>
     </el-dialog>
 
@@ -1252,6 +1242,20 @@ function numbering(keyframe: StoryKeyframeVO): string {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.cast-form {
+  width: 100%;
+}
+.cast-form-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.cast-list--form {
+  width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .cast-item {
   display: flex;
