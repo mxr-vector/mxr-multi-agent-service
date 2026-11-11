@@ -9,10 +9,14 @@ import { copyToClipboard } from "@/utils/clipboard";
 
 const props = defineProps<{
   message: StoryMessageVO;
+  /** 会话生成中时禁用消息级操作 */
+  busy?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "saved"): void;
+  (e: "resume"): void;
+  (e: "regenerate"): void;
 }>();
 
 const previewVisible = ref(false);
@@ -64,6 +68,30 @@ async function handleExtractCharacters() {
       <span class="card-title">📜 剧本</span>
       <el-tag v-if="message.status === 'stopped'" size="small" type="warning">已停止</el-tag>
       <el-tag v-else-if="message.status === 'failed'" size="small" type="danger">生成失败</el-tag>
+      <!-- 消息级辅助操作：悬停显示 -->
+      <div class="card-hover-actions">
+        <el-button size="small" link @click="copyContent">复制</el-button>
+        <el-button
+          v-if="message.status === 'stopped' || message.status === 'failed'"
+          size="small"
+          link
+          type="warning"
+          :disabled="busy"
+          @click="emit('resume')"
+        >
+          继续生成
+        </el-button>
+        <el-button
+          v-if="message.status !== 'generating'"
+          size="small"
+          link
+          type="primary"
+          :disabled="busy"
+          @click="emit('regenerate')"
+        >
+          重新生成
+        </el-button>
+      </div>
     </div>
     <!-- 失败终态须可见错误原因（spec"生成失败不污染会话"场景） -->
     <el-alert
@@ -136,6 +164,19 @@ async function handleExtractCharacters() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.card-hover-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.script-card:hover .card-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 .card-title {
   font-size: 13px;

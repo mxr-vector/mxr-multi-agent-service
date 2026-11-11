@@ -5,7 +5,7 @@
  * 生成与中断、生成表单状态（制作参数记忆预填）。组件只做呈现。
  */
 import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
   storyAiApi,
   storyFileUrl,
@@ -57,6 +57,10 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
   const streaming = shallowRef(false);
   const streamText = shallowRef("");
   let abortStream: (() => void) | null = null;
+
+  // ---------- 消息级辅助操作（重新编辑/重新生成/断点续写） ----------
+  const rewriteTarget = shallowRef<StoryMessageVO | null>(null);
+  let formBeforeRewrite: StoryGeneratePayload | null = null;
 
   const activeSession = computed(
     () => sessions.value.find((s) => s.id === activeSessionId.value) ?? null
@@ -136,11 +140,13 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       ElMessage.warning("生成进行中，请先停止再切换会话");
       return;
     }
+    cancelRewrite();
     activeSessionId.value = id;
     await loadMessages();
   }
 
   async function createSession(title?: string) {
+    cancelRewrite();
     const res = await storyAiApi.createSession(projectId.value, title);
     await loadSessions();
     activeSessionId.value = res.data.id;
@@ -149,6 +155,7 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
   }
 
   async function removeSession(id: string) {
+    cancelRewrite();
     await storyAiApi.removeSession(id);
     ElMessage.success("会话已删除");
     if (activeSessionId.value === id) {
@@ -170,45 +177,124 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     abortStream = null;
   }
 
-  /** 发起流式生成：本地先渲染 user 消息 + 占位，结束后以服务端回放为准 */
-  async function send(onProjectChanged?: () => void) {
-    const idea = (form.value.idea ?? "").trim();
-    if (!idea) {
-      ElMessage.warning("请先描述创作需求");
-      return;
+  /** 重新编辑用户问题：回填正文与制作参数（参考图由表单组件回填） */
+  function beginRewrite(message: StoryMessageVO) {
+    if (streaming.value || message.role !== "user") return;
+    const params = (message.params ?? {}) as Record<string, unknown>;
+    // art 等其它用户消息没有制作参数快照，不能按剧本问题重新编辑
+    if (typeof params.style_key !== "string" || !params.style_key) return;
+    if (!rewriteTarget.value) {
+      formBeforeRewrite = { ...form.value, images: [...(form.value.images ?? [])] };
     }
-    if (idea.length > 20000) {
-      ElMessage.warning(`创作需求长度（${idea.length}字）已超出上限（20000字），请适当精简`);
-      return;
+    rewriteTarget.value = message;
+    const storedDuration = params.episode_duration;
+    const primaryImage =
+      message.image_file ??
+      (typeof params.image_file === "string" ? params.image_file : null);
+    const restoredImages = Array.isArray(params.images)
+      ? params.images.filter((img): img is string => typeof img === "string" && !!img)
+      : [];
+    if (primaryImage && !restoredImages.includes(primaryImage)) {
+      restoredImages.unshift(primaryImage);
     }
-    if (!form.value.style_key) {
-      ElMessage.warning("请先选择视频风格");
-      return;
+    form.value = {
+      idea: message.content ?? "",
+      style_key:
+        typeof params.style_key === "string" ? params.style_key : form.value.style_key,
+      aspect_ratio:
+        typeof params.aspect_ratio === "string"
+          ? params.aspect_ratio
+          : form.value.aspect_ratio,
+      episodes: typeof params.episodes === "number" ? params.episodes : null,
+      episode_duration:
+        storedDuration === 15 || storedDuration === 30
+          ? storedDuration
+          : form.value.episode_duration ?? 30,
+      tone: typeof params.tone === "string" ? params.tone : null,
+      mode: typeof params.mode === "string" ? params.mode : form.value.mode,
+      image_file: primaryImage,
+      images: restoredImages,
+    };
+  }
+
+  /** 取消重新编辑：还原进入编辑前的表单 */
+  function cancelRewrite() {
+    rewriteTarget.value = null;
+    if (formBeforeRewrite) {
+      form.value = formBeforeRewrite;
+      formBeforeRewrite = null;
     }
-    if (!activeSessionId.value) {
-      await createSession();
+  }
+
+  /** 会话切换时丢弃重编辑目标（不回填表单，表单由 init/用户操作接管） */
+  function resetRewriteState() {
+    rewriteTarget.value = null;
+    formBeforeRewrite = null;
+  }
+
+  async function confirmOverwrite(message: string): Promise<boolean> {
+    try {
+      await ElMessageBox.confirm(message, "覆盖对话", {
+        type: "warning",
+        confirmButtonText: "继续",
+        cancelButtonText: "取消",
+      });
+      return true;
+    } catch {
+      return false;
     }
-    const sessionId = activeSessionId.value;
-    const payload = { ...form.value, idea };
+  }
+
+  /** 本地消息序号：覆盖/重生成后取剩余消息最大值 + 1 */
+  function nextLocalSequence(): number {
+    return messages.value.reduce((max, m) => Math.max(max, m.sequence), -1) + 1;
+  }
+
+  /** 本地先行渲染 user 消息（结束后以服务端回放为准） */
+  function pushLocalUser(
+    sessionId: string,
+    payload: StoryGeneratePayload,
+    sequence: number
+  ) {
+    const images = payload.images?.length ? [...payload.images] : [];
+    const styleName = styles.value.find((s) => s.key === payload.style_key)?.name;
     messages.value.push({
       id: `local-user-${Date.now()}`,
       session_id: sessionId,
       role: "user",
       kind: "general",
-      content: idea,
-      image_file: form.value.image_file ?? null,
+      content: payload.idea,
+      image_file: payload.image_file ?? null,
       prompt: null,
-      params: form.value.images && form.value.images.length > 0 ? { images: form.value.images } : null,
-      sequence: messages.value.length,
+      params: {
+        style_key: payload.style_key,
+        style_name: styleName,
+        aspect_ratio: payload.aspect_ratio,
+        episodes: payload.episodes,
+        tone: payload.tone,
+        episode_duration: payload.episode_duration,
+        mode: payload.mode,
+        image_file: payload.image_file ?? null,
+        images,
+      },
+      sequence,
       status: "done",
       error: null,
       created_at: new Date().toISOString(),
     });
-    form.value = { ...form.value, idea: "", image_file: null, images: [] };
+  }
+
+  /** 共享流式消费：answer 增量累积，结束/失败统一收口并回放服务端状态 */
+  async function runStream(
+    sessionId: string,
+    payload: StoryGeneratePayload,
+    restoreIdea?: string,
+    onProjectChanged?: () => void
+  ) {
     streaming.value = true;
     streamText.value = "";
     const parts: string[] = [];
-    abortStream = await storyAiApi.generate(
+    const abort = await storyAiApi.generate(
       sessionId,
       payload,
       (event) => {
@@ -228,8 +314,8 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
         // 否则 streaming 滞留 true锁死输入框，只能手动点停止才能解锁
         finishStream();
         // 若尚未收到任何生成内容就失败，恢复输入框内容，避免用户输入的提示词丢失
-        if (parts.length === 0 && !form.value.idea) {
-          form.value.idea = idea;
+        if (parts.length === 0 && restoreIdea && !form.value.idea) {
+          form.value.idea = restoreIdea;
         }
         ElMessage.error(error.message || "生成失败");
         await loadMessages();
@@ -239,6 +325,128 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
         await loadMessages(true);
         onProjectChanged?.();
       }
+    );
+    // 请求在返回前即失败时 onError 已复位，避免把旧中止函数重新挂回
+    if (streaming.value) {
+      abortStream = abort;
+    }
+  }
+
+  /** 发起流式生成：新增一轮，或对已选中的用户问题执行覆盖式重编辑 */
+  async function send(onProjectChanged?: () => void) {
+    const idea = (form.value.idea ?? "").trim();
+    const target = rewriteTarget.value;
+    if (!idea) {
+      ElMessage.warning(target ? "请先编辑问题内容" : "请先描述创作需求");
+      return;
+    }
+    if (idea.length > 20000) {
+      ElMessage.warning(`创作需求长度（${idea.length}字）已超出上限（20000字），请适当精简`);
+      return;
+    }
+    if (!form.value.style_key) {
+      ElMessage.warning("请先选择视频风格");
+      return;
+    }
+    if (!activeSessionId.value) {
+      await createSession();
+    }
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return;
+
+    let payload: StoryGeneratePayload;
+    let sequence: number;
+    if (target) {
+      const confirmed = await confirmOverwrite(
+        "重新编辑将覆盖该问题及其后的对话（已沉淀资产不受影响），确定发送？"
+      );
+      if (!confirmed) return;
+      const index = messages.value.findIndex((m) => m.id === target.id);
+      if (index >= 0) messages.value.splice(index);
+      payload = {
+        ...form.value,
+        idea,
+        action: "rewrite",
+        target_message_id: target.id,
+      };
+      sequence = target.sequence;
+      rewriteTarget.value = null;
+      formBeforeRewrite = null;
+    } else {
+      payload = { ...form.value, idea };
+      sequence = nextLocalSequence();
+    }
+
+    pushLocalUser(sessionId, payload, sequence);
+    form.value = { ...form.value, idea: "", image_file: null, images: [] };
+    await runStream(sessionId, payload, idea, onProjectChanged);
+  }
+
+  /** 重新生成：删除该回答及其后消息，复用原用户问题重跑 */
+  async function regenerate(message: StoryMessageVO, onProjectChanged?: () => void) {
+    if (streaming.value || message.status === "generating") return;
+    const sessionId = activeSessionId.value;
+    const index = messages.value.findIndex((m) => m.id === message.id);
+    if (!sessionId || index < 0) return;
+    const confirmed = await confirmOverwrite(
+      "重新生成将覆盖该回答及其后的对话（已沉淀资产不受影响），确定？"
+    );
+    if (!confirmed) return;
+    const question = [...messages.value.slice(0, index)]
+      .reverse()
+      .find((m) => m.role === "user");
+    if (!question) {
+      ElMessage.warning("未找到该回答对应的用户问题");
+      return;
+    }
+    messages.value.splice(index);
+    await runStream(
+      sessionId,
+      {
+        ...form.value,
+        idea: question?.content ?? "",
+        action: "regenerate",
+        target_message_id: message.id,
+      },
+      undefined,
+      onProjectChanged
+    );
+  }
+
+  /** 断点续写：复用被停止/失败的回答，保留半截内容继续生成 */
+  async function continueGeneration(
+    message: StoryMessageVO,
+    onProjectChanged?: () => void
+  ) {
+    if (streaming.value) return;
+    if (message.status !== "stopped" && message.status !== "failed") return;
+    const sessionId = activeSessionId.value;
+    const index = messages.value.findIndex((m) => m.id === message.id);
+    if (!sessionId || index < 0) return;
+    if (index < messages.value.length - 1) {
+      const confirmed = await confirmOverwrite("续写将清理该回答之后的消息，确定？");
+      if (!confirmed) return;
+      messages.value.splice(index + 1);
+    }
+    const question = [...messages.value.slice(0, index)]
+      .reverse()
+      .find((m) => m.role === "user");
+    if (!question) {
+      ElMessage.warning("未找到该回答对应的用户问题");
+      return;
+    }
+    message.status = "generating";
+    message.error = null;
+    await runStream(
+      sessionId,
+      {
+        ...form.value,
+        idea: question?.content ?? "",
+        action: "continue",
+        target_message_id: message.id,
+      },
+      undefined,
+      onProjectChanged
     );
   }
 
@@ -268,6 +476,7 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
   watch(projectId, () => {
     if (!projectId.value) return;
     abortActiveStream();
+    resetRewriteState();
     activeSessionId.value = "";
     messages.value = [];
     void init();
@@ -295,6 +504,12 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     streamText,
     send,
     stop,
+    // 消息级辅助操作
+    rewriteTarget,
+    beginRewrite,
+    cancelRewrite,
+    regenerate,
+    continueGeneration,
     // 初始化
     init,
     storyFileUrl,

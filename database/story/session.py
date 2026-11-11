@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.constants.enums.chat import ChatMessageStatus
+from agent.constants.enums.chat import ChatMessageStatus, ChatRole
 from agent.constants.enums.story import StoryTaskStatus
 from entity.story.session import StoryGenerationTask, StoryMessage, StorySession
 from utils.page import paginate
@@ -192,6 +192,54 @@ class MessageRepository:
         rows = list((await self.session.execute(stmt)).scalars().all())
         rows.reverse()
         return rows
+
+    async def list_before(
+        self, session_id: uuid.UUID, before_sequence: int, limit: int
+    ) -> list[StoryMessage]:
+        """取指定序号之前的最近 N 条消息（序号升序）。
+
+        regenerate/continue 复用原问题重新生成时，历史须排除该 user 及其后
+        内容，避免 idea 在系统提示中重复注入。
+        """
+        stmt = (
+            select(StoryMessage)
+            .where(
+                StoryMessage.session_id == session_id,
+                StoryMessage.sequence < before_sequence,
+            )
+            .order_by(StoryMessage.sequence.desc())
+            .limit(limit)
+        )
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        rows.reverse()
+        return rows
+
+    async def previous_user(
+        self, session_id: uuid.UUID, sequence: int
+    ) -> StoryMessage | None:
+        """取指定序号之前最近的一条 user 消息（重新生成的原始问题）。"""
+        stmt = (
+            select(StoryMessage)
+            .where(
+                StoryMessage.session_id == session_id,
+                StoryMessage.role == ChatRole.USER.value,
+                StoryMessage.sequence < sequence,
+            )
+            .order_by(StoryMessage.sequence.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def delete_from_sequence(
+        self, session_id: uuid.UUID, from_sequence: int
+    ) -> int:
+        """物理删除序号 >= from_sequence 的全部消息（覆盖式重来），返回行数。"""
+        stmt = delete(StoryMessage).where(
+            StoryMessage.session_id == session_id,
+            StoryMessage.sequence >= from_sequence,
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
 
     async def update_fields(self, row: StoryMessage, fields: dict) -> StoryMessage:
         """按传入字段局部更新（assistant 占位终态/产物回填用）。"""
@@ -405,6 +453,20 @@ if __name__ == "__main__":
             assert total == 2 and [m.sequence for m in items] == [0, 1]
             recent = await message_repo.list_recent(session_id, limit=1)
             assert len(recent) == 1 and recent[0].sequence == 1
+
+            # 2.1 截断/前序查询：补一条 user 消息后验证覆盖式重来原语
+            user_msg = await message_repo.create(
+                uuid7(), session_id, "user", 2, content="原始问题"
+            )
+            await session_repo.touch(
+                row, message_delta=1, message_at=user_msg.created_at
+            )
+            assert (await message_repo.previous_user(session_id, 3)).id == user_msg.id
+            before = await message_repo.list_before(session_id, 2, 10)
+            assert [m.sequence for m in before] == [0, 1]
+            assert await message_repo.delete_from_sequence(session_id, 2) == 1
+            await session_repo.touch(row, message_delta=-1)
+            assert row.message_count == 2
 
             # 3) 消息终态更新
             await message_repo.update_fields(items[1], {"status": "stopped"})

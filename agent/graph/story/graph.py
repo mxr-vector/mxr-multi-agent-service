@@ -27,7 +27,8 @@
 入口：模块级单例 `story_graph = StoryGraph()`，`story_graph.get()` 惰性编译。
 无 checkpointer：每轮生成相互独立、历史经业务表注入系统提示（见 design D1）。
 调用时 config 可携带 `{"configurable": {"session_id": session_id_hex}}`（仅日志
-关联用）；输入 state 为 `{idea, style_key, params_snapshot, history_lines}`。
+关联用）；输入 state 为 `{idea, style_key, params_snapshot, history_lines,
+images, continuation_prefix}`（continuation_prefix 仅在断点续写时非空）。
 """
 
 import asyncio
@@ -38,7 +39,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from agent.constants.enums.story import StoryNode
-from agent.prompts.story import HISTORY_EMPTY, SCRIPT_SYSTEM_PROMPT
+from agent.prompts.story import CONTINUATION_BLOCK, HISTORY_EMPTY, SCRIPT_SYSTEM_PROMPT
 from agent.skills.loader import get_style, read_skill_file, readable_file_hint
 from agent.tools.story_skill_tools import SKILL_READ_TOOL_NAME, build_skill_read_tool
 from core.config_snapshot import CFG
@@ -226,6 +227,8 @@ class StoryState(TypedDict, total=False):
     params_snapshot: dict
     history_lines: list[str]
     images: list[str]
+    # 断点续写：被中断回答的正文尾部（服务层已剥离未闭合卡片块并截断）
+    continuation_prefix: str
     # 输出：流式累积的模型全文 + 技能调用审计
     answer: str
     skill_audit: dict
@@ -278,6 +281,7 @@ class StoryGraph:
         params_snapshot = state.get("params_snapshot") or {}
         history_lines = state.get("history_lines") or []
         images = state.get("images") or []
+        continuation_prefix = state.get("continuation_prefix") or ""
         model_role = (
             CFG.visual
             if (hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name)
@@ -356,6 +360,11 @@ class StoryGraph:
             )
         params_hint = "\n".join(params_hint_items)
         skill_hint = readable_file_hint(style)
+        continuation_block = (
+            CONTINUATION_BLOCK.format(prefix=continuation_prefix)
+            if continuation_prefix
+            else ""
+        )
         budget = _input_budget(model_role.context_window)
         fixed_cost = count_tokens(
             model_name,
@@ -366,7 +375,7 @@ class StoryGraph:
                 history_block="",
                 idea_block=idea,
             ),
-        )
+        ) + count_tokens(model_name, continuation_block + image_hint)
         history_block = _trim_history_lines(
             history_lines, budget - fixed_cost, model_name
         ) or (HISTORY_EMPTY if not history_lines else "")
@@ -379,6 +388,7 @@ class StoryGraph:
                 idea_block=idea,
             )
             + image_hint
+            + continuation_block
         )
         if image_uris:
             user_content: list[dict] = [{"type": "text", "text": idea}]

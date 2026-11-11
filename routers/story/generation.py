@@ -7,7 +7,7 @@ SSE 帧为标准三字段（id/event/data），事件 think/answer/done/error；
 
 import asyncio
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Path, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -45,7 +45,7 @@ class ScriptGenerateRequest(BaseModel):
     episodes: Optional[int] = Field(default=None, ge=1, le=100)
     tone: Optional[str] = None
     episode_duration: Optional[int] = Field(
-        default=None, description="每集大致生成秒数（目前视频模型仅支持 15 或 30 秒，默认 15）"
+        default=None, description="每集大致生成秒数（目前视频模型仅支持 15 或 30 秒，默认 30）"
     )
 
     @field_validator("episode_duration")
@@ -60,6 +60,17 @@ class ScriptGenerateRequest(BaseModel):
     )
     image_file: Optional[str] = Field(default=None, description="主图片相对路径")
     images: Optional[list[str]] = Field(default=None, description="多模态输入图片相对路径列表")
+    action: Literal["new", "rewrite", "regenerate", "continue"] = Field(
+        default="new",
+        description=(
+            "生成动作：new 新增一轮；rewrite 覆盖指定 user 问题及其后消息；"
+            "regenerate 重跑指定 assistant 回答（复用原问题）；"
+            "continue 续写被停止/失败的 assistant 回答"
+        ),
+    )
+    target_message_id: Optional[uuid.UUID] = Field(
+        default=None, description="rewrite/regenerate/continue 的目标消息 id"
+    )
 
 
 @router.post("/upload-image")
@@ -118,6 +129,8 @@ async def generate_script(
         mode=payload.mode,
         image_file=payload.image_file,
         images=payload.images,
+        action=payload.action,
+        target_message_id=payload.target_message_id,
     )
     return StreamingResponse(
         frames,

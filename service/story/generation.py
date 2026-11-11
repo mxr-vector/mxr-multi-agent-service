@@ -14,6 +14,8 @@ AI 编排（系统提示装配、生成模型装配、技能工具循环、预�
 - 互斥双保险：会话级（内存注册表）+ 项目级（story_generation_tasks 在途检查）；
 - 双轨契约（D4）：模型全文经 split_dual_track 剥离角色卡；成功路径落库
   剧本消息 + 每角色一条角色卡消息，并把制作参数回写项目（参数记忆）。
+- 消息级辅助动作（rewrite/regenerate/continue）：分支截断、原问题复用与
+  断点续写前缀均在同一事务内完成，仅清理会话消息不动已沉淀资产。
 """
 
 import asyncio
@@ -35,7 +37,7 @@ from agent.constants.enums.story import (
     StoryTaskType,
 )
 from agent.prompts.story import CARD_DATA_KEY, KEYFRAME_DATA_KEY
-from agent.skills.loader import get_style
+from agent.skills.loader import STYLE_REGISTRY, get_style
 from core.config_snapshot import CFG
 from database.postgre_client import get_session
 from database.story.project import ProjectRepository
@@ -45,7 +47,7 @@ from database.story.session import (
     SessionRepository,
 )
 from exception.bad_except import bad_except
-from service.story.contract import split_dual_track
+from service.story.contract import CARDS_BEGIN, CARDS_END, split_dual_track
 from service.story.session import (
     StorySessionService,
     register_generation,
@@ -60,6 +62,18 @@ from utils.stream_runtime import sse_frame, spawn_side_task
 _HISTORY_MAX_MESSAGES = 8
 # 历史单条内容截断（角色卡/剧本全文入历史时防止单条独占预算）
 _HISTORY_ITEM_MAX_CHARS = 4000
+
+# 消息级辅助动作：新增 / 覆盖式重编辑 / 重新生成 / 断点续写
+_GENERATION_ACTIONS = {"new", "rewrite", "regenerate", "continue"}
+# 可重新生成/续写的 assistant 消息类型
+_REGENERATABLE_KINDS = (StoryMessageKind.SCRIPT.value, StoryMessageKind.GENERAL.value)
+# 允许断点续写的终态
+_CONTINUABLE_STATUSES = (
+    ChatMessageStatus.STOPPED.value,
+    ChatMessageStatus.FAILED.value,
+)
+# 送模型的续写上下文只取正文尾部（全文仍拼回落库），避免撑爆输入预算
+_CONTINUATION_CONTEXT_MAX_CHARS = 6000
 
 
 class StoryGenerationService:
@@ -81,40 +95,51 @@ class StoryGenerationService:
         mode: str | None = None,
         image_file: str | None = None,
         images: list[str] | None = None,
+        action: str = "new",
+        target_message_id: uuid.UUID | None = None,
     ):
         """发起一轮流式剧本生成，返回 SSE 帧异步生成器。
 
-        进入流之前完成：风格解析（未注册拒绝）、会话属主校验、会话级与
-        项目级互斥、生成任务落库、user 消息 + assistant 占位落库。
-        支持上传图片给多模态大模型进行视觉解析。
+        action 语义（消息级辅助操作）：
+        - new：追加新一轮（user 消息 + assistant 占位）；
+        - rewrite：覆盖指定 user 问题及其后全部会话消息，按新问题重新生成；
+        - regenerate：删除指定 assistant 及其后消息，复用前一条 user 的问题
+          与制作参数重新生成；
+        - continue：复用被停止/失败的 assistant 行，以其已产出内容为前缀续写。
+        覆盖/续写仅清理会话消息，不删除磁盘图片与已沉淀资产。
+
+        进入流之前完成：动作与风格校验、会话属主校验、会话级与项目级互斥、
+        目标消息校验、生成任务与消息行写库（单事务单 commit）。
         """
         if not ctx.user_id:
             bad_except("剧本生成仅支持用户通道调用")
-        idea = (idea or "").strip()
-        if not idea:
-            bad_except("创作需求不能为空")
-        style = get_style(style_key)
-        if aspect_ratio and aspect_ratio not in style.aspect_ratios:
-            bad_except(
-                f"画幅 {aspect_ratio} 不属于风格 {style.key}"
-                f"（可选：{'/'.join(style.aspect_ratios)}）"
-            )
-        if episode_duration and episode_duration not in (15, 30):
-            bad_except("视频模型目前仅支持 15s 或 30s 时长（可选：15/30）")
-        all_images = list(images) if images else ([image_file] if image_file else [])
-        primary_image = all_images[0] if all_images else None
+        action = (action or "new").strip()
+        if action not in _GENERATION_ACTIONS:
+            bad_except(f"不支持的生成动作: {action}")
+        if action != "new" and target_message_id is None:
+            bad_except("缺少目标消息 id")
 
-        params_snapshot = {
-            "style_key": style.key,
-            "style_name": style.name,
-            "aspect_ratio": aspect_ratio or style.aspect_ratios[0],
-            "episodes": episodes,
-            "tone": tone,
-            "episode_duration": episode_duration or 15,
-            "mode": mode or "story",
-            "image_file": primary_image,
-            "images": all_images,
-        }
+        payload_images = list(images) if images else ([image_file] if image_file else [])
+
+        if action in ("new", "rewrite"):
+            idea = (idea or "").strip()
+            if not idea:
+                bad_except("创作需求不能为空")
+            style = get_style(style_key)
+            params_snapshot = self._snapshot_from_payload(
+                style,
+                aspect_ratio,
+                episodes,
+                tone,
+                episode_duration,
+                mode,
+                payload_images,
+            )
+        else:
+            # regenerate/continue：风格与参数以原 user 消息快照为准，稍后解析
+            style = None
+            params_snapshot = None
+
         session_hex = session_id.hex
         # 会话级互斥（内存注册表）：先原子占位，防"校验→注册"间 await 窗口
         # 被并发请求穿透（TOCTOU）；后续任一步失败都须归还占位
@@ -129,14 +154,145 @@ class StoryGenerationService:
                 if await task_repo.has_running(project.id):
                     bad_except("本项目已有生成任务进行中，请稍候或先停止")
                 message_repo = MessageRepository(session)
-                # 历史在追加本轮消息前取（不含本轮）
-                recent = await message_repo.list_recent(session_id, _HISTORY_MAX_MESSAGES)
-                history_lines = [
-                    f"{row.role}: {(row.content or '')[:_HISTORY_ITEM_MAX_CHARS]}"
-                    for row in recent
-                    if row.content
-                ]
                 now = datetime.now(timezone.utc)
+                continuation_prefix = ""
+                target_hex: str | None = None
+
+                if action == "new":
+                    recent = await message_repo.list_recent(
+                        session_id, _HISTORY_MAX_MESSAGES
+                    )
+                    history_lines = self._history_lines(recent)
+                    user_seq = await message_repo.next_sequence(session_id)
+                    await message_repo.create(
+                        message_id=uuid7(),
+                        session_id=session_id,
+                        role=ChatRole.USER.value,
+                        sequence=user_seq,
+                        content=idea,
+                        image_file=params_snapshot["image_file"],
+                        params=params_snapshot,
+                    )
+                    assistant_message = await message_repo.create(
+                        message_id=uuid7(),
+                        session_id=session_id,
+                        role=ChatRole.ASSISTANT.value,
+                        sequence=user_seq + 1,
+                        kind=StoryMessageKind.SCRIPT.value,
+                        status=ChatMessageStatus.GENERATING.value,
+                    )
+                    await SessionRepository(session).touch(
+                        story_session, message_delta=2, message_at=now
+                    )
+                else:
+                    target = await message_repo.get_for_update(target_message_id)
+                    self._assert_target_message(target, session_id)
+                    target_hex = target.id.hex
+
+                    if action == "rewrite":
+                        if target.role != ChatRole.USER.value:
+                            bad_except("重新编辑仅支持用户问题消息")
+                        # art 等其它用户消息没有制作参数快照，不能按剧本重生成
+                        if not isinstance((target.params or {}).get("style_key"), str):
+                            bad_except("该用户消息不是剧本生成问题，无法重新编辑")
+                        deleted = await message_repo.delete_from_sequence(
+                            session_id, target.sequence
+                        )
+                        recent = await message_repo.list_recent(
+                            session_id, _HISTORY_MAX_MESSAGES
+                        )
+                        history_lines = self._history_lines(recent)
+                        user_seq = await message_repo.next_sequence(session_id)
+                        await message_repo.create(
+                            message_id=uuid7(),
+                            session_id=session_id,
+                            role=ChatRole.USER.value,
+                            sequence=user_seq,
+                            content=idea,
+                            image_file=params_snapshot["image_file"],
+                            params=params_snapshot,
+                        )
+                        assistant_message = await message_repo.create(
+                            message_id=uuid7(),
+                            session_id=session_id,
+                            role=ChatRole.ASSISTANT.value,
+                            sequence=user_seq + 1,
+                            kind=StoryMessageKind.SCRIPT.value,
+                            status=ChatMessageStatus.GENERATING.value,
+                        )
+                        await SessionRepository(session).touch(
+                            story_session,
+                            message_delta=-deleted + 2,
+                            message_at=now,
+                        )
+                    else:
+                        if target.role != ChatRole.ASSISTANT.value:
+                            bad_except("该操作仅支持 AI 回答消息")
+                        if target.kind not in _REGENERATABLE_KINDS:
+                            bad_except("该消息类型不支持重新生成或续写")
+                        if target.status == ChatMessageStatus.GENERATING.value:
+                            bad_except("该回答仍在生成中")
+                        if (
+                            action == "continue"
+                            and target.status not in _CONTINUABLE_STATUSES
+                        ):
+                            bad_except("仅被停止或失败的生成可断点续写")
+
+                        origin_user = await message_repo.previous_user(
+                            session_id, target.sequence
+                        )
+                        if origin_user is None:
+                            bad_except("未找到该回答对应的用户问题")
+                        style, params_snapshot, payload_images = (
+                            self._snapshot_from_user(
+                                origin_user, style_key, payload_images
+                            )
+                        )
+                        history_lines = self._history_lines(
+                            await message_repo.list_before(
+                                session_id,
+                                origin_user.sequence,
+                                _HISTORY_MAX_MESSAGES,
+                            )
+                        )
+                        idea = (origin_user.content or idea).strip()
+
+                        if action == "regenerate":
+                            deleted = await message_repo.delete_from_sequence(
+                                session_id, target.sequence
+                            )
+                            assistant_message = await message_repo.create(
+                                message_id=uuid7(),
+                                session_id=session_id,
+                                role=ChatRole.ASSISTANT.value,
+                                sequence=await message_repo.next_sequence(session_id),
+                                kind=StoryMessageKind.SCRIPT.value,
+                                status=ChatMessageStatus.GENERATING.value,
+                            )
+                            await SessionRepository(session).touch(
+                                story_session,
+                                message_delta=-deleted + 1,
+                                message_at=now,
+                            )
+                        else:
+                            deleted = await message_repo.delete_from_sequence(
+                                session_id, target.sequence + 1
+                            )
+                            continuation_prefix = target.content or ""
+                            await message_repo.update_fields(
+                                target,
+                                {
+                                    "status": ChatMessageStatus.GENERATING.value,
+                                    "error": None,
+                                },
+                            )
+                            assistant_message = target
+                            await SessionRepository(session).touch(
+                                story_session,
+                                message_delta=-deleted,
+                                message_at=now,
+                            )
+
                 # 对话模型默认优先采用多模态模型角色
                 model_name = (
                     CFG.visual.model_name
@@ -149,30 +305,13 @@ class StoryGenerationService:
                     task_type=StoryTaskType.SCRIPT.value,
                     session_id=session_id,
                     prompt=idea,
-                    params=params_snapshot,
+                    params={
+                        **params_snapshot,
+                        "action": action,
+                        "target_message_id": target_hex,
+                    },
                     provider="chat",
                     model=model_name,
-                )
-                user_seq = await message_repo.next_sequence(session_id)
-                await message_repo.create(
-                    message_id=uuid7(),
-                    session_id=session_id,
-                    role=ChatRole.USER.value,
-                    sequence=user_seq,
-                    content=idea,
-                    image_file=primary_image,
-                    params=params_snapshot,
-                )
-                assistant_message = await message_repo.create(
-                    message_id=uuid7(),
-                    session_id=session_id,
-                    role=ChatRole.ASSISTANT.value,
-                    sequence=user_seq + 1,
-                    kind=StoryMessageKind.SCRIPT.value,
-                    status=ChatMessageStatus.GENERATING.value,
-                )
-                await SessionRepository(session).touch(
-                    story_session, message_delta=2, message_at=now
                 )
                 await session.commit()
 
@@ -188,7 +327,8 @@ class StoryGenerationService:
                     style_key=style.key,
                     params_snapshot=params_snapshot,
                     history_lines=history_lines,
-                    images=all_images,
+                    images=payload_images,
+                    continuation_prefix=continuation_prefix,
                 )
             )
             register_generation(session_hex, task)
@@ -210,6 +350,128 @@ class StoryGenerationService:
 
         return _frames()
 
+    # ---------- 参数快照与校验 ----------
+
+    @staticmethod
+    def _assert_target_message(target, session_id: uuid.UUID) -> None:
+        """目标消息须存在且属于当前会话（防跨会话操作）。"""
+        if target is None or target.session_id != session_id:
+            bad_except("目标消息不存在")
+
+    @staticmethod
+    def _history_lines(rows) -> list[str]:
+        """业务表消息行 → 系统提示历史行（单条截断）。"""
+        return [
+            f"{row.role}: {(row.content or '')[:_HISTORY_ITEM_MAX_CHARS]}"
+            for row in rows
+            if row.content
+        ]
+
+    @staticmethod
+    def _snapshot_from_payload(
+        style,
+        aspect_ratio: str | None,
+        episodes: int | None,
+        tone: str | None,
+        episode_duration: int | None,
+        mode: str | None,
+        all_images: list[str],
+    ) -> dict:
+        """按本次请求参数构建制作参数快照（new/rewrite 使用）。"""
+        if aspect_ratio and aspect_ratio not in style.aspect_ratios:
+            bad_except(
+                f"画幅 {aspect_ratio} 不属于风格 {style.key}"
+                f"（可选：{'/'.join(style.aspect_ratios)}）"
+            )
+        if episode_duration and episode_duration not in (15, 30):
+            bad_except("视频模型目前仅支持 15s 或 30s 时长（可选：15/30）")
+        return {
+            "style_key": style.key,
+            "style_name": style.name,
+            "aspect_ratio": aspect_ratio or style.aspect_ratios[0],
+            "episodes": episodes,
+            "tone": tone,
+            "episode_duration": episode_duration or 30,
+            "mode": mode or "story",
+            "image_file": all_images[0] if all_images else None,
+            "images": all_images,
+        }
+
+    @staticmethod
+    def _snapshot_from_user(
+        origin_user,
+        fallback_style_key: str,
+        fallback_images: list[str],
+    ) -> tuple:
+        """从原 user 消息的 params 还原制作参数（regenerate/continue 使用）。
+
+        风格失效（技能注册表已移除）时回退本次请求的 style_key；画幅/时长
+        非法时收敛到该风格的合法缺省值。
+        """
+        params = origin_user.params or {}
+        stored_key = params.get("style_key")
+        style_key = (
+            stored_key
+            if isinstance(stored_key, str) and stored_key in STYLE_REGISTRY
+            else fallback_style_key
+        )
+        style = get_style(style_key)
+        aspect_ratio = params.get("aspect_ratio")
+        if aspect_ratio not in style.aspect_ratios:
+            aspect_ratio = style.aspect_ratios[0]
+        episode_duration = params.get("episode_duration")
+        if episode_duration not in (15, 30):
+            episode_duration = 30
+        episodes = params.get("episodes")
+        if not isinstance(episodes, int):
+            episodes = None
+        tone = params.get("tone") if isinstance(params.get("tone"), str) else None
+        mode = params.get("mode") if isinstance(params.get("mode"), str) else "story"
+
+        raw_images = params.get("images")
+        if not isinstance(raw_images, list):
+            stored_image = params.get("image_file")
+            raw_images = (
+                [stored_image]
+                if isinstance(stored_image, str) and stored_image
+                else list(fallback_images or [])
+            )
+        all_images = [img for img in raw_images if isinstance(img, str) and img]
+        # 主图可能单独存于 image_file（旧消息），补回参考图列表避免丢失
+        stored_image = params.get("image_file")
+        if isinstance(stored_image, str) and stored_image and stored_image not in all_images:
+            all_images.insert(0, stored_image)
+
+        snapshot = {
+            "style_key": style.key,
+            "style_name": style.name,
+            "aspect_ratio": aspect_ratio,
+            "episodes": episodes,
+            "tone": tone,
+            "episode_duration": episode_duration,
+            "mode": mode,
+            "image_file": all_images[0] if all_images else None,
+            "images": all_images,
+        }
+        return style, snapshot, all_images
+
+    @staticmethod
+    def _strip_unclosed_cards(text: str) -> str:
+        """剥离尾部未闭合的角色卡块（中断在 JSON 中时不能作为正文/续写上下文）。"""
+        text = text or ""
+        begin = text.rfind(CARDS_BEGIN)
+        if begin >= 0 and text.find(CARDS_END, begin) < 0:
+            return text[:begin].rstrip()
+        return text
+
+    @classmethod
+    def _continuation_context(cls, prefix: str) -> str:
+        """送模型的续写上下文：剥离未闭合卡片块并只保留正文尾部。"""
+        text = cls._strip_unclosed_cards(prefix).strip()
+        if len(text) > _CONTINUATION_CONTEXT_MAX_CHARS:
+            text = text[-_CONTINUATION_CONTEXT_MAX_CHARS:]
+        return text
+
     async def _generate(
         self,
         queue: asyncio.Queue,
@@ -222,6 +484,7 @@ class StoryGenerationService:
         params_snapshot: dict,
         history_lines: list[str],
         images: list[str] | None = None,
+        continuation_prefix: str = "",
     ) -> None:
         """图执行协程：astream 事件映射为 SSE 帧入队，终态落库并发收尾帧。"""
         # 局部导入：避免 service 层与 agent 图在模块加载期耦合（对齐 chat）
@@ -231,6 +494,8 @@ class StoryGenerationService:
         event_id = 0
         answer_parts: list[str] = []
         started_at = time.monotonic()
+        # 续写前缀的落库版本：剥离未闭合卡片块，避免拼接后污染正文
+        continuation_base = self._strip_unclosed_cards(continuation_prefix)
         # 技能调用审计：图经 custom audit 事件增量回传（含失败前已读文件），
         # 随任务终态并入 params（成功/取消/失败均落），日志兜底
         skill_audit = {"tool_rounds": 0, "files_read": [], "skipped_skill_read": False}
@@ -283,6 +548,7 @@ class StoryGenerationService:
                 "params_snapshot": params_snapshot,
                 "history_lines": history_lines,
                 "images": images or [],
+                "continuation_prefix": self._continuation_context(continuation_prefix),
             }
             config = {"configurable": {"session_id": session_hex}}
             async for mode, payload in graph.astream(
@@ -319,7 +585,8 @@ class StoryGenerationService:
                         if isinstance(audit, dict):
                             skill_audit = audit
 
-            full_text = "".join(answer_parts)
+            # 续写场景须把已产出的前缀拼回全文再做双轨剥离
+            full_text = f"{continuation_base}{''.join(answer_parts)}"
             duration_ms = round((time.monotonic() - started_at) * 1000)
             # 双轨剥离：剧本文本 + 角色卡（解析失败降级纯剧本，不阻断）
             track = split_dual_track(full_text)
@@ -360,8 +627,8 @@ class StoryGenerationService:
                 },
             )
         except asyncio.CancelledError:
-            # 用户停止：半截内容落库 stopped（保留可查），收尾帧正常下发
-            partial = "".join(answer_parts)
+            # 用户停止：半截内容落库 stopped（保留可查，续写前缀不丢）
+            partial = f"{continuation_base}{''.join(answer_parts)}"
             duration_ms = round((time.monotonic() - started_at) * 1000)
             spawn_side_task(
                 self._finalize_terminal(
@@ -393,7 +660,7 @@ class StoryGenerationService:
             raise
         except Exception as exc:
             logger.exception(f"[STORY] 剧本生成失败 session={session_hex}: {exc}")
-            partial = "".join(answer_parts)
+            partial = f"{continuation_base}{''.join(answer_parts)}"
             spawn_side_task(
                 self._finalize_terminal(
                     assistant_message_id,

@@ -74,6 +74,19 @@ SCRIPT_SYSTEM_PROMPT = """你是一名专业的 AI 短剧编剧与视觉资产�
 # 无历史（首轮生成）时的历史占位
 HISTORY_EMPTY = "（首轮生成，无历史）"
 
+# 断点续写系统提示块（占位：prefix 已产出正文尾部）
+CONTINUATION_BLOCK = """
+=== 中断续写要求（本轮特殊） ===
+上一次生成被中断，以下是已经产出的正文（可能停在句中），仅用于衔接：
+<已有正文>
+{prefix}
+</已有正文>
+续写规则：
+1. 从上述内容的截断处直接无缝续写，严禁重复已有内容、严禁重新开头、严禁输出「以下是」之类的引导语；
+2. 保持同一风格、人物与情节连续性，完成剩余的全部结构；
+3. 正文写完后照常输出 <<<STORY_CARDS>>> ... <<<END_STORY_CARDS>>> 结构化数据块。
+"""
+
 # 角色卡与关键帧消息落库时 params 内数据的键
 CARD_DATA_KEY = "character_card"
 KEYFRAME_DATA_KEY = "keyframe_data"

@@ -129,6 +129,9 @@ export interface StoryGenerationTaskVO {
   result_text?: string;
 }
 
+/** 生成动作：新增 / 覆盖式重编辑 / 重新生成 / 断点续写 */
+export type StoryGenerateAction = "new" | "rewrite" | "regenerate" | "continue";
+
 /** 剧本生成请求体 */
 export interface StoryGeneratePayload {
   idea: string;
@@ -140,6 +143,8 @@ export interface StoryGeneratePayload {
   mode?: "story" | "scenery" | string | null;
   image_file?: string | null;
   images?: string[];
+  action?: StoryGenerateAction;
+  target_message_id?: string;
 }
 
 /** done 帧数据（含角色卡与降级信息） */

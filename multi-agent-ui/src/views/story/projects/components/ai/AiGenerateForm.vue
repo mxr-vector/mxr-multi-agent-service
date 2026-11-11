@@ -4,7 +4,7 @@
  * 支持「创建图片」单点切换常亮模式，圆角现代化 UI 风格；
  * 支持通用文档解析与拖拽/粘贴。
  */
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
   Close,
@@ -118,6 +118,32 @@ function syncFormImages() {
   form.value.images = attachedImages.value.map((i) => i.image_file);
   form.value.image_file = attachedImages.value[0]?.image_file ?? null;
 }
+
+// 父级发送后清空 form.images 时同步清空本地参考图栏，避免残留误导
+watch(
+  () => form.value.images,
+  (images) => {
+    if (!images || images.length === 0) {
+      attachedImages.value = [];
+    }
+  }
+);
+
+// —— 重新编辑回填：参考图以本地 attachedImages 为展示/提交真实来源 ——
+const ideaInputRef = ref<{ focus?: () => void } | null>(null);
+
+function setAttachedImages(paths: string[]) {
+  attachedImages.value = paths
+    .filter((path) => !!path)
+    .map((path) => ({ image_file: path, url: storyFileUrl(path) }));
+  syncFormImages();
+}
+
+function focusIdea() {
+  ideaInputRef.value?.focus?.();
+}
+
+defineExpose({ setAttachedImages, focusIdea });
 
 async function handleImageUpload(rawFile: File) {
   if (!rawFile.type.startsWith("image/")) {
@@ -505,6 +531,7 @@ function handleSubmit() {
         @dragover.prevent
       >
         <el-input
+          ref="ideaInputRef"
           v-model="form.idea"
           type="textarea"
           :rows="3"

@@ -9,6 +9,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { characterApi, projectApi, storyAiApi, storyFileUrl, type StoryMessageVO } from "@/api/story";
 import { readCard, useStoryAi } from "../../composables/useStoryAi";
+import { copyToClipboard } from "@/utils/clipboard";
 import AiGenerateForm from "./AiGenerateForm.vue";
 import ScriptCard from "./ScriptCard.vue";
 import CharacterCardItem from "./CharacterCardItem.vue";
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 const projectIdRef = computed(() => props.projectId);
 const projectRef = computed(() => props.project);
 const ai = useStoryAi(projectIdRef, projectRef);
+const generateFormRef = ref<InstanceType<typeof AiGenerateForm> | null>(null);
 
 const castingCharacters = ref<Array<{ id: string; name: string }>>([]);
 
@@ -281,6 +283,59 @@ function handleSend() {
   activeTab.value = "script";
   scrollToBottom(true);
   void ai.send(() => emit("changed"));
+}
+
+// ---------- 消息级辅助操作（复制/重新编辑/重新生成/断点续写） ----------
+
+/** 可重新编辑：剧本生成的用户问题（art 等消息没有制作参数快照） */
+function canRewrite(message: StoryMessageVO): boolean {
+  return message.role === "user" && typeof message.params?.style_key === "string";
+}
+
+/** 可断点续写：被停止或失败的助手回答 */
+function canResume(message: StoryMessageVO): boolean {
+  return message.status === "stopped" || message.status === "failed";
+}
+
+/** 可重新生成：非生成中的助手回答 */
+function canRegenerate(message: StoryMessageVO): boolean {
+  return message.status !== "generating";
+}
+
+async function handleCopyMessage(message: StoryMessageVO) {
+  const ok = await copyToClipboard(message.content ?? "");
+  if (ok) {
+    ElMessage.success("已复制");
+  } else {
+    ElMessage.error("复制失败，请手动选择复制");
+  }
+}
+
+function handleBeginRewrite(message: StoryMessageVO) {
+  if (ai.streaming.value || !canRewrite(message)) return;
+  ai.beginRewrite(message);
+  nextTick(() => {
+    generateFormRef.value?.setAttachedImages(ai.form.value.images ?? []);
+    generateFormRef.value?.focusIdea();
+  });
+}
+
+function handleCancelRewrite() {
+  ai.cancelRewrite();
+  nextTick(() => {
+    generateFormRef.value?.setAttachedImages(ai.form.value.images ?? []);
+  });
+}
+
+async function handleRegenerate(message: StoryMessageVO) {
+  scrollToBottom(true);
+  await ai.regenerate(message, () => emit("changed"));
+}
+
+async function handleContinue(message: StoryMessageVO) {
+  activeTab.value = "script";
+  scrollToBottom(true);
+  await ai.continueGeneration(message, () => emit("changed"));
 }
 
 /** 用户消息气泡内嵌制作参数摘要（有则展示） */
@@ -615,13 +670,30 @@ defineExpose({
             <div v-if="userParamsSummary(message)" class="user-params">
               {{ userParamsSummary(message) }}
             </div>
+            <div class="msg-hover-actions msg-hover-actions--user">
+              <button type="button" class="msg-action-btn" @click="handleCopyMessage(message)">
+                复制
+              </button>
+              <button
+                v-if="canRewrite(message)"
+                type="button"
+                class="msg-action-btn"
+                :disabled="ai.streaming.value"
+                @click="handleBeginRewrite(message)"
+              >
+                重新编辑
+              </button>
+            </div>
           </div>
 
           <!-- 剧本卡 -->
           <ScriptCard
             v-else-if="message.kind === 'script'"
             :message="message"
+            :busy="ai.streaming.value"
             @saved="onCardChanged"
+            @resume="handleContinue(message)"
+            @regenerate="handleRegenerate(message)"
           />
 
           <!-- 角色卡 -->
@@ -650,7 +722,32 @@ defineExpose({
           />
 
           <!-- 一般回复 -->
-          <div v-else class="msg-text">{{ message.content }}</div>
+          <div v-else class="msg-assistant">
+            <div class="msg-text">{{ message.content }}</div>
+            <div class="msg-hover-actions">
+              <button type="button" class="msg-action-btn" @click="handleCopyMessage(message)">
+                复制
+              </button>
+              <button
+                v-if="canResume(message)"
+                type="button"
+                class="msg-action-btn"
+                :disabled="ai.streaming.value"
+                @click="handleContinue(message)"
+              >
+                继续生成
+              </button>
+              <button
+                v-if="canRegenerate(message)"
+                type="button"
+                class="msg-action-btn"
+                :disabled="ai.streaming.value"
+                @click="handleRegenerate(message)"
+              >
+                重新生成
+              </button>
+            </div>
+          </div>
         </template>
 
         <!-- 流式中的剧本增量 -->
@@ -680,8 +777,15 @@ defineExpose({
       </el-empty>
     </div>
 
+    <!-- 重新编辑提示条 -->
+    <div v-if="ai.rewriteTarget.value" class="rewrite-banner">
+      <span>正在重新编辑该问题，发送后将覆盖其后的对话</span>
+      <el-button size="small" link type="primary" @click="handleCancelRewrite">取消</el-button>
+    </div>
+
     <!-- 生成表单：支持剧本与立绘双模式 -->
     <AiGenerateForm
+      ref="generateFormRef"
       v-model="ai.form.value"
       :styles="ai.styles.value"
       :generating="ai.streaming.value"
@@ -861,6 +965,52 @@ defineExpose({
   text-align: right;
   font-size: 11px;
   color: #9aa4b2;
+}
+/* 消息级辅助按钮：悬停显示 */
+.msg-assistant {
+  position: relative;
+}
+.msg-hover-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.msg-user:hover .msg-hover-actions,
+.msg-assistant:hover .msg-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.msg-action-btn {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.msg-action-btn:hover {
+  color: #4f46e5;
+}
+.msg-action-btn:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+.rewrite-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #92400e;
+  background: #fffbeb;
+  border-top: 1px solid #fde68a;
 }
 .msg-text {
   font-size: 13px;
