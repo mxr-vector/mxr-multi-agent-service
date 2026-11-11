@@ -75,6 +75,19 @@ class CastAddRequest(BaseModel):
     character_id: uuid.UUID
 
 
+class CastScriptNameEntry(BaseModel):
+    """单个出演角色的项目姓名绑定。"""
+
+    character_id: uuid.UUID
+    script_name: Optional[str] = None
+
+
+class CastScriptNamesRequest(BaseModel):
+    """批量保存出演角色的项目姓名（空值回退按角色库名称匹配）。"""
+
+    entries: list[CastScriptNameEntry]
+
+
 class CastSortRequest(BaseModel):
     """出演排序请求体：按目标顺序给出全部出演角色 id。"""
 
@@ -210,6 +223,17 @@ async def list_casting(
     return R.success(data=await _casting_service.list(ctx, project_id))
 
 
+@router.get("/projects/{project_id}/characters/script-roles")
+async def list_script_roles(
+    project_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """当前剧本解析出的项目角色列表，供项目角色配置绑定角色库角色。"""
+    return R.success(
+        data=await _casting_service.list_script_characters(ctx, project_id)
+    )
+
+
 @router.post("/projects/{project_id}/characters")
 async def add_casting(
     project_id: uuid.UUID = Path(...),
@@ -244,6 +268,18 @@ async def sort_casting(
         bad_except(f"出演角色数量超过上限（{_CAST_SORT_MAX}）")
     await _casting_service.sort(ctx, project_id, payload.character_ids)
     return R.success()
+
+
+@router.put("/projects/{project_id}/characters/script-names")
+async def set_casting_script_names(
+    project_id: uuid.UUID = Path(...),
+    payload: CastScriptNamesRequest = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """批量保存项目角色姓名（用户手动绑定，供批量导入关键帧时自动回填出场角色）。"""
+    return R.success(
+        data=await _casting_service.set_script_names(ctx, project_id, payload.entries)
+    )
 
 
 @router.put("/projects/{project_id}/art-selection")

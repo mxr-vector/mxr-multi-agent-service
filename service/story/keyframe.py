@@ -39,6 +39,11 @@ from database.story.session import GenerationTaskRepository
 from exception.bad_except import bad_except
 from model.image.factory import OUTPUT_FORMAT, generate_image
 from service.story.art import _decode_image_content
+from service.story.cast_match import (
+    auto_bind_keyframe_characters,
+    load_cast_bindings,
+    script_keyframe_lines,
+)
 from service.story.project import ProjectService
 from service.story.storage import (
     IMAGE_EXTENSIONS,
@@ -131,6 +136,25 @@ class KeyframeService:
         characters = {}
         if character_ids:
             characters = await CharacterRepository(session).get_many(character_ids)
+        # 导出选择状态与项目角色姓名（供前端回显/关键帧展示）
+        project_ids = {keyframe.project_id for keyframe in keyframes}
+        project_by_keyframe = {
+            keyframe.id: keyframe.project_id for keyframe in keyframes
+        }
+        asset_repo = ProjectAssetRepository(session)
+        selection: dict[uuid.UUID, tuple[bool, int]] = {}
+        casting_script_names: dict[tuple[uuid.UUID, uuid.UUID], str | None] = {}
+        for project_id in project_ids:
+            for asset_row in await asset_repo.list_by_type(project_id, "keyframe"):
+                selection[asset_row.asset_id] = (
+                    asset_row.is_selected,
+                    asset_row.sort_order,
+                )
+            for asset_row in await asset_repo.list_by_type(project_id, "character"):
+                casting_script_names[(project_id, asset_row.asset_id)] = (
+                    asset_row.script_name
+                )
+
         grouped: dict[uuid.UUID, list[dict]] = {
             keyframe_id: [] for keyframe_id in kf_ids
         }
@@ -139,16 +163,10 @@ class KeyframeService:
             entry = row.to_dict()
             entry["character_name"] = character.name if character else None
             entry["character_avatar"] = character.avatar_file if character else None
+            entry["script_name"] = casting_script_names.get(
+                (project_by_keyframe.get(row.keyframe_id), row.character_id)
+            )
             grouped[row.keyframe_id].append(entry)
-        # 导出选择状态（供前端「导出选择」对话框回显，避免保存即清空）
-        asset_repo = ProjectAssetRepository(session)
-        selection: dict[uuid.UUID, tuple[bool, int]] = {}
-        for project_id in {keyframe.project_id for keyframe in keyframes}:
-            for asset_row in await asset_repo.list_by_type(project_id, "keyframe"):
-                selection[asset_row.asset_id] = (
-                    asset_row.is_selected,
-                    asset_row.sort_order,
-                )
         # 批量获取生成任务的错误信息（针对 failed 状态的关键帧或异常任务）
         gen_task_ids = {
             keyframe.generation_task_id
@@ -188,6 +206,53 @@ class KeyframeService:
                 project_id, page, size
             )
             return await self._with_characters(session, keyframes), total
+
+    async def auto_bind_characters(self, ctx, project_id: uuid.UUID) -> dict:
+        """为项目内尚无出场角色的关键帧自动写入角色（保留手工绑定）。"""
+        if not ctx.user_id:
+            bad_except("关键帧自动写入出场角色仅支持用户通道调用")
+        async with get_session() as session:
+            await self._project_service._assert_owned(session, project_id, ctx)
+            keyframes = await KeyframeRepository(session).list_all_by_project(project_id)
+            result = {
+                "scanned_count": len(keyframes),
+                "unbound_count": 0,
+                "bound_count": 0,
+                "character_count": 0,
+            }
+            if not keyframes:
+                return result
+
+            existing_rows = await KeyframeCharacterRepository(session).list_by_keyframes(
+                [keyframe.id for keyframe in keyframes]
+            )
+            bound_ids = {row.keyframe_id for row in existing_rows}
+            unbound = [keyframe for keyframe in keyframes if keyframe.id not in bound_ids]
+            result["unbound_count"] = len(unbound)
+            if not unbound:
+                return result
+
+            bindings = await load_cast_bindings(session, project_id)
+            if not bindings:
+                return result
+
+            script = await ScriptRepository(session).get_current(project_id)
+            script_lines = script_keyframe_lines(script.content if script else "")
+            for keyframe in unbound:
+                count = await auto_bind_keyframe_characters(
+                    session,
+                    keyframe.id,
+                    [keyframe.name, keyframe.prompt],
+                    keyframe.scene_no,
+                    keyframe.shot_no,
+                    bindings,
+                    script_lines,
+                )
+                if count:
+                    result["bound_count"] += 1
+                    result["character_count"] += count
+            await session.commit()
+            return result
 
     async def create(self, ctx, project_id: uuid.UUID, payload) -> dict:
         """创建关键帧：编号冲突校验 + 出场角色登记。"""
@@ -322,6 +387,12 @@ class KeyframeService:
             char_repo = CharacterRepository(session)
             art_repo = CharacterArtRepository(session)
             kfc_list = await kfc_repo.list_by_keyframe(keyframe.id)
+            cast_names = {
+                row.asset_id: (row.script_name or "").strip()
+                for row in await ProjectAssetRepository(session).list_by_type(
+                    keyframe.project_id, "character"
+                )
+            }
 
             reference_images: list[str] = []
 
@@ -330,7 +401,7 @@ class KeyframeService:
                 character = await char_repo.get(entry.character_id)
                 if not character:
                     continue
-                char_name = character.name
+                char_name = cast_names.get(character.id) or character.name
 
                 art_file: str | None = None
                 if entry.character_art_id:

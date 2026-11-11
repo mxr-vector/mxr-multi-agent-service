@@ -37,6 +37,11 @@ from entity.story.project import StoryKeyframe
 from entity.story.session import StoryMessage
 from exception.bad_except import bad_except
 from model.image.factory import OUTPUT_FORMAT
+from service.story.cast_match import (
+    auto_bind_keyframe_characters,
+    load_cast_bindings,
+    script_keyframe_lines,
+)
 from service.story.storage import (
     character_art_dir,
     keyframe_image_dir,
@@ -559,6 +564,25 @@ class SedimentService:
 
     # ---------- 关键帧沉淀 ----------
 
+    async def _load_script_content(
+        self, db, session_id: uuid.UUID, current_script
+    ) -> str:
+        """取当前剧本正文；无当前版本时回退会话内最新已完成的剧本消息。"""
+        if current_script is not None and (current_script.content or "").strip():
+            return current_script.content
+        stmt = (
+            select(StoryMessage.content)
+            .where(
+                StoryMessage.session_id == session_id,
+                StoryMessage.kind == StoryMessageKind.SCRIPT.value,
+                StoryMessage.status == ChatMessageStatus.DONE.value,
+                StoryMessage.content != "",
+            )
+            .order_by(StoryMessage.sequence.desc())
+            .limit(1)
+        )
+        return (await db.scalar(stmt)) or ""
+
     def _load_keyframe(self, message: StoryMessage) -> dict:
         """取关键帧数据（缺失/非关键帧消息拒绝）。"""
         kf = (message.params or {}).get(KEYFRAME_DATA_KEY)
@@ -958,6 +982,14 @@ class SedimentService:
             script_repo = ScriptRepository(db)
             current_script = await script_repo.get_current(project.id)
             script_id = current_script.id if current_script else None
+            cast_bindings = await load_cast_bindings(db, project.id)
+            script_lines = (
+                script_keyframe_lines(
+                    await self._load_script_content(db, session_id, current_script)
+                )
+                if cast_bindings
+                else {}
+            )
 
             stmt = (
                 select(StoryMessage)
@@ -1058,6 +1090,20 @@ class SedimentService:
 
                 if new_image_file and old_file and old_file != new_image_file:
                     files_to_clean.append(old_file)
+
+                await auto_bind_keyframe_characters(
+                    db,
+                    target_keyframe.id,
+                    [
+                        kf.get("name"),
+                        kf.get("prompt"),
+                        matched_art_msg.prompt if matched_art_msg else None,
+                    ],
+                    scene_no,
+                    shot_no,
+                    cast_bindings,
+                    script_lines,
+                )
 
                 message.params = {
                     **(message.params or {}),

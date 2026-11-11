@@ -292,6 +292,20 @@ class KeyframeRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
+    async def list_all_by_project(self, project_id: uuid.UUID) -> list[StoryKeyframe]:
+        """按项目列出全部关键帧（自动写入出场角色用）。"""
+        stmt = (
+            select(StoryKeyframe)
+            .where(StoryKeyframe.project_id == project_id)
+            .order_by(
+                StoryKeyframe.chapter_no.asc().nulls_last(),
+                StoryKeyframe.scene_no.asc().nulls_last(),
+                StoryKeyframe.shot_no.asc().nulls_last(),
+                StoryKeyframe.created_at.asc(),
+            )
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def exists_numbering(
         self,
         project_id: uuid.UUID,

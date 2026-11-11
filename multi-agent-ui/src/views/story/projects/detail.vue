@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 项目工作区：项目详情 + 子视图 tabs（概览/剧本/关键帧/出演角色/生成视频/视频成品/导出包）
+ * 项目工作区：项目详情 + 子视图 tabs（概览/剧本/出演角色/关键帧/生成视频/视频成品/导出包）
  * + 右栏常驻可收起的 AI 创作抽屉。
  * 子视图标识进 URL query（?tab=keyframe）支持深链接；项目不存在统一失败提示。
  */
@@ -31,8 +31,8 @@ const projectId = computed(() => String(route.params.id ?? ""));
 const TAB_KEYS = [
   "overview",
   "script",
-  "keyframe",
   "casting",
+  "keyframe",
   "video-gen",
   "video",
   "export",
@@ -148,16 +148,16 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
                   @changed="loadProject"
                 />
               </el-tab-pane>
-              <el-tab-pane label="关键帧" name="keyframe">
-                <KeyframePanel
-                  v-if="activeTab === 'keyframe'"
+              <el-tab-pane label="出演角色" name="casting">
+                <CastingPanel
+                  v-if="activeTab === 'casting'"
                   :project-id="projectId"
                   @changed="loadProject"
                 />
               </el-tab-pane>
-              <el-tab-pane label="出演角色" name="casting">
-                <CastingPanel
-                  v-if="activeTab === 'casting'"
+              <el-tab-pane label="关键帧" name="keyframe">
+                <KeyframePanel
+                  v-if="activeTab === 'keyframe'"
                   :project-id="projectId"
                   @changed="loadProject"
                 />

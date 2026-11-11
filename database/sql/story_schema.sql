@@ -380,6 +380,7 @@ CREATE TABLE story.story_project_assets (
     asset_id            UUID NOT NULL,               -- 对应资产表 id
     sort_order          INT NOT NULL DEFAULT 0,      -- 导出/展示顺序
     is_selected         BOOLEAN NOT NULL DEFAULT TRUE, -- 是否参与导出
+    script_name         VARCHAR(100),                -- asset_type='character' 时: 该角色在当前剧本中的称呼(用于关键帧自动绑定), 可空
 
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 

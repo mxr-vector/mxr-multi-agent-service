@@ -134,6 +134,17 @@ async def batch_delete_keyframes(
     )
 
 
+@router.post("/projects/{project_id}/keyframes/auto-bind-characters")
+async def auto_bind_keyframe_characters(
+    project_id: uuid.UUID = Path(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """按当前剧本与项目角色配置，为尚无出场角色的关键帧自动写入角色。"""
+    return R.success(
+        data=await _keyframe_service.auto_bind_characters(ctx, project_id)
+    )
+
+
 @router.get("/keyframes/{keyframe_id}")
 async def keyframe_detail(
     keyframe_id: uuid.UUID = Path(...),

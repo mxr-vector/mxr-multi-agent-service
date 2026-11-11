@@ -290,6 +290,7 @@ class StoryProjectAsset(Base):
     is_selected: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("TRUE")
     )
+    script_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default=func.now()
@@ -304,6 +305,7 @@ class StoryProjectAsset(Base):
             "asset_id": format_id(self.asset_id),
             "sort_order": self.sort_order,
             "is_selected": self.is_selected,
+            "script_name": self.script_name,
             "created_at": format_datetime(self.created_at),
         }
 

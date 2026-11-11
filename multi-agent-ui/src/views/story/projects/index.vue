@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 项目管理：项目卡片列表，点击进入项目工作区（剧本/关键帧/出演角色/视频成品/导出包）。
+ * 项目管理：项目卡片列表，点击进入项目工作区（剧本/出演角色/关键帧/视频成品/导出包）。
  */
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -106,7 +106,7 @@ async function handleDelete(project: StoryProjectVO) {
       <div class="toolbar-left">
         <h2 class="page-title">项目管理</h2>
         <span class="page-desc">
-          一个项目 = 一部作品：剧本、关键帧、出演角色与视频成品都在这里维护。
+          一个项目 = 一部作品：剧本、出演角色、关键帧与视频成品都在这里维护。
         </span>
       </div>
       <div class="toolbar-right">

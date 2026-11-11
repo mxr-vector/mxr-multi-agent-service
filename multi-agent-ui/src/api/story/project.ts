@@ -63,12 +63,20 @@ export interface StoryProjectListParams {
   status?: StoryProjectStatus;
 }
 
-/** 出演角色列表项（角色信息 + 出演顺序 + 选中立绘 + 内嵌全部立绘） */
+/** 出演角色列表项（角色信息 + 出演顺序 + 项目姓名 + 选中立绘 + 内嵌全部立绘） */
 export interface StoryCastingVO extends StoryCharacterVO {
   sort_order: number;
+  /** 当前剧本中的项目姓名（空值表示按角色库名称匹配） */
+  script_name: string | null;
   selected_art_ids: string[];
   /** 该角色全部立绘（后端批量内嵌，免前端逐个 detail 放大 N+1） */
   arts: StoryCharacterArtVO[];
+}
+
+/** 剧本解析出的项目角色（项目角色配置用） */
+export interface StoryScriptRoleVO {
+  name: string;
+  role_type: string | null;
 }
 
 // ============================================================
@@ -113,12 +121,28 @@ export const projectApi = {
       STORY_PROJECT_URL.characters(projectId)
     );
   },
+  /** 当前剧本解析出的项目角色（项目角色配置） */
+  listScriptRoles(projectId: string) {
+    return request.get<StoryScriptRoleVO[], ApiResult<StoryScriptRoleVO[]>>(
+      STORY_PROJECT_URL.scriptRoles(projectId)
+    );
+  },
   /** 出演登记（引用角色库角色） */
   addCasting(projectId: string, characterId: string) {
     return request.post<StoryCharacterVO, ApiResult<StoryCharacterVO>>(
       STORY_PROJECT_URL.characters(projectId),
       { character_id: characterId }
     );
+  },
+  /** 批量保存项目角色姓名（供批量导入关键帧时自动回填出场角色） */
+  setCastingScriptNames(
+    projectId: string,
+    entries: { character_id: string; script_name: string | null }[]
+  ) {
+    return request.put<
+      { updated_count: number },
+      ApiResult<{ updated_count: number }>
+    >(STORY_PROJECT_URL.characterScriptNames(projectId), { entries });
   },
   /** 移除出演 */
   removeCasting(projectId: string, characterId: string) {

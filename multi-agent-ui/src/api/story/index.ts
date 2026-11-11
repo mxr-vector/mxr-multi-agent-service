@@ -32,17 +32,25 @@ export const STORY_PROJECT_URL = {
   byId: (id: string) => `${BASE}/projects/${id}`,
   /** 出演角色列表 / 出演登记 */
   characters: (projectId: string) => `${BASE}/projects/${projectId}/characters`,
+  /** 当前剧本解析出的项目角色 */
+  scriptRoles: (projectId: string) => `${BASE}/projects/${projectId}/characters/script-roles`,
   /** 移除出演 / 出演排序（/characters/sort 为 PUT） */
   characterById: (projectId: string, characterId: string) =>
     `${BASE}/projects/${projectId}/characters/${characterId}`,
   /** 出演排序 */
   characterSort: (projectId: string) => `${BASE}/projects/${projectId}/characters/sort`,
+  /** 批量保存项目角色姓名（角色库角色 ↔ 当前剧本姓名） */
+  characterScriptNames: (projectId: string) =>
+    `${BASE}/projects/${projectId}/characters/script-names`,
   /** 选中立绘（导出使用） */
   artSelection: (projectId: string) => `${BASE}/projects/${projectId}/art-selection`,
   /** 剧本列表 / 保存新版本 */
   scripts: (projectId: string) => `${BASE}/projects/${projectId}/scripts`,
   /** 关键帧列表 / 创建 */
   keyframes: (projectId: string) => `${BASE}/projects/${projectId}/keyframes`,
+  /** 自动写入关键帧出场角色 */
+  keyframesAutoBindCharacters: (projectId: string) =>
+    `${BASE}/projects/${projectId}/keyframes/auto-bind-characters`,
   /** 批量删除关键帧 */
   keyframesBatchDelete: (projectId: string) =>
     `${BASE}/projects/${projectId}/keyframes/batch-delete`,

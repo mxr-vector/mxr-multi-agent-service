@@ -473,6 +473,132 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
     return characters[:_MAX_CARDS]
 
 
+# 项目角色解析：优先显式出场人物/人物小传，避免把集标题、字幕、空镜误识别为角色
+_PROJECT_ROLE_LABEL_RE = re.compile(
+    r"(?:出场人物|主要角色|角色列表|角色设定)\s*[：:]\s*([^\n\r]+)"
+)
+_PROJECT_ROLE_PREFIX_RE = re.compile(r"^(?:角色|人物)\s*\d+\s*[·．.、\-–—_\s]*")
+_PROJECT_ROLE_PAREN_RE = re.compile(r"[（(][^）)]*[）)]")
+_PROJECT_ROLE_MARKER_RE = re.compile(
+    r"【(?:角色|人物)\s*\d+\s*[·．.、\-–—_\s]*([^】\s（(]+)】"
+)
+_PROJECT_ROLE_SPEAKER_RE = re.compile(
+    r"(?:^|\n)\s*([^\s：:（）()【】△#*\-]{2,12})(?:（[^）]*）|\([^)]*\))?\s*[：:]"
+)
+_PROJECT_ROLE_BIO_RE = re.compile(
+    r"(?:^|\n)\s*(?:#{1,6}\s*)?\*{0,2}(?:[一二三四五六七八九十]+[、.\s]*)?"
+    r"(?:人物小传|主要角色|角色设定|角色列表|出演角色)\*{0,2}\s*(?=\n|$)"
+)
+_PROJECT_ROLE_BODY_RE = re.compile(
+    r"(?:^|\n)\s*(?:#{1,6}\s*)?\*{0,2}(?:[六6][、.\s]*)?"
+    r"(?:剧本正文|分镜正文|分镜脚本)\*{0,2}"
+)
+_PROJECT_ROLE_INVALID = (
+    "字幕",
+    "空镜",
+    "画面",
+    "镜头",
+    "关键帧",
+    "场景",
+    "道具",
+    "出场人物",
+    "主要角色",
+    "人物小传",
+    "小传",
+    "角色介绍",
+    "时间",
+    "地点",
+    "预估",
+    "时长",
+    "画外音",
+    "旁白",
+    "视觉",
+    "空间",
+    "设计",
+    "大纲",
+    "梗概",
+    "正文",
+    "卖点",
+    "核心",
+    "剧终",
+    "纯景",
+)
+_PROJECT_ROLE_EMPTY_NAMES = {"无", "暂无", "没有", "空"}
+_PROJECT_ROLE_SCENERY_TYPES = {"scenery", "building", "landscape"}
+
+
+def _clean_project_role_name(raw: str) -> str:
+    text = raw.strip().strip("*# ")
+    text = text.replace("【", "").replace("】", "")
+    text = _PROJECT_ROLE_PREFIX_RE.sub("", text.strip())
+    text = _PROJECT_ROLE_PAREN_RE.sub("", text)
+    return text.strip(" ·:：,，、;；[]【】*")
+
+
+def _is_valid_project_role_name(name: str) -> bool:
+    if not name or len(name) > 12 or name in _PROJECT_ROLE_EMPTY_NAMES:
+        return False
+    if name.startswith(("第", "△", "#")):
+        return False
+    if re.search(r"\d", name):
+        return False
+    return not any(token in name for token in _PROJECT_ROLE_INVALID)
+
+
+def _project_role_payload(
+    names: list[str], role_types: dict[str, str | None]
+) -> list[dict]:
+    return [{"name": name, "role_type": role_types.get(name)} for name in names]
+
+
+def extract_project_roles(script_text: str) -> list[dict]:
+    """解析项目角色名：优先出场人物/人物小传，其次角色标记与对白说话人。"""
+    if not script_text:
+        return []
+
+    cards = extract_characters_from_script(script_text)
+    role_types: dict[str, str | None] = {}
+    for card in cards:
+        name = _clean_project_role_name(str(card.get("name") or ""))
+        if _is_valid_project_role_name(name):
+            role_types[name] = card.get("role_type")
+
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str) -> None:
+        name = _clean_project_role_name(raw)
+        if name and name not in seen and _is_valid_project_role_name(name):
+            seen.add(name)
+            names.append(name)
+
+    # 1) 人物小传/角色设定最可靠，直接取主要角色
+    if _PROJECT_ROLE_BIO_RE.search(script_text):
+        for card in cards:
+            if card.get("role_type") in _PROJECT_ROLE_SCENERY_TYPES:
+                continue
+            add(str(card.get("name") or ""))
+        if names:
+            return _project_role_payload(names, role_types)
+
+    # 2) 无人物小传时，读取显式出场人物/主要角色冒号行
+    for match in _PROJECT_ROLE_LABEL_RE.finditer(script_text):
+        for token in re.split(r"[、,，;；\s]+", match.group(1)):
+            add(token)
+    if names:
+        return _project_role_payload(names, role_types)
+
+    # 3) 结构化角色标记与正文对白说话人兜底
+    for match in _PROJECT_ROLE_MARKER_RE.finditer(script_text):
+        add(match.group(1))
+    if not names:
+        body_match = _PROJECT_ROLE_BODY_RE.search(script_text)
+        body = script_text[body_match.start() :] if body_match else script_text
+        for match in _PROJECT_ROLE_SPEAKER_RE.finditer(body):
+            add(match.group(1))
+    return _project_role_payload(names, role_types)
+
+
 def split_dual_track(full_text: str) -> DualTrack:
     """剥离尾部角色卡与关键帧 JSON 块，返回双轨解析结果（永不抛异常）。"""
     full_text = full_text or ""

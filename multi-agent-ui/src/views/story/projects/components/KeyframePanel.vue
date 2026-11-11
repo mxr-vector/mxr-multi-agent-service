@@ -651,6 +651,7 @@ async function handleBatchDelete() {
 interface CastOption {
   character_id: string;
   name: string;
+  script_name: string;
   checked: boolean;
   role: string;
   character_prompt: string;
@@ -700,6 +701,7 @@ async function loadCastOptions(keyframe: StoryKeyframeVO) {
       return {
         character_id: casting.id,
         name: casting.name,
+        script_name: casting.script_name ?? "",
         checked: hit !== undefined,
         role: hit?.role ?? "main",
         character_prompt: hit?.character_prompt ?? "",
@@ -724,6 +726,53 @@ function buildCastEntries(): StoryKeyframeCharacterEntry[] {
       role: option.role || null,
       character_prompt: option.character_prompt.trim() || null,
     }));
+}
+
+// —— 自动写入出场角色 ——
+const autoBinding = ref(false);
+
+async function handleAutoBindCharacters() {
+  try {
+    await ElMessageBox.confirm(
+      "将扫描本项目全部关键帧，为尚未设置出场角色且能匹配到角色的关键帧自动写入出场角色。已手工绑定的关键帧不会改动，是否继续？",
+      "自动写入出场角色",
+      {
+        confirmButtonText: "开始写入",
+        cancelButtonText: "取消",
+        type: "info",
+      }
+    );
+  } catch {
+    return;
+  }
+
+  autoBinding.value = true;
+  try {
+    const res = await keyframeApi.autoBindCharacters(props.projectId);
+    const scanned = res.data?.scanned_count ?? 0;
+    const unbound = res.data?.unbound_count ?? 0;
+    const bound = res.data?.bound_count ?? 0;
+    const chars = res.data?.character_count ?? 0;
+    if (bound > 0) {
+      ElMessage.success(
+        `已扫描 ${scanned} 个关键帧，为 ${bound} 个关键帧写入 ${chars} 个出场角色`
+      );
+    } else if (scanned === 0) {
+      ElMessage.info("当前项目还没有关键帧");
+    } else if (unbound === 0) {
+      ElMessage.success(`已扫描 ${scanned} 个关键帧，均已设置出场角色，无需写入`);
+    } else {
+      ElMessage.info(
+        `已扫描 ${scanned} 个关键帧：${scanned - unbound} 个已有出场角色，剩余 ${unbound} 个未匹配到角色（可能为空镜或项目角色未配置）`
+      );
+    }
+    await loadKeyframes();
+    emit("changed");
+  } catch {
+    // 错误拦截器统一处理
+  } finally {
+    autoBinding.value = false;
+  }
 }
 
 // —— 导出选择 ——
@@ -810,6 +859,13 @@ function numbering(keyframe: StoryKeyframeVO): string {
           生图中 ({{ batchProgress.finished }}/{{ batchProgress.total }})
         </el-button>
         <el-button
+          :loading="autoBinding"
+          :disabled="!total"
+          @click="handleAutoBindCharacters"
+        >
+          写入出场角色
+        </el-button>
+        <el-button
           v-if="tableSelectedRows.length && !batchRunning"
           type="danger"
           plain
@@ -818,7 +874,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
         >
           批量删除 ({{ tableSelectedRows.length }})
         </el-button>
-        <el-button @click="openSelection">导出选择</el-button>
+        <el-button @click="openSelection">导出</el-button>
         <el-button type="primary" @click="openCreate">新建关键帧</el-button>
       </div>
     </div>
@@ -950,7 +1006,7 @@ function numbering(keyframe: StoryKeyframeVO): string {
           <span v-if="row.characters.length">
             {{
               row.characters
-                .map((c: StoryKeyframeCharacterVO) => c.character_name ?? "?")
+                .map((c: StoryKeyframeCharacterVO) => c.script_name || c.character_name || "?")
                 .join("、")
             }}
           </span>
@@ -1085,7 +1141,15 @@ function numbering(keyframe: StoryKeyframeVO): string {
                 :image-size="60"
               />
               <div v-for="option in castOptions" :key="option.character_id" class="cast-item">
-                <el-checkbox v-model="option.checked">{{ option.name }}</el-checkbox>
+                <el-checkbox v-model="option.checked">
+                  {{ option.script_name || option.name }}
+                  <span
+                    v-if="option.script_name && option.script_name !== option.name"
+                    class="cast-library-name"
+                  >
+                    （角色库：{{ option.name }}）
+                  </span>
+                </el-checkbox>
                 <template v-if="option.checked">
                   <el-select v-model="option.role" size="small" class="cast-role">
                     <el-option label="主要" value="main" />
@@ -1262,6 +1326,10 @@ function numbering(keyframe: StoryKeyframeVO): string {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.cast-library-name {
+  color: #9aa4b2;
+  font-size: 12px;
 }
 .cast-role {
   width: 96px;

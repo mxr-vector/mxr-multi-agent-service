@@ -19,6 +19,8 @@ export interface StoryKeyframeCharacterVO {
   sequence: number;
   character_name: string | null;
   character_avatar: string | null;
+  /** 当前剧本中的项目姓名（空值回退角色库名称） */
+  script_name: string | null;
 }
 
 /** 关键帧 VO */
@@ -68,6 +70,16 @@ export interface StoryKeyframeUpdatePayload extends Partial<StoryKeyframeCreateP
   status?: StoryKeyframeStatus;
 }
 
+/** 关键帧自动写入出场角色结果 */
+export interface StoryKeyframeAutoBindResult {
+  scanned_count: number;
+  /** 扫描时尚未设置出场角色的关键帧数 */
+  unbound_count: number;
+  /** 本次成功写入出场角色的关键帧数 */
+  bound_count: number;
+  character_count: number;
+}
+
 // ============================================================
 // API
 // ============================================================
@@ -86,6 +98,13 @@ export const keyframeApi = {
       STORY_PROJECT_URL.keyframes(projectId),
       payload
     );
+  },
+  /** 按当前剧本与项目角色配置自动写入出场角色（只补空，不覆盖手工绑定） */
+  autoBindCharacters(projectId: string) {
+    return request.post<
+      StoryKeyframeAutoBindResult,
+      ApiResult<StoryKeyframeAutoBindResult>
+    >(STORY_PROJECT_URL.keyframesAutoBindCharacters(projectId));
   },
   /** 关键帧详情 */
   detail(id: string) {

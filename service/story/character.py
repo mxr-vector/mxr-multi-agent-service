@@ -22,6 +22,7 @@ from database.story.project import (
     KeyframeCharacterRepository,
     ProjectAssetRepository,
     ProjectRepository,
+    ScriptRepository,
 )
 from exception.bad_except import bad_except
 from service.story.storage import (
@@ -54,6 +55,7 @@ _CHARACTER_UPDATABLE = {
 # 长度上限（对齐 schema VARCHAR 定义，服务端强校验防溢出 500）
 _CHARACTER_NAME_MAX = 100
 _ART_NAME_MAX = 100
+_CAST_SCRIPT_NAME_MAX = 100
 
 # 立绘类型白名单：默认单图包含半身正面与三视图；亦兼容分立的三视图与正面半身特写
 ART_TYPES = {
@@ -76,6 +78,20 @@ def _assert_user_channel(ctx) -> None:
     """角色库仅支持用户通道调用（机器通道无属主概念）。"""
     if not ctx.user_id:
         bad_except("角色库仅支持用户通道调用")
+
+
+def _normalize_script_name(
+    value: str | None, character_name: str | None = None
+) -> str | None:
+    """规范化出演角色的剧本称呼：空白转 None，与角色库同名时也存 None。"""
+    text = (value or "").strip()
+    if not text:
+        return None
+    if len(text) > _CAST_SCRIPT_NAME_MAX:
+        bad_except(f"剧本称呼不能超过 {_CAST_SCRIPT_NAME_MAX} 字符")
+    if character_name and text == character_name.strip():
+        return None
+    return text
 
 
 class CharacterService:
@@ -468,6 +484,7 @@ class CastingService:
                     continue  # 脏数据容错：角色已不存在则跳过
                 data = character.to_dict()
                 data["sort_order"] = row.sort_order
+                data["script_name"] = row.script_name
                 data["selected_art_ids"] = selected_by_character.get(row.asset_id, [])
                 data["arts"] = [
                     art.to_dict() for art in arts_by_char.get(row.asset_id, [])
@@ -491,6 +508,59 @@ class CastingService:
             await ProjectRepository(session).recount_assets(project)
             await session.commit()
             return character.to_dict()
+
+    async def list_script_characters(
+        self, ctx, project_id: uuid.UUID
+    ) -> "list[dict]":
+        """解析当前剧本中的角色名，供项目角色配置选择与绑定。"""
+        _assert_user_channel(ctx)
+        async with get_session() as session:
+            await self._assert_project(session, project_id, ctx)
+            script = await ScriptRepository(session).get_current(project_id)
+            if script is None or not (script.content or "").strip():
+                return []
+            from service.story.contract import extract_project_roles
+
+            return extract_project_roles(script.content)
+
+    async def set_script_names(self, ctx, project_id: uuid.UUID, entries) -> dict:
+        """批量保存项目角色姓名（用户手动绑定角色库角色 ↔ 当前剧本姓名）。"""
+        _assert_user_channel(ctx)
+        async with get_session() as session:
+            await self._assert_project(session, project_id, ctx)
+            asset_repo = ProjectAssetRepository(session)
+            cast_rows = await asset_repo.list_by_type(project_id, "character")
+            cast_by_id = {row.asset_id: row for row in cast_rows}
+            characters = await CharacterRepository(session).get_many(set(cast_by_id))
+
+            updated = 0
+            seen: set[uuid.UUID] = set()
+            normalized_by_id: dict[uuid.UUID, str | None] = {}
+            for entry in entries:
+                character_id = entry.character_id
+                if character_id in seen:
+                    bad_except("同一角色不能重复提交")
+                seen.add(character_id)
+                if character_id not in cast_by_id:
+                    bad_except("角色未在本项目出演")
+                character = characters.get(character_id)
+                normalized_by_id[character_id] = _normalize_script_name(
+                    entry.script_name, character.name if character else None
+                )
+                updated += 1
+
+            used_names: set[str] = set()
+            for script_name in normalized_by_id.values():
+                if script_name is None:
+                    continue
+                if script_name in used_names:
+                    bad_except("同一剧本角色不能绑定多个角色库角色")
+                used_names.add(script_name)
+
+            for character_id, script_name in normalized_by_id.items():
+                cast_by_id[character_id].script_name = script_name
+            await session.commit()
+            return {"updated_count": updated}
 
     async def remove(self, ctx, project_id: uuid.UUID, character_id: uuid.UUID) -> None:
         """移除出演登记；未出演时业务失败；同步清理该角色的立绘选择行，重算项目计数。"""
