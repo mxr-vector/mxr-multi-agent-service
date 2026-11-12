@@ -100,46 +100,6 @@ def test_merge_coverage_and_dedup():
     assert len(capped) == 2
 
 
-def test_navigation_gating():
-    from agent.tools.multihop import gate_navigation
-
-    q = "Who directed Grown Ups?"
-    generic_page = {
-        "title": "2WikiMultiHopQA Document Cluster",
-        "entities": ["LongBench", "2WikiMultiHopQA", "Wikipedia"],
-        "keywords": ["multi-hop", "question answering"],
-        "documents": ["x1"],
-    }
-    effective_page = {
-        "title": "Grown Ups (film)",
-        "entities": ["Grown Ups", "Dennis Dugan"],
-        "keywords": ["comedy film"],
-        "documents": ["m1"],
-    }
-    effective, generic = gate_navigation(q, [generic_page, effective_page])
-    assert len(effective) == 1 and effective[0]["title"] == "Grown Ups (film)"
-    assert effective[0]["navigation_gate"]["entity_overlap"] is True
-    assert len(generic) == 1
-
-    # 成员文档重合也算有效
-    member_page = {
-        "title": "Cluster p3",
-        "entities": ["LongBench"],
-        "keywords": [],
-        "documents": ["m1"],
-    }
-    effective2, _ = gate_navigation(
-        "unrelated question text", [member_page], retrieved_docs=[{"document_id": "m1"}]
-    )
-    assert (
-        len(effective2) == 1
-        and effective2[0]["navigation_gate"]["member_overlap"] is True
-    )
-
-    # 空导航
-    assert gate_navigation(q, None) == ([], [])
-
-
 def test_passage_title_parser():
     from longbench_eval import parse_passage_titles, split_paragraphs
 
@@ -175,7 +135,6 @@ def main() -> None:
         test_anchor_extraction,
         test_hop_queries,
         test_merge_coverage_and_dedup,
-        test_navigation_gating,
         test_passage_title_parser,
     ]
     failed = 0

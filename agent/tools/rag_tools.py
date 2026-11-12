@@ -23,7 +23,7 @@ tool calling 自主决定何时检索、检索几次（见 agent.graph.chat_grap
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Literal, Optional
 
 from langchain_core.tools import tool
@@ -40,7 +40,6 @@ from utils.logger import logger
 
 # 工具名常量：respond 节点经 TOOL_IMPLS 按此分派，bind_tools 亦按此构造
 TOOL_KNOWLEDGE_BASE_SEARCH = "knowledge_base_search"
-TOOL_WIKI_LOOKUP = "kb_wiki_lookup"
 TOOL_WEB_SEARCH = "web_search"
 TOOL_ENTITY_RELATION_LOOKUP = "entity_relation_lookup"
 TOOL_CHUNK_READ = "chunk_read"
@@ -80,9 +79,6 @@ class ToolOutcome:
     text: str
     docs: List[dict]
     metrics: dict
-    # Navigation pages are visible to the model but never become answer sources.
-    navigation: List[dict] = field(default_factory=list)
-    navigation_only: bool = False
 
 
 # ---------- 候选处理（自 rag_graph 迁移） ----------
@@ -166,82 +162,42 @@ async def _retrieve_hop(
     return pool_ids, reranked
 
 
-# ---------- 实体扩展通道（离线索引 + 在线零 LLM，entity-bridge-index 变更） ----------
-async def _load_entity_bundles(kb_ids: List[uuid.UUID]) -> list:
-    """按库加载实体索引 bundle；表不存在/未构建时返回空列表（静默降级）。"""
-    if not ENV.entity_index_enabled:
-        return []
-    try:
-        from entity_index.store import load_entity_bundle
-
-        # 各库加载相互独立且底层已做 per-KB 锁：并发加载，避免多库扇出时
-        # 2N 条全量查询串行往返（缓存命中时 gather 开销可忽略）
-        bundles = await asyncio.gather(*(load_entity_bundle(kb_id) for kb_id in kb_ids))
-        return [bundle for bundle in bundles if bundle is not None]
-    except Exception as exc:
-        logger.warning(f"[RAG-TOOL] 实体索引加载失败，静默降级: {exc}")
-        return []
-
-
 async def _run_multihop(
     evidence_query: str,
     kb_ids: List[uuid.UUID],
     top_n: int,
-    navigation: List[dict] | None,
 ) -> ToolOutcome:
     """Controlled per-hop evidence retrieval (design D1-D4).
 
     Hop 0 keeps the original question as the safety base; follow-up hops are
-    built from deterministic anchors.  Navigation pages are gated: only pages
-    with question-entity/member overlap can contribute hop hints; generic
-    pages never touch recall/rerank inputs.  Any hop failure degrades instead
-    of blocking, and metrics expose hop_queries/hop_coverage/degraded.
+    built from deterministic anchors.  Any hop failure degrades instead of
+    blocking, and metrics expose hop_queries/hop_coverage/degraded.
     """
     from agent.tools.multihop import (
         HopResult,
         build_hop_queries,
         collect_hop_pool,
-        gate_navigation,
     )
 
     hop_pool_size = CFG.rag_hop_pool_size
     max_hops = max(1, CFG.rag_max_hops)
     merge_pool_size = max(top_n, CFG.rag_multihop_merge_pool)
 
-    # Hop 0：原问题安全底座（失败即整体降级为空，由调用方兼容处理）。
-    # 实体索引加载与其相互独立，并发执行（_load_entity_bundles 内部吞异常，
-    # hop0 失败时的语义不变）
-    hop0_result, entity_bundles = await asyncio.gather(
-        _retrieve_hop(
-            evidence_query, kb_ids, CFG.rag_candidate_pool_size, merge_pool_size
-        ),
-        _load_entity_bundles(kb_ids),
+    # Hop 0：原问题安全底座（失败即整体降级为空，由调用方兼容处理）
+    hop0_pool_ids, hop0_docs = await _retrieve_hop(
+        evidence_query, kb_ids, CFG.rag_candidate_pool_size, merge_pool_size
     )
-    hop0_pool_ids, hop0_docs = hop0_result
     hop_results: List[HopResult] = [
         HopResult(hop=0, query=evidence_query, docs=hop0_docs)
     ]
     hop_pools: dict[int, List[str]] = {0: hop0_pool_ids}
-
-    # 实体索引：为 wiki 门控提供通用实体统计判据（加载失败/未构建时静默降级）
-    entity_bundles = await _load_entity_bundles(kb_ids)
-    generic_terms: set[str] | None = None
-    if entity_bundles:
-        generic_terms = set()
-        for bundle in entity_bundles:
-            generic_terms |= set(bundle.generic)
-
-    # Wiki 门控：通用页不参与检索决策，仅保持模型可见（统计判据来自实体索引）
-    effective_pages, generic_pages = gate_navigation(
-        evidence_query, navigation, hop0_docs, generic_terms
-    )
 
     degraded = False
     hop_queries = [
         {"hop": 0, "query": evidence_query, "anchors": [], "source_documents": []}
     ]
     if max_hops > 1:
-        queries = build_hop_queries(evidence_query, hop0_docs, effective_pages)
+        queries = build_hop_queries(evidence_query, hop0_docs)
         # 各跳查询仅由 hop0 结果确定性构建、彼此独立：并发执行
         # （每跳各自含 embedding + Qdrant + rerank 的网络往返，串行时延迟直接相加）
         hop_tasks: list[tuple[int, object, object]] = []
@@ -268,7 +224,6 @@ async def _run_multihop(
                     "query": hop_query.query,
                     "anchors": list(hop_query.anchors),
                     "source_documents": list(hop_query.source_documents),
-                    "member_hint": hop_query.member_hint,
                 }
             )
             if isinstance(outcome, BaseException):
@@ -305,46 +260,25 @@ async def _run_multihop(
         "retrieved_count": sum(len(r.docs) for r in hop_results),
         "reranked_count": len(merged),
         "merge_pool_count": len(pool),
-        "navigation_guided": True,
         "multihop": True,
         "hops_executed": len(hop_results),
         "hop_queries": hop_queries,
         "hop_coverage": merge_meta["hop_coverage"],
         "hop_pools": hop_pools,
-        "navigation_effective_pages": len(effective_pages),
-        "navigation_generic_pages": len(generic_pages),
         "degraded": degraded,
     }
     logger.info(
         f"[RAG-TOOL] 多跳检索完成：hops={len(hop_results)} → top_k={len(merged)}"
-        f"（nav有效页={len(effective_pages)}/{len(navigation or [])}，degraded={degraded}）"
+        f"（degraded={degraded}）"
     )
     return ToolOutcome(text=_join_context(merged), docs=merged, metrics=metrics)
 
 
 # ---------- 工具实现（返回结构化结果，供父图/评测脚本直接调用） ----------
-_LEGACY_NAVIGATION_MARKER = "\nNavigation constraints:"
-
-
-def _split_legacy_navigation_query(query: str) -> tuple[str, bool]:
-    """Strip query text produced by older callers without losing its mode flag.
-
-    Navigation metadata used to be serialized into the evidence query.  Keep a
-    small compatibility guard for callers that still send that format, but
-    never let the metadata reach embedding, BM25, or rerank inputs.
-    """
-    raw_query = str(query or "").strip()
-    evidence_query, marker, _ = raw_query.partition(_LEGACY_NAVIGATION_MARKER)
-    if marker:
-        return evidence_query.strip(), True
-    return raw_query, False
-
-
 async def knowledge_base_search_impl(
     query: str,
     knowledge_base_ids: List[str],
     top_k: Optional[int] = None,
-    navigation: List[dict] | None = None,
     multihop: bool = False,
 ) -> ToolOutcome:
     """知识库混合检索：混合召回 + 反思自纠错（改写重检）+ 重排序。
@@ -353,8 +287,6 @@ async def knowledge_base_search_impl(
       提示文本与空候选，供模型降级回答）；
     - 反思轮数上限 CFG.rag_reflect_round_cap，重排 top-n 取 CFG.rag_final_top_k
       （top_k 入参可覆盖）；
-    - Wiki 导航上下文通过独立参数传递，不进入 dense/sparse/rerank 文本；
-      导航路径跳过在线反思/改写循环；
     - multihop=True 且 MULTIHOP_ENABLED 时走受控逐跳下钻（确定性锚点，
       无新增 LLM 调用），异常/关闭时回退单轮检索；
     - metrics 与原子图口径一致：{reflect_rounds, retrieved_count, reranked_count}。
@@ -376,12 +308,12 @@ async def knowledge_base_search_impl(
             metrics={"reflect_rounds": 0, "retrieved_count": 0, "reranked_count": 0},
         )
 
-    evidence_query, legacy_navigation = _split_legacy_navigation_query(query)
+    evidence_query = str(query or "").strip()
     top_n = top_k if top_k is not None else CFG.rag_final_top_k
     # 显式多跳请求：受控逐跳下钻（异常/关闭时安全回退单轮）
     if multihop and ENV.multihop_enabled:
         try:
-            return await _run_multihop(evidence_query, kb_ids, top_n, navigation)
+            return await _run_multihop(evidence_query, kb_ids, top_n)
         except Exception as exc:
             degraded_reason = f"{type(exc).__name__}: {exc}"[:200]
             logger.warning(f"[RAG-TOOL] 多跳路径异常，回退单轮检索: {exc}")
@@ -389,7 +321,6 @@ async def knowledge_base_search_impl(
         degraded_reason = None
 
     current_query = evidence_query
-    navigation_guided = bool(navigation) or legacy_navigation
     retrieved: List[dict] = []
     reflect_rounds = 0
     # 同一次工具调用内复用同一 rewrite/compression 模型实例，
@@ -402,7 +333,7 @@ async def knowledge_base_search_impl(
         if not retrieved:
             break
         # 上下文充分或已达到最大检索轮数上限：跳出反思循环进入重排序
-        if navigation_guided or reflect_rounds >= CFG.rag_reflect_round_cap:
+        if reflect_rounds >= CFG.rag_reflect_round_cap:
             break
         if await _context_sufficient(
             evidence_query, _join_context(retrieved), compressor
@@ -417,7 +348,6 @@ async def knowledge_base_search_impl(
         "reflect_rounds": reflect_rounds,
         "retrieved_count": len(retrieved),
         "reranked_count": len(reranked),
-        "navigation_guided": navigation_guided,
         "multihop": False,
     }
     if degraded_reason:
@@ -443,82 +373,6 @@ async def web_search_impl(query: str, top_k: Optional[int] = None) -> ToolOutcom
     )
 
 
-async def kb_wiki_lookup_impl(
-    query: str,
-    knowledge_base_ids: List[str],
-    top_k: Optional[int] = None,
-) -> ToolOutcome:
-    """Search independent topic-page collections for navigation context."""
-    if not ENV.wiki_enabled:
-        return ToolOutcome(
-            text=(
-                "Wiki navigation is disabled. Continue with knowledge_base_search "
-                "using the evidence-only retrieval path."
-            ),
-            docs=[],
-            metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
-            navigation_only=True,
-        )
-    scopes = [
-        str(value).strip() for value in knowledge_base_ids or [] if str(value).strip()
-    ]
-    if not scopes:
-        return ToolOutcome(
-            text=(
-                "No wiki topic index is configured for this request. "
-                "Fall back to knowledge_base_search."
-            ),
-            docs=[],
-            metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
-            navigation_only=True,
-        )
-    limit = max(1, min(int(top_k or 5), TOOL_TOP_K_MAX))
-    try:
-        from wiki.storage import search_topic_pages
-
-        hits = await asyncio.to_thread(search_topic_pages, query, scopes, limit)
-    except Exception as exc:
-        logger.warning(f"[WIKI-TOOL] topic lookup failed, falling back: {exc}")
-        hits = []
-    if not hits:
-        return ToolOutcome(
-            text=(
-                "The wiki topic index is empty or unavailable. "
-                "No navigation result was found; continue with knowledge_base_search."
-            ),
-            docs=[],
-            metrics={"wiki_hits": 0, "retrieved_count": 0, "reflect_rounds": 0},
-            navigation_only=True,
-        )
-    navigation = [hit.to_dict() for hit in hits]
-    lines = [
-        "Topic navigation results (navigation only; verify facts with evidence search):"
-    ]
-    for index, page in enumerate(navigation, start=1):
-        lines.append(
-            f"[{index}] {page.get('title', '')}\n"
-            f"summary: {page.get('summary', '')}\n"
-            f"keywords: {', '.join(page.get('keywords') or [])}\n"
-            f"entities: {', '.join(page.get('entities') or [])}\n"
-            f"representative questions: {' | '.join(page.get('representative_questions') or [])}\n"
-            f"member document ids: {', '.join(page.get('documents') or [])}\n"
-            f"related topics: {', '.join(page.get('related_topics') or [])}"
-        )
-        if page.get("staleness_notice"):
-            lines.append(f"notice: {page['staleness_notice']}")
-    return ToolOutcome(
-        text="\n\n".join(lines),
-        docs=[],
-        metrics={
-            "wiki_hits": len(navigation),
-            "retrieved_count": 0,
-            "reflect_rounds": 0,
-        },
-        navigation=navigation,
-        navigation_only=True,
-    )
-
-
 # ---------- 工具 schema（bind_tools 用；返回文本给模型） ----------
 @tool
 async def knowledge_base_search(
@@ -529,9 +383,7 @@ async def knowledge_base_search(
 ) -> str:
     """在用户可见的知识库中检索与问题相关的文档片段（语义 + 关键词混合检索，含重排序）。
 
-    对多跳、主题模糊或跨文档问题，先调用 kb_wiki_lookup，再基于返回的导航
-    上下文规划证据检索；不要把主题摘要、关键词或代表性问题拼接进 query。
-    本工具结果才是可引用的事实证据。
+    本工具结果就是可引用的事实证据。
 
     Args:
         query: 检索查询，应为与用户问题直接相关的独立问句。
@@ -543,20 +395,6 @@ async def knowledge_base_search(
     outcome = await knowledge_base_search_impl(
         query, knowledge_base_ids, top_k, multihop=multihop
     )
-    return outcome.text
-
-
-@tool
-async def kb_wiki_lookup(
-    query: str, knowledge_base_ids: List[str], top_k: Optional[int] = None
-) -> str:
-    """查询独立的 LLM Wiki 主题地图，用于多跳/主题模糊/跨文档问题导航。
-
-    该工具只返回主题级导航字段（主题概述、关键词、实体、代表性问题、成员文档
-    指针和相关主题），不应直接作为答案证据；随后调用 knowledge_base_search 取证。
-    主题索引为空时会返回明确的降级提示，问答应继续走证据检索。
-    """
-    outcome = await kb_wiki_lookup_impl(query, knowledge_base_ids, top_k)
     return outcome.text
 
 
@@ -834,7 +672,6 @@ async def chunk_read(
 # 工具名 -> 实现函数（返回 ToolOutcome）；respond 节点据此统一分派执行
 TOOL_IMPLS = {
     TOOL_KNOWLEDGE_BASE_SEARCH: knowledge_base_search_impl,
-    TOOL_WIKI_LOOKUP: kb_wiki_lookup_impl,
     TOOL_WEB_SEARCH: web_search_impl,
     TOOL_ENTITY_RELATION_LOOKUP: entity_relation_lookup_impl,
     TOOL_CHUNK_READ: chunk_read_impl,

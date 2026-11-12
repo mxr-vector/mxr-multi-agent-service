@@ -144,18 +144,13 @@ class ENV_CONFIG:
         return self.env == "prod" or self.env == "production"
 
     @property
-    def wiki_enabled(self) -> bool:
-        """Whether the optional topic-navigation tool is exposed to the agent."""
-        return self.get_bool("WIKI_ENABLED", True)
-
-    @property
     def multihop_enabled(self) -> bool:
         """Controlled per-hop evidence drill-down for explicit multihop requests."""
         return self.get_bool("MULTIHOP_ENABLED", True)
 
     @property
     def entity_index_enabled(self) -> bool:
-        """实体索引（离线构建）：为 wiki 导航门控提供通用实体统计判据。"""
+        """实体索引（离线构建）：为实体关系查询工具提供倒排与共现桥数据。"""
         return self.get_bool("ENTITY_INDEX_ENABLED", True)
 
     @property

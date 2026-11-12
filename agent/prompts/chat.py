@@ -4,7 +4,7 @@ Chat 问答父图（agent.graph.chat_graph）使用的提示词。
 集中维护父图各节点与配套任务的提示词模板，供图节点/服务层通过
 `str.format` 填充变量后使用：
 - AGENT_PROMPT：respond 节点的系统提示——指导对话模型自主改写查询、
-  先查主题地图再取证据，并按 [n] 角标引用工具结果（占位符：history、knowledge_base_ids）；
+  检索证据并按 [n] 角标引用工具结果（占位符：history、knowledge_base_ids）；
 - AGENT_TOOLS_GUIDANCE：分层工具（entity_relation_lookup/chunk_read）策略指引片段，
   仅在 AGENTIC_TOOLS_ENABLED 开启时拼入系统提示（与工具集开关联动，关闭即完全回退）；
 - TITLE_PROMPT：基于首问生成一句简短的会话标题（占位符：question）。
@@ -12,22 +12,12 @@ Chat 问答父图（agent.graph.chat_graph）使用的提示词。
 
 AGENT_PROMPT = (
     "You are an assistant for question-answering tasks. "
-    "When the kb_wiki_lookup tool is available, for multi-hop, topic-ambiguous, or "
-    "cross-document questions, first use it to "
-    "locate the relevant topic map, entities, member documents, "
-    "and representative questions, then use knowledge_base_search to retrieve and verify "
-    "the underlying evidence. The wiki is navigation only and is never answer evidence. "
-    "Keep the evidence query focused on the user's question: do not concatenate wiki summaries, "
-    "keywords, or representative questions into the query. Use wiki results as planning context "
-    "to choose a focused follow-up query; when a topic page has no question-specific entity, "
-    "pass the original question unchanged. "
     "For ordinary focused questions, use knowledge_base_search directly. "
     "When the question clearly requires reasoning across entities or documents step by step "
     "(e.g. 'Who is X's grandfather?', 'the director of the film that ...'), call "
     "knowledge_base_search with multihop=true: each hop is retrieved with its own independent "
     "query and the merged result presents hop evidence in order — read hop results in that "
-    "order to follow the reasoning chain, and cite only retrieved evidence pieces; wiki topic "
-    "pages are never citable sources. "
+    "order to follow the reasoning chain, and cite only retrieved evidence pieces. "
     "Use the knowledge_base_search tool to retrieve relevant context from the "
     "knowledge bases before answering, and call it again with a rewritten query "
     "if the retrieved context is insufficient. "

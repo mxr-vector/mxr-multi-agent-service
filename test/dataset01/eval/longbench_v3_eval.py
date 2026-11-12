@@ -1,8 +1,8 @@
-"""Run the current no-wiki LongBench pipeline with v3 evidence accounting.
+"""Run the current LongBench pipeline with v3 evidence accounting.
 
 The runner deliberately reuses the existing LongBench corpus/doc-map and
 retrieval implementation.  It changes only the gold and reporting layer, so
-the output is a clean baseline for a later wiki-enabled comparison.
+the output is a clean baseline for retrieval comparisons.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def _require_doc_map() -> dict:
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="LongBench v3 no-wiki baseline")
+    parser = argparse.ArgumentParser(description="LongBench v3 baseline")
     parser.add_argument("--subsets", default=",".join(SUBSETS))
     parser.add_argument("--max-queries", type=int, default=DEFAULT_MAX_QUERIES)
     parser.add_argument("--pool", type=int, default=50)
@@ -96,7 +96,7 @@ async def main() -> None:
 
     meta = {
         "dataset": "zai-org/LongBench five-subset current pipeline",
-        "pipeline": "no-wiki hybrid retrieval + rerank",
+        "pipeline": "hybrid retrieval + rerank",
         "subsets": subsets,
         "pool_size": args.pool,
         "executed_queries": len(results),
@@ -109,7 +109,7 @@ async def main() -> None:
     summary = {"meta": meta, "disclosure": disclosure, "strict": strict}
     save_json(SUMMARY_PATH, summary)
     REPORT_PATH.write_text(
-        render_v3_report("LongBench v3 no-wiki baseline", meta, disclosure, strict),
+        render_v3_report("LongBench v3 baseline", meta, disclosure, strict),
         encoding="utf-8",
     )
     print(f"[v3] baseline results: {RESULTS_PATH}")

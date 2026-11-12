@@ -49,7 +49,6 @@ from agent.tools.rag_tools import (
     ToolOutcome,
     chunk_read,
     entity_relation_lookup,
-    kb_wiki_lookup,
     knowledge_base_search,
     web_search,
 )
@@ -351,8 +350,6 @@ class ChatGraph:
     def _build_toolset(self, state: ChatState) -> List:
         """装配本轮工具集（开关语义：关闭的工具对模型不可见）。"""
         tools = [knowledge_base_search]
-        if ENV.wiki_enabled:
-            tools.insert(0, kb_wiki_lookup)
         # 分层确定性工具（零在线 LLM）：关系查询 + 块读取，供多跳推理自主调用；
         # 关闭开关即回到原工具集（行为不变）
         if ENV.agent_tools_enabled:
@@ -413,13 +410,11 @@ class ChatGraph:
         self,
         tool_call: dict,
         tool_rounds: int,
-        navigation_context: List[dict],
         writer,
         kb_ids: List[str] | None = None,
     ) -> Tuple[str, ToolOutcome, dict]:
         """分派执行单次工具调用；返回 (tool_call_id, outcome, 指标增量)。
 
-        navigation_context 就地累积（导航上下文供后续检索）。
         分层工具（关系查询/块读取）无条件以本轮请求的 kb_ids 覆盖库范围，
         确保读取作用域不超出当前请求授权的知识库（含空集=无权限）。
         """
@@ -435,10 +430,6 @@ class ChatGraph:
                 ),
                 {},
             )
-        if name == "knowledge_base_search" and navigation_context:
-            # 导航保持结构化上下文：主题摘要/关键词不序列化进证据 query，
-            # 避免置换用户的词汇/语义信号。
-            args["navigation"] = list(navigation_context)
         if name in ("entity_relation_lookup", "chunk_read"):
             # 分层工具同口径强制以请求解析的库范围快照覆盖模型入参（含空集），
             # 防止幻觉/被检索内容注入的 kb id 越权读取；
@@ -454,7 +445,7 @@ class ChatGraph:
                     ),
                     {},
                 )
-        if name in ("knowledge_base_search", "kb_wiki_lookup"):
+        if name == "knowledge_base_search":
             # 检索类工具强制以请求解析出的库范围快照覆盖模型入参（含空集），
             # 防止幻觉/注入的 kb id 越权跨库检索。
             args["knowledge_base_ids"] = list(kb_ids or [])
@@ -488,10 +479,7 @@ class ChatGraph:
             "reflect_rounds": outcome.metrics.get("reflect_rounds", 0),
             "retrieved_count": outcome.metrics.get("retrieved_count", 0),
             "reranked_count": outcome.metrics.get("reranked_count", 0),
-            "wiki_hits": outcome.metrics.get("wiki_hits", 0),
         }
-        if outcome.navigation:
-            navigation_context.extend(outcome.navigation)
         return tool_call["id"], outcome, delta
 
     def _append_tool_result(
@@ -507,12 +495,9 @@ class ChatGraph:
         len(all_docs)+1 起；无新增候选（空检索/降级提示）时回落工具原始
         text，避免空消息。all_docs 就地累积。
         """
-        if outcome.navigation_only:
-            fresh: List[dict] = []
-        else:
-            merged = self._merge_doc_dedup(all_docs, outcome.docs)
-            fresh = merged[len(all_docs) :]
-            all_docs.extend(fresh)
+        merged = self._merge_doc_dedup(all_docs, outcome.docs)
+        fresh = merged[len(all_docs) :]
+        all_docs.extend(fresh)
         if fresh:
             start = len(all_docs) - len(fresh)
             content = "\n\n".join(
@@ -580,10 +565,8 @@ class ChatGraph:
             "reflect_rounds": 0,
             "retrieved_count": 0,
             "reranked_count": 0,
-            "wiki_hits": 0,
         }
         tool_call_names: List[str] = []
-        navigation_context: List[dict] = []
         usage_total: dict = {}
         response: AIMessage | None = None
         while True:
@@ -624,7 +607,6 @@ class ChatGraph:
                 tool_call_id, outcome, delta = await self._execute_tool(
                     tool_call,
                     tool_rounds,
-                    navigation_context,
                     writer,
                     kb_ids=state.get("kb_ids") or [],
                 )

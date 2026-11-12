@@ -88,20 +88,6 @@ RAG 图终态 SHALL 额外输出 `metrics` 字段，包含 `reflect_rounds`
 - **THEN** 终态 `metrics` 含 reflect_rounds/retrieved_count/reranked_count
   且与实际执行轮数、候选数一致
 
-### Requirement: 证据检索支持结构化多跳导航上下文
-
-`knowledge_base_search` SHALL 接受由主题导航或前序证据生成的结构化导航上下文，并可在多跳场景下返回逐跳合并的证据候选。导航上下文 SHALL NOT 被序列化拼接到 dense、sparse 或 rerank 的原始证据 query 中；工具返回的证据候选 SHALL 继续携带原有溯源字段。
-
-#### Scenario: 导航上下文不污染证据 query
-
-- **WHEN** `knowledge_base_search` 收到主题页和前序跳锚点
-- **THEN** dense、sparse 与 rerank 输入仍使用独立的原始/下一跳问句，候选不因通用主题摘要被稀释
-
-#### Scenario: 多跳候选保持可引用
-
-- **WHEN** 多跳检索完成并合并各跳候选
-- **THEN** 每个证据候选仍包含 `document_id`、`chunk_id`、`source`、`score` 等原有溯源字段，主题页本身不进入答案来源
-
 ### Requirement: 多跳路径在线调用预算受控
 
 默认多跳路径 SHALL 使用确定性锚点抽取和已有 embedding/检索/rerank 能力，不增加反思改写 LLM 调用。达到配置的跳数或查询预算后 SHALL 停止下钻；单跳和普通问题 SHALL 不增加检索阶段。
@@ -118,7 +104,7 @@ RAG 图终态 SHALL 额外输出 `metrics` 字段，包含 `reflect_rounds`
 
 ### Requirement: 分层确定性检索工具
 
-系统 SHALL 在 chat 图工具集中注册两个零 LLM 分层检索工具，与既有 `knowledge_base_search` / `kb_wiki_lookup` 并列，由对话模型自主选择调用：
+系统 SHALL 在 chat 图工具集中注册两个零 LLM 分层检索工具，与既有 `knowledge_base_search` 并列，由对话模型自主选择调用：
 
 - `entity_relation_lookup`：按实体查询类型化关系与桥接事实句（来自关系索引），返回含来源块指针的限量记录；
 - `chunk_read`：按块或文档 id 读取原文全文（限量），供模型核验/深读证据。

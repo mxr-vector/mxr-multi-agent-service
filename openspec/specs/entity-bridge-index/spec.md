@@ -7,7 +7,7 @@ TBD - created by archiving change entity-bridge-index. Update Purpose after arch
 
 ### Requirement: 离线实体索引构建
 
-系统 SHALL 在索引期对知识库文档离线抽取实体并构建实体倒排（entity → 文档列表）与一跳共现桥（共享实体的文档关联）。实体抽取 SHALL 优先使用确定性规则（如英语大写短语链），规则未覆盖时 MAY 使用 DB 配置的离线模型兜底；抽取结果 SHALL 不依赖任何硬编码领域词表。索引构建 SHALL 幂等可重建，且 SHALL NOT 修改证据集合与 wiki 主题集合的结构与内容。
+系统 SHALL 在索引期对知识库文档离线抽取实体并构建实体倒排（entity → 文档列表）与一跳共现桥（共享实体的文档关联）。实体抽取 SHALL 优先使用确定性规则（如英语大写短语链），规则未覆盖时 MAY 使用 DB 配置的离线模型兜底；抽取结果 SHALL 不依赖任何硬编码领域词表。索引构建 SHALL 幂等可重建，且 SHALL NOT 修改证据集合的结构与内容。
 
 #### Scenario: 新库构建实体索引
 

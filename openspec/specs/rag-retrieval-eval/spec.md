@@ -72,17 +72,12 @@
 
 ### Requirement: 评测披露逐跳覆盖
 
-v3 评测 SHALL 在现有 Recall@K、Bridge Recall 和 Hop Success Rate 之外，记录每个 query 的执行跳数、每跳查询、每跳候选数、每跳 gold 覆盖和导航是否有效。汇总报告 SHALL 按题型与跳数分层展示这些指标，并保留无 wiki 单轮基线。
+v3 评测 SHALL 在现有 Recall@K、Bridge Recall 和 Hop Success Rate 之外，记录每个 query 的执行跳数、每跳查询、每跳候选数和每跳 gold 覆盖。汇总报告 SHALL 按题型与跳数分层展示这些指标。
 
 #### Scenario: 多跳覆盖可诊断
 
 - **WHEN** 多跳评测运行完成
 - **THEN** 明细能指出失败发生在初始锚点召回、后续跳召回还是最终裁剪，报告同时展示最终 Hop Success Rate
-
-#### Scenario: Wiki 无效样本单独披露
-
-- **WHEN** wiki 命中页面但页面没有问题相关实体或成员指针
-- **THEN** 该 query 标记为导航无效并进入降级分组，不与有效导航样本混合解释
 
 ### Requirement: 多跳目标阈值可复现
 
@@ -98,14 +93,14 @@ v3 评测 SHALL 在现有 Recall@K、Bridge Recall 和 Hop Success Rate 之外�
 - **WHEN** 有 query 超时、工具异常或 gold 缺失
 - **THEN** 这些 query 被单独计数，不从分母中静默删除以制造 0.80 以上结果
 
-### Requirement: LongBench 文档导航字段可复现
+### Requirement: LongBench 文档标题字段可复现
 
-LongBench 评测建库 SHALL 保留原始 passage 标题、来源 query 标识和可用于导航的实体元数据；文档映射指纹 SHALL 包含这些字段的版本，字段规则变化时必须重建或明确拒绝复用旧映射。
+LongBench 评测建库 SHALL 保留原始 passage 标题、来源 query 标识和可用于展示的实体元数据；文档映射指纹 SHALL 包含这些字段的版本，字段规则变化时必须重建或明确拒绝复用旧映射。
 
-#### Scenario: 主题页可区分 passage
+#### Scenario: 标题可区分 passage
 
-- **WHEN** 评测 wiki 从 LongBench 文档生成主题页
-- **THEN** 页面标题、实体或关键词能够引用 passage 的原始标题/实体，而不是只有哈希文档 id 和数据集通用描述
+- **WHEN** 评测从 LongBench 文档构建语料
+- **THEN** 文档标题、实体或关键词能够引用 passage 的原始标题/实体，而不是只有哈希文档 id 和数据集通用描述
 
 #### Scenario: 旧建库自动失效
 

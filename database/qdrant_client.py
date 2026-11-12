@@ -29,9 +29,8 @@ class QdrantManager:
     Qdrant 集合操作封装。
 
     负责集合初始化与向量写入 / 检索，屏蔽 qdrant-client 细节：
-    - 低层接口（upsert_points）直接写入已算好的向量；
-    - 高层接口（upsert_texts / search）自动调用 embedding 工厂生成向量，
-      embedding 依赖延迟导入，避免仅用低层能力时引入 SDK 加载开销。
+    - 混合集合为命名向量（dense + sparse），写入与检索均走混合通道；
+    - embedding / BM25 依赖延迟导入，避免仅做集合管理时引入 SDK 加载开销。
     """
 
     def __init__(self, collection: str) -> None:
@@ -39,65 +38,6 @@ class QdrantManager:
         self.client = get_qdrant_client()
 
     # ---------- 集合管理 ----------
-    def ensure_collection(
-        self,
-        vector_size: int,
-        distance: Distance = Distance.COSINE,
-        recreate: bool = False,
-    ) -> None:
-        """幂等地确保「匿名稠密向量」集合存在（旧名兼容入口）。
-
-        实现已由 ensure_dense_collection 承接，语义完全一致，保留旧名
-        以兼容既有外部调用（评测脚本等）。
-        """
-        self.ensure_dense_collection(vector_size, distance, recreate)
-
-    def ensure_dense_collection(
-        self,
-        vector_size: int,
-        distance: Distance = Distance.COSINE,
-        recreate: bool = False,
-    ) -> None:
-        """
-        幂等地确保「匿名稠密向量」集合存在（upsert_points ensure=True 的语义）。
-
-        - 创建的是普通（非命名向量）集合，仅承载匿名 dense 向量写入与 search()；
-          与 ensure_hybrid_collection（命名向量 dense+sparse）互斥，同一集合
-          不得混用两种 schema；
-        - recreate=True 时先删除同名集合再重建（用于维度变更 / 重置）；
-        - 已存在时校验 schema：若已是命名向量（hybrid）集合则告警——这是
-          历史 footgun 的反向场景（先 ensure 建普通集合、再走 upsert_hybrid
-          会因集合已存在而 schema 不匹配写入失败），提前暴露而非静默失败。
-        """
-        exists = self.client.collection_exists(self.collection)
-        if exists and recreate:
-            self.client.delete_collection(self.collection)
-            logger.info(f"[Qdrant] 已删除旧集合: {self.collection}")
-            exists = False
-
-        if exists:
-            # 命名向量时 params.vectors 是 dict，匿名稠密时是 VectorParams
-            vectors = getattr(
-                self.client.get_collection(self.collection).config.params,
-                "vectors",
-                None,
-            )
-            if isinstance(vectors, dict):
-                logger.warning(
-                    f"[Qdrant] 集合 {self.collection} 已是命名向量（hybrid）schema，"
-                    "与匿名 dense 写入（upsert_points ensure=True）不匹配，"
-                    "后续写入可能失败，请确认集合用途"
-                )
-            return
-
-        self.client.create_collection(
-            collection_name=self.collection,
-            vectors_config=VectorParams(size=vector_size, distance=distance),
-        )
-        logger.info(
-            f"[Qdrant] 已创建集合: {self.collection} (dim={vector_size}, distance={distance})"
-        )
-
     def ensure_hybrid_collection(
         self,
         dense_size: int,
@@ -132,7 +72,7 @@ class QdrantManager:
                 logger.warning(
                     f"[Qdrant] 集合 {self.collection} 已存在但为匿名稠密向量 schema，"
                     "与混合写入（upsert_hybrid 命名向量 dense+sparse）不匹配，"
-                    "后续混合写入可能失败，请重建集合或改用 ensure_dense_collection"
+                    "后续混合写入可能失败，请重建集合"
                 )
             return
         self.client.create_collection(
@@ -172,69 +112,6 @@ class QdrantManager:
         logger.info(f"[Qdrant] 已删除 {len(point_ids)} 个点 (集合: {self.collection})")
 
     # ---------- 写入 ----------
-    def upsert_points(
-        self,
-        vectors: Sequence[Sequence[float]],
-        payloads: Optional[Sequence[dict]] = None,
-        ids: Optional[Sequence[Any]] = None,
-        ensure: bool = True,
-    ) -> List[Any]:
-        """
-        低层写入：直接写入已算好的向量。
-
-        - ids 缺省时自动生成 uuid4；payloads 缺省时为空字典。
-        - ensure=True 时按首个向量维度自动确保「匿名稠密向量」集合存在
-          （见 ensure_dense_collection；当前唯一调用方 wiki 主题页为 dense-only），
-          不做命名向量 schema，避免与 upsert_hybrid 的混合 schema 混用。
-        返回实际写入使用的 id 列表。
-        """
-        if not vectors:
-            return []
-
-        if ensure:
-            self.ensure_dense_collection(len(vectors[0]))
-
-        point_ids = list(ids) if ids is not None else [uuid4().hex for _ in vectors]
-        point_payloads = (
-            list(payloads) if payloads is not None else [{} for _ in vectors]
-        )
-
-        points = [
-            PointStruct(id=pid, vector=list(vec), payload=payload)
-            for pid, vec, payload in zip(
-                point_ids, vectors, point_payloads, strict=True
-            )
-        ]
-        self.client.upsert(collection_name=self.collection, points=points)
-        logger.info(f"[Qdrant] 写入 {len(points)} 条向量到集合: {self.collection}")
-        return point_ids
-
-    def upsert_texts(
-        self,
-        texts: Sequence[str],
-        payloads: Optional[Sequence[dict]] = None,
-        ids: Optional[Sequence[Any]] = None,
-    ) -> List[Any]:
-        """
-        高层写入：对文本自动生成向量并写入。
-
-        原文默认存入 payload 的 "text" 字段，便于检索后回显。
-        """
-        if not texts:
-            return []
-
-        from model.embeddings.factory import get_embedding_client
-
-        vectors = get_embedding_client().embed_documents(list(texts))
-
-        merged_payloads: List[dict] = []
-        for i, text in enumerate(texts):
-            base = dict(payloads[i]) if payloads is not None else {}
-            base.setdefault("text", text)
-            merged_payloads.append(base)
-
-        return self.upsert_points(vectors, payloads=merged_payloads, ids=ids)
-
     def upsert_hybrid(
         self,
         texts: Sequence[str],
@@ -283,30 +160,6 @@ class QdrantManager:
         return point_ids
 
     # ---------- 检索 ----------
-    def search(
-        self,
-        query: str,
-        top_k: int = 5,
-        query_filter: Optional[Any] = None,
-        with_payload: bool = True,
-    ):
-        """
-        高层检索：对查询文本自动生成向量并做相似度检索。
-
-        返回 qdrant-client 的 ScoredPoint 列表（含 id / score / payload）。
-        """
-        from model.embeddings.factory import get_embedding_client
-
-        vector = get_embedding_client().embed_query(query)
-        response = self.client.query_points(
-            collection_name=self.collection,
-            query=vector,
-            limit=top_k,
-            query_filter=query_filter,
-            with_payload=with_payload,
-        )
-        return response.points
-
     def hybrid_search(
         self,
         query: str,

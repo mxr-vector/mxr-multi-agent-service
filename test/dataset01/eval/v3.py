@@ -2,7 +2,7 @@
 
 The existing LongBench adapter has no retrieval qrels.  This module keeps the
 answer paragraphs and the intermediate bridge paragraphs as separate records
-so a navigation layer can be evaluated without pretending that a derived
+so multi-hop retrieval can be evaluated without pretending that a derived
 paragraph is an annotated fact.
 """
 

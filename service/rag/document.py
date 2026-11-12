@@ -197,7 +197,6 @@ class DocumentService:
                     )
 
             await session.commit()
-            self._enqueue_wiki_dirty(doc.id, doc.knowledge_base_id)
             return doc.to_dict()
 
     @staticmethod
@@ -235,18 +234,6 @@ class DocumentService:
             kb, doc_delta=0, chunk_delta=new_leaf_count - old_leaf_count
         )
         return doc
-
-    @staticmethod
-    def _enqueue_wiki_dirty(
-        document_id: uuid.UUID, knowledge_base_id: uuid.UUID
-    ) -> None:
-        """Propagate document changes without coupling ingestion to wiki availability."""
-        try:
-            from wiki.jobs import enqueue_document_change
-
-            enqueue_document_change(str(document_id), str(knowledge_base_id))
-        except Exception as exc:
-            logger.warning(f"[WIKI] failed to enqueue dirty propagation: {exc}")
 
     @staticmethod
     def _apply_upload_meta(
@@ -545,7 +532,6 @@ class DocumentService:
                 kb, doc_delta=-1, chunk_delta=-current_leaf_count
             )
             await session.commit()
-            self._enqueue_wiki_dirty(doc.id, doc.knowledge_base_id)
             logger.info(
                 f"[RAG] 已删除文档 {doc_id}（清理 {len(leaf_ids)} 个向量点，"
                 f"集合: {kb.qdrant_collection}）"
@@ -577,7 +563,6 @@ class DocumentService:
             if updated is None:
                 bad_except(f"文档不存在: {doc_id}")
             await session.commit()
-            self._enqueue_wiki_dirty(updated.id, updated.knowledge_base_id)
             return updated.to_dict()
 
     async def list(

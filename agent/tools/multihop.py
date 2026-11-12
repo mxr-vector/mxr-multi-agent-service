@@ -131,7 +131,7 @@ class Anchor:
 
     text: str
     kind: str  # entity
-    source: str  # question | hop:<n> | wiki
+    source: str  # question | context
     confidence: int = 1
     source_document: str | None = None
 
@@ -144,7 +144,6 @@ class HopQuery:
     source_hop: int
     anchors: tuple[str, ...]
     source_documents: tuple[str, ...] = ()
-    member_hint: str | None = None
     # 保留原问题语义主干（锚点仅作补充），避免截断实体片段弱于原问题
     base_question: str | None = None
 
@@ -218,12 +217,11 @@ def extract_chinese_terms(text: str, limit: int = 8) -> list[str]:
 def extract_anchors(
     question: str,
     context_texts: tuple[str, ...] = (),
-    wiki_entities: tuple[str, ...] = (),
 ) -> list[Anchor]:
-    """Extract auditable entity anchors from the question, hop context and wiki pages.
+    """Extract auditable entity anchors from the question and hop context.
 
-    Question entities are always kept (highest confidence); context/wiki
-    anchors are frequency-ranked and capped.
+    Question entities are always kept (highest confidence); context anchors
+    are frequency-ranked and capped.
     """
     anchors: list[Anchor] = []
     seen: set[str] = set()
@@ -242,8 +240,6 @@ def extract_anchors(
     for run in extract_chinese_terms(question, MAX_QUESTION_ANCHORS):
         if len(run) >= 2:
             add(run, "entity", "question", 3)
-    for entity in wiki_entities[:MAX_QUESTION_ANCHORS]:
-        add(str(entity).strip(), "entity", "wiki", 2)
     for ctx in context_texts[:6]:
         for phrase in extract_english_phrases(ctx, MAX_CONTEXT_ANCHORS):
             add(phrase, "entity", "context", 1)
@@ -256,17 +252,14 @@ def extract_anchors(
 def build_hop_queries(
     question: str,
     first_hop_docs: list[dict],
-    navigation: list[dict] | None = None,
     max_queries: int = MAX_HOP_QUERIES,
 ) -> list[HopQuery]:
     """Compose independent hop-2+ queries from anchors with provenance.
 
     Strategy: entity anchors from first-hop candidates that differ from the
     question entities form focus queries (question text stays the semantic
-    stem).  Effective wiki member pointers may add one member-hint query.
-    Generic wiki pages contribute nothing here.
+    stem).
     """
-    navigation = navigation or []
     question_entities = extract_english_phrases(question, MAX_QUESTION_ANCHORS)
     question_entities += [
         run
@@ -280,7 +273,6 @@ def build_hop_queries(
         focus: str,
         anchors: tuple[str, ...],
         docs: tuple[str, ...],
-        member: str | None = None,
     ) -> None:
         # 原问题作语义主干 + 锚点聚焦补充：截断的实体片段单独成句时
         # 语义信号弱于原问题（评测已验证），拼接后交给独立 rerank 排序
@@ -295,7 +287,6 @@ def build_hop_queries(
                 source_hop=1,
                 anchors=anchors,
                 source_documents=docs,
-                member_hint=member,
                 base_question=question,
             )
         )
@@ -316,20 +307,6 @@ def build_hop_queries(
     for phrase, doc_id in context_entities[:4]:
         push(phrase, (phrase,), (doc_id,) if doc_id else ())
 
-    # 2) 有效 wiki 页成员指针：仅当页面实体与问题实体重合（门控由调用方保证）
-    for page in navigation:
-        page_entities = {str(e).casefold() for e in page.get("entities") or []}
-        overlap = any(e.casefold() in page_entities for e in question_entities)
-        members = page.get("documents") or []
-        if overlap and members and question_entities:
-            entity = question_entities[0]
-            push(
-                entity,
-                (entity,),
-                (),
-                member=str(members[0]),
-            )
-            break
     return queries
 
 
@@ -402,93 +379,3 @@ def collect_hop_pool(
             pool.append(entry)
             seen.add(key)
     return pool, {"hop_coverage": coverage}
-
-
-# ---------- Wiki 有效性门控（D4，通用性由统计判据提供，无硬编码词表） ----------
-def _phrase_tokens(phrase: str) -> tuple[str, ...]:
-    return tuple(token.casefold() for token in re.findall(r"[A-Za-z0-9'’-]+", phrase))
-
-
-def _entity_match(question_phrases: tuple[str, ...], page_entities: list[str]) -> bool:
-    """Overlap test robust to multi-word entities (no word splitting traps).
-
-    A page entity matches when it casefold-contains a question phrase (or vice
-    versa), or when the entity's significant tokens form a contiguous sequence
-    inside a question phrase's tokens (handles 'Grown Ups (film)' vs 'Grown Ups').
-    """
-    for phrase in question_phrases:
-        p_cf = phrase.casefold()
-        p_tokens = _phrase_tokens(phrase)
-        if not p_tokens:
-            continue
-        for entity in page_entities:
-            e_cf = str(entity).casefold()
-            if not e_cf:
-                continue
-            if p_cf in e_cf or e_cf in p_cf:
-                return True
-            e_tokens = tuple(
-                token
-                for token in _phrase_tokens(e_cf)
-                if not re.match(r"^[0-9a-f]{16,}", token)
-            )
-            if len(e_tokens) >= 2:
-                for start in range(0, len(p_tokens) - len(e_tokens) + 1):
-                    if p_tokens[start : start + len(e_tokens)] == e_tokens:
-                        return True
-    return False
-
-
-def gate_navigation(
-    question: str,
-    navigation: list[dict] | None,
-    retrieved_docs: list[dict] | None = None,
-    generic_terms: set[str] | None = None,
-) -> tuple[list[dict], list[dict]]:
-    """Split wiki pages into effective vs generic for retrieval influence.
-
-    A page is effective when its entities overlap the question phrases, or its
-    member documents overlap already-retrieved evidence.  ``generic_terms``
-    (statistical criterion from the entity index: corpus document frequency
-    above threshold, no vocabularies) filters page entities/keywords before
-    matching; without it, overlap-only judgment applies.  Generic pages stay
-    visible to the model but MUST NOT influence dense/sparse/rerank inputs.
-    Returns (effective, generic).
-    """
-    navigation = navigation or []
-    if not navigation:
-        return [], []
-    question_phrases = tuple(
-        extract_english_phrases(question, 8) + extract_chinese_terms(question, 8)
-    )
-    retrieved_ids = {
-        str(doc.get("document_id") or "") for doc in (retrieved_docs or [])
-    }
-
-    def significant(values: list[str]) -> list[str]:
-        if not generic_terms:
-            return values
-        return [value for value in values if str(value).casefold() not in generic_terms]
-
-    effective: list[dict] = []
-    generic: list[dict] = []
-    for page in navigation:
-        members = {str(m) for m in page.get("documents") or []}
-        entity_overlap = _entity_match(
-            question_phrases, significant(list(page.get("entities") or []))
-        )
-        if not entity_overlap:
-            entity_overlap = _entity_match(
-                question_phrases, significant(list(page.get("keywords") or []))
-            )
-        member_overlap = bool(retrieved_ids and retrieved_ids & members)
-        if entity_overlap or member_overlap:
-            page = dict(page)
-            page["navigation_gate"] = {
-                "entity_overlap": entity_overlap,
-                "member_overlap": member_overlap,
-            }
-            effective.append(page)
-        else:
-            generic.append(page)
-    return effective, generic

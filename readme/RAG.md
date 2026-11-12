@@ -68,13 +68,13 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 提问 → LangGraph respond 节点：对话模型多轮工具循环
      → knowledge_base_search 检索工具：
          混合召回（dense 语义 + jieba BM25 词法，服务端 RRF 融合、去重）
-         → 多跳门控（多跳题：实体锚点逐跳检索 + wiki 门控导航 → 合并池）
+         → 多跳门控（多跳题：实体锚点逐跳检索 → 合并池）
          → 反思自纠错（结果不足时改写重检索，轮数上限 RAG_REFLECT_ROUND_CAP）
          → rerank 精排裁剪到 RAG_FINAL_TOP_K
      → 模型不再发起工具调用 → 生成答案 + 结构化 sources（章节/页码/相似度）
 ```
 
-- **检索收敛在工具实现**（`agent/tools/rag_tools.py`）：检索能力统一收敛为对话模型自主调用的工具集合（如 `knowledge_base_search`、`kb_wiki_lookup` 等），混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
+- **检索收敛在工具实现**（`agent/tools/rag_tools.py`）：检索能力统一收敛为对话模型自主调用的工具集合（如 `knowledge_base_search`、`entity_relation_lookup`、`chunk_read` 等），混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
 - **问答父图**（`agent/graph/chat_graph.py`）：LangGraph 编排，checkpointer（Postgres 池）持久化多轮状态，TTL 后台任务定期清理；业务查询一律走 `rag.chat_sessions/chat_messages` 事实表
 - **配置驱动**：候选池 `RAG_CANDIDATE_POOL_SIZE`、最终 top-k `RAG_FINAL_TOP_K`、反思轮数上限 `RAG_REFLECT_ROUND_CAP`、多跳合并池 `RAG_MULTIHOP_MERGE_POOL` 等均为 `sys_config` 白名单参数，前端「参数管理」页热更新
 
@@ -113,11 +113,12 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 > **口径说明（2026-08-29 复测，以下 LongBench 行均为最新代码结果）**
 >
 > - **测试模型**：检索指标不依赖对话模型；embedding / rerank 为 Qwen3-Embedding-4B（双塔），BM25 为主路径 jieba 编码器
-> - **native**：无 wiki 导航，原问题 → 混合召回（dense + BM25 RRF）→ 候选池 50 → 对原问题统一重排 → top-10；**tool**：`kb_wiki_lookup` 门控导航 → 逐跳多跳检索（生产语义 `multihop-only-multihop`，仅多跳题启用多跳）→ 合并池统一重排
+> - **native**：原问题 → 混合召回（dense + BM25 RRF）→ 候选池 50 → 对原问题统一重排 → top-10；**tool**：wiki 门控导航（已移除的方案）→ 逐跳多跳检索 → 合并池统一重排
 > - **gold 口径**：文档级（answer gold docs，contain 判定），与 Agriculture 行的 chunk 级严格口径不同，两者不可直接对比；括号内 ok/200 为 gold 有效的样本数
 > - **Hit@10（新增列）**：top-10 中**至少命中一个 gold 文档**的题占比——与用户体检最对应的检索口径（答对只需一个含答案的文档，不需要 gold 全中）；dureader 达 100%，单文档场景 72-74%
 > - **Recall@10 与 Hit@10 的差距**：多跳题平均 2-4 个 gold 文档，Recall 要求全部命中（分数被分母稀释），Hit 只要求中一个——两者都是真实口径，前者用于工程诊断（哪一层丢了 gold），后者用于体验评估（能否支撑答题）
-> - **运行形态**：多跳检索（hop 查询 + wiki 门控 + 合并池统一重排）为检索层内生能力；分层确定性工具默认保持关闭（`AGENTIC_TOOLS_ENABLED=false`），两轮基准均在此标准形态下测得
+> - **运行形态**：多跳检索（hop 查询 + 合并池统一重排）为检索层内生能力；分层确定性工具默认保持关闭（`AGENTIC_TOOLS_ENABLED=false`），两轮基准均在此标准形态下测得
+> - **wiki 导航层已移除（2026-11-12）**：`kb_wiki_lookup` 与离线主题索引评测无净增益（上表 tool 行与 native 行基本持平），相关代码已删除、历史 Qdrant `wiki_topics_*` 集合可按需清理；tool 行仅作历史对比保留
 > - Agriculture 行为历史数据（旧 chunk 级口径），未随本次复测更新
 > - Agent 级端到端 QA 口径见 4.1 节
 
@@ -176,7 +177,7 @@ psql -U postgres -d multi_agent_db -f database/sql/base_seed.sql       # 种子�
 | Qdrant | `QDRANT_HOST` / `QDRANT_PORT` / `QDRANT_API_KEY` / `QDRANT_HTTPS` | 向量库连接（服务端未启用 TLS 时保持 false） |
 | embedding | `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL_NAME` / `EMBEDDING_API_URL` / `EMBEDDING_API_KEY` | 全局向量模型；provider 可选 `openai` / `dashscope` / `cohere`（本地 vLLM 走 cohere 协议时 URL 不带 `/v1`），模型名须与 vLLM 实际部署一致 |
 | 稀疏/下载 | `HF_ENDPOINT` / `BM25_CACHE_DIR` | legacy fastembed BM25 模型的下载端点（默认 hf-mirror）与缓存目录（jieba 主路径用不到） |
-| 检索/导航开关 | `WIKI_ENABLED` / `AGENTIC_TOOLS_ENABLED` / `ENTITY_INDEX_ENABLED` | Wiki 导航层（默认 true）、Agentic 分层工具（默认 false）、实体索引（默认 true） |
+| 检索工具开关 | `AGENTIC_TOOLS_ENABLED` / `ENTITY_INDEX_ENABLED` | Agentic 分层工具（默认 false）、实体索引（默认 true） |
 
 > **配置双轨机制**：部署级基础设施配置（PostgreSQL/Qdrant 连接、`EMBEDDING_*` 等）在环境配置文件中维护（`EMBEDDING_*` 因更换模型即改变向量空间、损坏向量库，故作为部署级配置严格固定）；
 > 运行时各角色模型（chat/rewrite/rerank 等）与 RAG 检索参数（`RAG_*`、`CHAT_*`）均在数据库（`sys.sys_model_config` / `sys.sys_config`）中维护，通过配置快照 `core.config_snapshot.CFG` 读取并支持前端免重启热更新。
