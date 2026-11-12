@@ -48,6 +48,8 @@ VIDEO_SUBDIR = "story/video"
 COVER_SUBDIR = "story/video-cover"
 # 手动上传封面子目录（抽帧降级路径或自定义封面）
 COVER_UPLOAD_SUBDIR = "story/video-cover-upload"
+# 串行衔接尾帧子目录（上一章成片最后一帧，作为下一章首帧）
+FRAME_SUBDIR = "story/video-frame"
 
 # 视频大小上限（MB）：与图片上传上限分离，经 ENV property require() fail-loudly
 VIDEO_MAX_SIZE_MB = ENV.video_upload_max_size_mb
@@ -138,6 +140,57 @@ def extract_first_frame(video_path: Path, cover_path: Path) -> bool:
     except Exception as exc:  # 抽帧失败降级为无封面
         logger.warning(f"[STORY] 视频首帧抽取失败: {exc}")
         return False
+
+
+def extract_last_frame(video_path: Path, frame_path: Path) -> bool:
+    """抽取视频最后一帧（同步执行，60 秒超时），返回是否成功。
+
+    串行衔接用：先按末尾 0.1s 定位，失败再回退末尾 1s。写入临时文件后
+    原子替换，重复抽取幂等；任何失败只告警返回 False，由调用方降级。
+    """
+    if _FFMPEG is None:
+        return False
+    frame_path.parent.mkdir(parents=True, exist_ok=True)
+    # 唯一临时名：多章并发补抽同一前序尾帧时互不覆盖
+    temp_path = frame_path.with_name(
+        f"{frame_path.stem}.{uuid.uuid4().hex}.tmp.jpg"
+    )
+    for seek in ("-0.1", "-1"):
+        try:
+            result = subprocess.run(
+                [
+                    _FFMPEG,
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-sseof",
+                    seek,
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    "1",
+                    "-update",
+                    "1",
+                    "-q:v",
+                    "2",
+                    str(temp_path),
+                ],
+                capture_output=True,
+                timeout=60,
+            )
+            if (
+                result.returncode == 0
+                and temp_path.is_file()
+                and temp_path.stat().st_size > 0
+            ):
+                temp_path.replace(frame_path)
+                return True
+        except Exception as exc:
+            logger.warning(f"[STORY] 视频尾帧抽取失败(seek={seek}): {exc}")
+        finally:
+            temp_path.unlink(missing_ok=True)
+    logger.warning(f"[STORY] 视频尾帧抽取最终失败: {video_path}")
+    return False
 
 
 class VideoService:
@@ -333,11 +386,21 @@ class VideoService:
             source = video.source
             video_file = video.video_file
             cover_file = video.cover_file
-            if source == "generated" and video.status in ("queued", "generating"):
-                # 在途任务先取消，避免删除后仍继续消耗上游额度
-                from service.story.video_generation import cancel_video_task
+            params = video.generation_params or {}
+            tail_frame_file = (
+                params.get("tail_frame_file") if isinstance(params, dict) else None
+            )
+            chain_id = params.get("chain_id") if isinstance(params, dict) else None
+            if source == "generated":
+                # 在途任务先取消；链内任意章节被删都会破坏后续衔接，整链终止
+                from service.story.video_generation import (
+                    cancel_chain_for_video,
+                    cancel_video_task,
+                )
 
                 cancel_video_task(video.id)
+                if chain_id:
+                    cancel_chain_for_video(video.id)
             await VideoRepository(session).delete(video)
             project_repo = ProjectRepository(session)
             project = await project_repo.get(project_id)
@@ -350,6 +413,8 @@ class VideoService:
                     unlink_quietly(video_file)
                 if cover_file:
                     unlink_quietly(cover_file)
+                if tail_frame_file:
+                    unlink_quietly(tail_frame_file)
 
             await asyncio.to_thread(_cleanup)
 

@@ -60,6 +60,12 @@ export const STORY_PROJECT_URL = {
   videos: (projectId: string) => `${BASE}/projects/${projectId}/videos`,
   /** 一键批量生成视频 */
   generateVideos: (projectId: string) => `${BASE}/projects/${projectId}/videos/generate`,
+  /** 串行生成章节视频（上一章成片尾帧作为下一章首帧） */
+  generateVideoChain: (projectId: string) =>
+    `${BASE}/projects/${projectId}/videos/generate-chain`,
+  /** 串行链实时状态 */
+  videoChainStatus: (projectId: string) =>
+    `${BASE}/projects/${projectId}/videos/chain-status`,
   /** 章节化视频编排（剧本内容 + 关键帧自动对齐） */
   videoPlan: (projectId: string) => `${BASE}/projects/${projectId}/video-plan`,
   /** 中止项目下全部在途视频任务 */

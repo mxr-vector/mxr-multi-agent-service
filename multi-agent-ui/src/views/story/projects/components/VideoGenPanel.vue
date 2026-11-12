@@ -9,6 +9,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { Loading } from "@element-plus/icons-vue";
 import { useDictStore } from "@/stores/dictStore";
 import { getToken } from "@/utils/auth";
 import {
@@ -16,6 +17,7 @@ import {
   collectPages,
   storyFileUrl,
   videoApi,
+  type StoryVideoChainStatus,
   type StoryVideoPlan,
   type StoryVideoPlanChapter,
   type StoryVideoVO,
@@ -70,6 +72,8 @@ const resolution = ref("480P");
 const ratio = ref("adaptive");
 const duration = ref(5);
 const useImages = ref(true);
+// 单章生成时自动衔接上一集已完成片段尾帧
+const chainFromPrev = ref(true);
 const modelName = ref("");
 const maxConcurrent = ref(3);
 
@@ -143,7 +147,20 @@ const activeVideos = computed(() =>
     (video) => video.status === "queued" || video.status === "generating"
   )
 );
-const isBusy = computed(() => activeVideos.value.length > 0);
+const chainState = ref<StoryVideoChainStatus | null>(null);
+const chainRunning = computed(() => chainState.value?.running ?? false);
+const isBusy = computed(
+  () => chainRunning.value || activeVideos.value.length > 0
+);
+const showChainProgress = computed(() => {
+  const state = chainState.value;
+  return !!state && state.running && state.total > 0;
+});
+const chainPercentage = computed(() => {
+  const state = chainState.value;
+  if (!state || !state.total) return 0;
+  return Math.min(100, Math.round(((state.finished ?? 0) / state.total) * 100));
+});
 
 function latestChapterVideo(chapter: StoryVideoPlanChapter): StoryVideoVO | undefined {
   return latestByEpisode.value[chapterKey(chapter)];
@@ -153,6 +170,31 @@ function latestDoneChapterVideo(
   chapter: StoryVideoPlanChapter
 ): StoryVideoVO | undefined {
   return latestDoneByEpisode.value[chapterKey(chapter)];
+}
+
+function previousDoneEpisode(chapter: StoryVideoPlanChapter): number | null {
+  if (chapter.chapter_no == null || chapter.chapter_no <= 1) return null;
+  const candidates = Object.keys(latestDoneByEpisode.value)
+    .map((key) => Number(key))
+    .filter((episode) => episode > 0 && episode < chapter.chapter_no!)
+    .sort((a, b) => b - a);
+  return candidates.length ? candidates[0] : null;
+}
+
+function previousDoneVideo(
+  chapter: StoryVideoPlanChapter
+): StoryVideoVO | undefined {
+  const prev = previousDoneEpisode(chapter);
+  return prev == null ? undefined : latestDoneByEpisode.value[String(prev)];
+}
+
+function willLinkChapter(chapter: StoryVideoPlanChapter): boolean {
+  return (
+    !chainRunning.value &&
+    chainFromPrev.value &&
+    useImages.value &&
+    !!previousDoneVideo(chapter)
+  );
 }
 
 function isActive(video?: StoryVideoVO): boolean {
@@ -181,10 +223,24 @@ async function loadVideos() {
   );
 }
 
+async function loadChainStatus() {
+  try {
+    const res = await videoApi.chainStatus(props.projectId);
+    chainState.value = res.data ?? null;
+  } catch {
+    // 链状态不可用时不影响视频列表轮询
+  }
+}
+
 async function loadAll() {
   loading.value = true;
   try {
-    await Promise.all([loadVideoConfig(), loadPlan(), loadVideos()]);
+    await Promise.all([
+      loadVideoConfig(),
+      loadPlan(),
+      loadVideos(),
+      loadChainStatus(),
+    ]);
     syncPolling();
   } finally {
     loading.value = false;
@@ -206,9 +262,11 @@ onUnmounted(stopPolling);
 
 // —— 轮询：项目级轻量批量刷新视频状态 ——
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+// 已完成提示按 chain_id 去重，避免并发轮询重复弹窗
+let notifiedChainId: string | null = null;
 
 function syncPolling() {
-  if (activeVideos.value.length > 0) {
+  if (activeVideos.value.length > 0 || chainRunning.value) {
     if (!pollTimer) {
       pollTimer = setInterval(refreshVideos, 3000);
     }
@@ -227,8 +285,10 @@ function stopPolling() {
 async function refreshVideos() {
   const previous = new Map(videos.value.map((video) => [video.id, video.status]));
   const hadActive = activeVideos.value.length > 0;
+  const hadChain = chainRunning.value;
   try {
     await loadVideos();
+    await loadChainStatus();
     for (const video of videos.value) {
       const before = previous.get(video.id);
       if (before && before !== "failed" && video.status === "failed") {
@@ -237,7 +297,21 @@ async function refreshVideos() {
         );
       }
     }
-    if (hadActive && activeVideos.value.length === 0) {
+    if (hadChain && !chainRunning.value && chainState.value) {
+      const state = chainState.value;
+      if (state.chain_id && state.chain_id !== notifiedChainId) {
+        notifiedChainId = state.chain_id;
+        const message =
+          `串行生成已结束：成功 ${state.success ?? 0} 个，` +
+          `失败 ${state.failed ?? 0} 个，取消 ${state.cancelled ?? 0} 个`;
+        if ((state.failed ?? 0) > 0 || (state.cancelled ?? 0) > 0) {
+          ElMessage.warning(message);
+        } else {
+          ElMessage.success(message);
+        }
+        emit("changed");
+      }
+    } else if (!hadChain && hadActive && activeVideos.value.length === 0) {
       ElMessage.success("视频生成任务已全部结束");
       emit("changed");
     }
@@ -281,12 +355,18 @@ async function generateChapter(chapter: StoryVideoPlanChapter) {
     ElMessage.warning("整章视频提示词为空，请补充后再生成");
     return;
   }
+  const linkEpisode = previousDoneEpisode(chapter);
+  const linkHint =
+    willLinkChapter(chapter) && linkEpisode != null
+      ? `\n\n将自动取第${linkEpisode}集成片尾帧作为首帧，保证与第${linkEpisode}集画面衔接。`
+      : "";
   try {
     await ElMessageBox.confirm(
-      useImages.value
+      (useImages.value
         ? `将把本章 ${ids.length} 张关键帧作为参考图，一次性生成 1 个章节片段。\n` +
-            "生成完成后可下载片段，自行在外部剪辑组装。"
-        : "将以整章提示词进行文生视频，一次性生成 1 个章节片段。\n生成完成后可下载片段，自行在外部剪辑组装。",
+          "生成完成后可下载片段，自行在外部剪辑组装。"
+        : "将以整章提示词进行文生视频，一次性生成 1 个章节片段。\n生成完成后可下载片段，自行在外部剪辑组装。") +
+        linkHint,
       "生成本章片段",
       { confirmButtonText: "开始生成", cancelButtonText: "取消", type: "info" }
     );
@@ -301,6 +381,7 @@ async function generateChapter(chapter: StoryVideoPlanChapter) {
       prompt,
       keyframe_ids: ids,
       chapter_content: chapter.content || null,
+      link_previous: chainFromPrev.value && useImages.value,
       ...specPayload(),
     });
     ElMessage.success(`已提交章节「${chapterTitle(chapter)}」片段生成`);
@@ -314,11 +395,85 @@ async function generateChapter(chapter: StoryVideoPlanChapter) {
   }
 }
 
+// —— 串行链：按集顺序逐章生成，上一章成片尾帧作为下一章首帧 ——
+const chainDialogVisible = ref(false);
+const chainSubmitting = ref(false);
+const chainSelectedKeys = ref<string[]>([]);
+
+const chainCandidates = computed(() =>
+  chapters.value.filter((chapter) => chapter.keyframe_ids.length > 0)
+);
+
+function openChainDialog() {
+  if (!useImages.value) {
+    ElMessage.warning("串行衔接需要关键帧图片，请先开启「关键帧作参考图」");
+    return;
+  }
+  if (!chainCandidates.value.length) {
+    ElMessage.warning("当前没有已出图的关键帧章节，无法串行生成");
+    return;
+  }
+  chainSelectedKeys.value = chainCandidates.value.map((chapter) =>
+    chapterKey(chapter)
+  );
+  chainDialogVisible.value = true;
+}
+
+function toggleChainAll(checked: boolean) {
+  chainSelectedKeys.value = checked
+    ? chainCandidates.value.map((chapter) => chapterKey(chapter))
+    : [];
+}
+
+async function submitChain() {
+  const selected = chainCandidates.value.filter((chapter) =>
+    chainSelectedKeys.value.includes(chapterKey(chapter))
+  );
+  if (!selected.length) {
+    ElMessage.warning("请至少勾选一个章节");
+    return;
+  }
+  const empty = selected.find(
+    (chapter) => !(promptDrafts[chapterKey(chapter)] ?? chapter.prompt ?? "").trim()
+  );
+  if (empty) {
+    ElMessage.warning(`「${chapterTitle(empty)}」的整章提示词为空，请先补充`);
+    return;
+  }
+  chainSubmitting.value = true;
+  notifiedChainId = null;
+  try {
+    await videoApi.generateChain(props.projectId, {
+      chapters: selected.map((chapter) => ({
+        chapter_no: chapter.chapter_no,
+        title: (titleDrafts[chapterKey(chapter)] || chapterTitle(chapter)).trim(),
+        prompt: (promptDrafts[chapterKey(chapter)] ?? chapter.prompt).trim(),
+        keyframe_ids: chapter.keyframe_ids,
+        chapter_content: chapter.content || null,
+      })),
+      use_images: true,
+      resolution: resolution.value || undefined,
+      ratio: ratio.value || undefined,
+      duration: duration.value || undefined,
+    });
+    ElMessage.success(`已提交 ${selected.length} 个章节的串行生成`);
+    chainDialogVisible.value = false;
+    await loadVideos();
+    await loadChainStatus();
+    syncPolling();
+    emit("changed");
+  } catch {
+    // 错误拦截器统一提示
+  } finally {
+    chainSubmitting.value = false;
+  }
+}
+
 async function handleStop(video?: StoryVideoVO) {
   if (!video) return;
   try {
     await ElMessageBox.confirm(
-      `确定中止片段「${video.title || "未命名"}」的生成吗？`,
+      `确定中止片段「${video.title || "未命名"}」的生成吗？\n若该片段属于串行链，将同时终止整条链及其后续章节。`,
       "中止生成",
       { confirmButtonText: "确定中止", cancelButtonText: "继续生成", type: "warning" }
     );
@@ -341,7 +496,7 @@ async function handleStop(video?: StoryVideoVO) {
 async function handleStopAll() {
   try {
     await ElMessageBox.confirm(
-      "确定中止本项目所有在途视频生成任务吗？排队中的任务也会被取消。",
+      "确定中止本项目所有在途视频生成任务吗？排队中的任务、串行链及其后续章节也会被取消。",
       "中止全部视频任务",
       { confirmButtonText: "确定中止", cancelButtonText: "继续生成", type: "warning" }
     );
@@ -398,7 +553,11 @@ function openPlay(video?: StoryVideoVO) {
 
 async function handleDelete(video?: StoryVideoVO) {
   if (!video) return;
-  const confirmed = await confirmDanger(`确定删除片段「${video.title || "未命名"}」吗？`);
+  const confirmed = await confirmDanger(
+    chainRunning.value
+      ? `确定删除片段「${video.title || "未命名"}」吗？当前存在串行链任务，删除链内片段会终止整条链及其后续章节。`
+      : `确定删除片段「${video.title || "未命名"}」吗？`
+  );
   if (!confirmed) return;
   try {
     await videoApi.remove(video.id);
@@ -433,7 +592,16 @@ function goExport() {
         </div>
         <div class="gen-actions">
           <el-tag v-if="modelName" size="small" type="info">{{ modelName }}</el-tag>
-          <el-button text type="primary" :loading="loading" @click="refreshPlan">刷新编排</el-button>
+          <el-button
+            type="primary"
+            plain
+            size="small"
+            :disabled="!useImages || isBusy"
+            @click="openChainDialog"
+          >
+            串行生成章节
+          </el-button>
+          <el-button text type="primary" :loading="loading" :disabled="chainRunning" @click="refreshPlan">刷新编排</el-button>
           <el-button text type="primary" @click="goExport">导出素材（外部生成）</el-button>
           <el-button v-if="isBusy" type="danger" plain size="small" @click="handleStopAll">
             中止全部任务
@@ -467,8 +635,36 @@ function goExport() {
           class="setting-duration"
         />
         <el-switch v-model="useImages" active-text="关键帧作参考图" />
-        <span class="gen-hint">同时最多 {{ maxConcurrent }} 个章节任务并行</span>
+        <el-switch
+          v-model="chainFromPrev"
+          :disabled="!useImages || chainRunning"
+          active-text="单章衔接上一集尾帧"
+        />
+        <span class="gen-hint">单章任务最多 {{ maxConcurrent }} 个并行；串行链逐章执行</span>
       </div>
+    </div>
+
+    <!-- 串行链进度 -->
+    <div v-if="showChainProgress" class="chain-progress-bar">
+      <div class="chain-progress-info">
+        <div class="chain-progress-title">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>
+            串行生成中：已完成 {{ chainState?.finished ?? 0 }} / {{ chainState?.total ?? 0 }}
+            <template v-if="chainState?.current_chapter_no != null">
+              · 当前第 {{ chainState.current_chapter_no }} 集
+            </template>
+          </span>
+          <span class="chain-sub-text">
+            (成功 {{ chainState?.success ?? 0 }} | 失败 {{ chainState?.failed ?? 0 }} | 取消
+            {{ chainState?.cancelled ?? 0 }})
+          </span>
+        </div>
+        <el-button size="small" type="danger" plain @click="handleStopAll">
+          中止整链
+        </el-button>
+      </div>
+      <el-progress :percentage="chainPercentage" :stroke-width="6" class="chain-progress-slider" />
     </div>
 
     <!-- 章节生成单元 -->
@@ -494,6 +690,15 @@ function goExport() {
               >
                 {{ STATUS_LABEL[latestChapterVideo(chapter)?.status || ''] || latestChapterVideo(chapter)?.status }}
               </el-tag>
+              <el-tag
+                v-if="willLinkChapter(chapter)"
+                size="small"
+                type="success"
+                effect="plain"
+                class="chapter-status"
+              >
+                衔接第{{ previousDoneEpisode(chapter) }}集尾帧
+              </el-tag>
               <span v-if="latestChapterVideo(chapter)?.duration_ms" class="chapter-meta">
                 {{ formatDuration(latestChapterVideo(chapter)?.duration_ms ?? null) }}
               </span>
@@ -507,6 +712,7 @@ function goExport() {
                 size="small"
                 :loading="generatingChapter[chapterKey(chapter)]"
                 :disabled="
+                  chainRunning ||
                   isActive(latestChapterVideo(chapter)) ||
                   (!useImages && !chapter.shots.length) ||
                   (useImages && !chapter.keyframe_ids.length)
@@ -614,6 +820,53 @@ function goExport() {
       />
     </div>
 
+    <!-- 串行生成确认 -->
+    <el-dialog
+      v-model="chainDialogVisible"
+      title="串行生成章节视频"
+      width="640px"
+      append-to-body
+      destroy-on-close
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="按集顺序逐章串行生成：下一章首帧取上一章成片尾帧，保证集间画面连续；任一章失败或中止将终止整链，后续章节标记为已取消。"
+        style="margin-bottom: 12px"
+      />
+      <div class="chain-dialog-toolbar">
+        <span class="muted">
+          已选 {{ chainSelectedKeys.length }} / {{ chainCandidates.length }} 集
+        </span>
+        <div>
+          <el-button size="small" link type="primary" @click="toggleChainAll(true)">全选</el-button>
+          <el-button size="small" link @click="toggleChainAll(false)">清空</el-button>
+        </div>
+      </div>
+      <el-checkbox-group v-model="chainSelectedKeys" class="chain-chapter-list">
+        <el-checkbox
+          v-for="chapter in chainCandidates"
+          :key="chapterKey(chapter)"
+          :value="chapterKey(chapter)"
+        >
+          <span class="chain-chapter-title">{{ chapterTitle(chapter) }}</span>
+          <span class="muted">
+            {{ chapter.shots.length }} 个镜头 · {{ chapterImageCount(chapter) }} 张图
+          </span>
+        </el-checkbox>
+      </el-checkbox-group>
+      <div class="chain-dialog-hint muted">
+        规格沿用面板顶部：{{ resolution }} · {{ ratio }} · {{ duration }}s，可先调整再提交。
+      </div>
+      <template #footer>
+        <el-button @click="chainDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="chainSubmitting" @click="submitChain">
+          开始串行生成
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 播放 -->
     <el-dialog
       v-model="playVisible"
@@ -680,6 +933,59 @@ function goExport() {
 .gen-hint {
   font-size: 12px;
   color: #9aa4b2;
+}
+.muted {
+  color: #9aa4b2;
+}
+.chain-progress-bar {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+}
+.chain-progress-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chain-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #1e40af;
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+.chain-sub-text {
+  font-size: 12px;
+  color: #2563eb;
+  font-weight: normal;
+}
+.chain-progress-slider {
+  margin-top: 8px;
+}
+.chain-dialog-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.chain-chapter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.chain-chapter-title {
+  margin-right: 8px;
+}
+.chain-dialog-hint {
+  margin-top: 10px;
+  font-size: 12px;
 }
 .plan-wrap {
   min-height: 120px;

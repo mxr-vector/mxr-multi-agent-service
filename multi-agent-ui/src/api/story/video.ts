@@ -134,6 +134,48 @@ export interface StoryChapterVideoGeneratePayload {
   resolution?: string;
   ratio?: string;
   duration?: number;
+  /** 是否自动取上一集已完成片段的尾帧作首帧 */
+  link_previous?: boolean;
+}
+
+/** 串行链中的单个章节提交项 */
+export interface StoryVideoChainChapterPayload {
+  chapter_no?: number | null;
+  title?: string;
+  prompt: string;
+  keyframe_ids: string[];
+  chapter_content?: string | null;
+}
+
+/** 串行链生成请求体：按集顺序逐章生成，下一章首帧取上一章成片尾帧 */
+export interface StoryChapterVideoChainPayload {
+  chapters: StoryVideoChainChapterPayload[];
+  use_images?: boolean;
+  resolution?: string;
+  ratio?: string;
+  duration?: number;
+}
+
+/** 串行链中单章实时状态 */
+export interface StoryVideoChainChapterState {
+  video_id: string;
+  chapter_no: number | null;
+  title: string;
+  status: StoryVideoStatus | "unknown";
+}
+
+/** 串行链实时状态（章节状态以数据库为准） */
+export interface StoryVideoChainStatus {
+  running: boolean;
+  chain_id?: string;
+  total: number;
+  finished?: number;
+  success?: number;
+  failed?: number;
+  cancelled?: number;
+  cursor?: number;
+  current_chapter_no?: number | null;
+  chapters: StoryVideoChainChapterState[];
 }
 
 /** 生成面板公共配置（后端 CFG.video.extra 兜底值，不含敏感凭证） */
@@ -203,6 +245,35 @@ export const videoApi = {
     return request.post<StoryVideoVO, ApiResult<StoryVideoVO>>(
       STORY_PROJECT_URL.generateVideos(projectId),
       payload
+    );
+  },
+  /** 串行生成章节视频：逐章执行，上一章成片尾帧作为下一章首帧 */
+  generateChain(projectId: string, payload: StoryChapterVideoChainPayload) {
+    return request.post<
+      {
+        chain_id: string;
+        total: number;
+        chapters: Array<{
+          video_id: string;
+          chapter_no: number | null;
+          title: string;
+        }>;
+      },
+      ApiResult<{
+        chain_id: string;
+        total: number;
+        chapters: Array<{
+          video_id: string;
+          chapter_no: number | null;
+          title: string;
+        }>;
+      }>
+    >(STORY_PROJECT_URL.generateVideoChain(projectId), payload);
+  },
+  /** 串行链实时状态 */
+  chainStatus(projectId: string) {
+    return request.get<StoryVideoChainStatus, ApiResult<StoryVideoChainStatus>>(
+      STORY_PROJECT_URL.videoChainStatus(projectId)
     );
   },
   /** 中止在途视频生成 */

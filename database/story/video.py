@@ -135,6 +135,62 @@ class VideoRepository:
         )
         return await self.session.scalar(stmt) is not None
 
+    async def has_active_for_project(self, project_id: uuid.UUID) -> bool:
+        """项目内是否已有在途的生成片段（串行链启动前互斥校验）。"""
+        stmt = (
+            select(StoryVideo.id)
+            .where(
+                StoryVideo.project_id == project_id,
+                StoryVideo.source == "generated",
+                StoryVideo.status.in_(RUNNING_STATUSES),
+            )
+            .limit(1)
+        )
+        return await self.session.scalar(stmt) is not None
+
+    async def get_latest_done_before(
+        self, project_id: uuid.UUID, episode_no: int
+    ) -> StoryVideo | None:
+        """取上一集最近一条已完成片段（单章生成自动衔接尾帧用）。"""
+        if episode_no <= 1:
+            return None
+        stmt = (
+            select(StoryVideo)
+            .where(
+                StoryVideo.project_id == project_id,
+                StoryVideo.source == "generated",
+                StoryVideo.status == "done",
+                StoryVideo.video_file.is_not(None),
+                StoryVideo.episode_no > 0,
+                StoryVideo.episode_no < episode_no,
+            )
+            .order_by(
+                StoryVideo.episode_no.desc(),
+                StoryVideo.created_at.desc(),
+            )
+            .limit(1)
+        )
+        return await self.session.scalar(stmt)
+
+    async def cancel_running(self, ids: list[uuid.UUID], message: str) -> int:
+        """把指定视频中仍在途的批量置为 cancelled（串行链终止/失败收尾）。"""
+        if not ids:
+            return 0
+        stmt = (
+            update(StoryVideo)
+            .where(
+                StoryVideo.id.in_(ids),
+                StoryVideo.status.in_(RUNNING_STATUSES),
+            )
+            .values(
+                status="cancelled",
+                error_message=message,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.rowcount or 0
+
     async def update_fields(self, video: StoryVideo, fields: dict) -> StoryVideo:
         """按传入字段局部更新并刷新 updated_at。"""
         for key, value in fields.items():

@@ -13,6 +13,7 @@ extra.video_protocol 显式覆盖（"dashscope" | "openai" | "auto"）：
   `POST {base}/videos/generations`、`GET {base}/videos/{task_id}`，请求体为
   `content` 数组（text / image_url + first_frame|reference_image 角色），
   创建返回 202 + 任务 id，轮询成功后从 video_url / result.url 取成片。
+  首帧与参考图可同时携带（章节串行衔接），上游拒绝时由业务层降级。
 
 判定规则：接口地址主机属于阿里云 DashScope / MaaS 时走 dashscope，其余
 （第三方聚合网关、自建兼容端点）走 openai；无法从域名判断时在 extra 配
@@ -243,18 +244,13 @@ def _submit_openai(
     seed: int | None,
     extra: dict,
 ) -> str:
-    """按聚合网关协议提交任务（POST {base}/videos/generations）。"""
+    """按聚合网关协议提交任务（POST {base}/videos/generations）。
+
+    首帧与参考图可同时下发：上一章成片尾帧作 first_frame，本章关键帧作
+    reference_image（串行衔接）；上游不支持混合入参时由业务层降级重试。
+    """
     content: list[dict] = [{"type": "text", "text": prompt}]
-    if images:
-        content.extend(
-            {
-                "type": "image_url",
-                "image_url": {"url": url},
-                "role": "reference_image",
-            }
-            for url in images
-        )
-    elif frame_url:
+    if frame_url:
         content.append(
             {
                 "type": "image_url",
@@ -262,6 +258,14 @@ def _submit_openai(
                 "role": "first_frame",
             }
         )
+    content.extend(
+        {
+            "type": "image_url",
+            "image_url": {"url": url},
+            "role": "reference_image",
+        }
+        for url in images
+    )
 
     payload: dict = {
         "model": CFG.video.model_name,
@@ -315,18 +319,20 @@ def _submit_dashscope(
     if supports_negative:
         optional["negative_prompt"] = (negative_prompt or "").strip() or None
 
-    if images:
+    if images or frame_url:
         if _first_frame_mode(extra, first_frame_mode) == "media":
-            optional["media"] = [
+            media: list[dict] = []
+            if frame_url:
+                media.append({"type": "first_frame", "url": frame_url})
+            media.extend(
                 {"type": "reference_image", "url": url} for url in images
-            ]
+            )
+            optional["media"] = media
         else:
-            optional["reference_urls"] = images
-    elif frame_url:
-        if _first_frame_mode(extra, first_frame_mode) == "media":
-            optional["media"] = [{"type": "first_frame", "url": frame_url}]
-        else:
-            optional["img_url"] = frame_url
+            if frame_url:
+                optional["img_url"] = frame_url
+            if images:
+                optional["reference_urls"] = images
     payload = {
         "resolution": resolution,
         "ratio": ratio,
@@ -367,8 +373,9 @@ def submit_video(
     """提交视频合成任务，返回上游 task id（不等待完成）。
 
     参考图：单图可作首帧；多图（章节级一次生成）作为 reference_image 序列
-    传入，由提示词按【图1】【图2】顺序引用。协议按 CFG.video.api_url 自动判定，
-    见模块 docstring。
+    传入，由提示词按【图1】【图2】顺序引用。first_frame_url 与
+    reference_image_urls 可同时传入（上一章尾帧 + 本章关键帧的串行衔接），
+    协议按 CFG.video.api_url 自动判定，见模块 docstring。
     """
     if not prompt or not prompt.strip():
         raise ValueError("视频生成提示词不能为空")
