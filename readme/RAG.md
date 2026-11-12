@@ -74,7 +74,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
      → 模型不再发起工具调用 → 生成答案 + 结构化 sources（章节/页码/相似度）
 ```
 
-- **检索收敛在工具实现**（`agent/tools/rag_tools.py`）：检索能力统一收敛为对话模型自主调用的工具集合（如 `knowledge_base_search`、`entity_relation_lookup`、`chunk_read` 等），混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
+- **检索收敛在工具实现**（`agent/tools/rag_tools.py`）：检索能力统一收敛为对话模型自主调用的工具集合（如 `knowledge_base_search`、`chunk_read` 等），混合检索经 `agent/tools/document.py::hybrid_retrieve_multi` 跨库扇出（未选库时自动解析为当前用户可见范围：本人 ∪ 部门 ∪ public）；多跳编排与合并池见 `agent/tools/multihop.py`
 - **问答父图**（`agent/graph/chat_graph.py`）：LangGraph 编排，checkpointer（Postgres 池）持久化多轮状态，TTL 后台任务定期清理；业务查询一律走 `rag.chat_sessions/chat_messages` 事实表
 - **配置驱动**：候选池 `RAG_CANDIDATE_POOL_SIZE`、最终 top-k `RAG_FINAL_TOP_K`、反思轮数上限 `RAG_REFLECT_ROUND_CAP`、多跳合并池 `RAG_MULTIHOP_MERGE_POOL` 等均为 `sys_config` 白名单参数，前端「参数管理」页热更新
 
@@ -139,8 +139,8 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 
 **注意事项**
 
-1. **模型能力主导**：34.5% → 68.3% 的提升全部来自对话模型能力升级；同模型（glm）下启用分层确定性工具（`entity_relation_lookup` / `chunk_read`）净贡献 ≈ 0（Δ = −2.6pt，两比例 z 检验 z = −0.97，不显著）
-2. **分层工具默认保持关闭**（`AGENTIC_TOOLS_ENABLED=false`）：强模型下净贡献 ≈ 0 且额外工具轮次导致延迟 +18~60%；关系索引资产（32,953 条实体关系）与构建 CLI（`python -m entity_index.build_cli --kb-id <id>`）全部保留，弱模型 / 小上下文场景可按需开启，无需重建索引
+1. **模型能力主导**：34.5% → 68.3% 的提升全部来自对话模型能力升级；同模型（glm）下启用分层确定性工具（`entity_relation_lookup`（已移除） / `chunk_read`）净贡献 ≈ 0（Δ = −2.6pt，两比例 z 检验 z = −0.97，不显著）
+2. **分层工具默认保持关闭**（`AGENTIC_TOOLS_ENABLED=false`）：强模型下净贡献 ≈ 0 且额外工具轮次导致延迟 +18~60%；`chunk_read` 保留为按需开启的证据核验工具。**实体索引（倒排 + 关系表）与 `entity_relation_lookup` 已于 2026-11-12 移除**（评测无净增益），历史评测数据仅作对比保留
 3. **口径区别**：本表是 QA 端到端口径（含对话模型最终生成），与上表检索指标（Recall / NDCG，不含生成）口径不同，不可直接混比
 
 **复现**：`test/dataset01/eval/longbench_agent_eval.py`（工具臂）/ `--no-agent-tools`（对照臂）；完整归因分析见 [test/dataset01/results/four_arm_attribution_report.md](../test/dataset01/results/four_arm_attribution_report.md)
@@ -177,7 +177,7 @@ psql -U postgres -d multi_agent_db -f database/sql/base_seed.sql       # 种子�
 | Qdrant | `QDRANT_HOST` / `QDRANT_PORT` / `QDRANT_API_KEY` / `QDRANT_HTTPS` | 向量库连接（服务端未启用 TLS 时保持 false） |
 | embedding | `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL_NAME` / `EMBEDDING_API_URL` / `EMBEDDING_API_KEY` | 全局向量模型；provider 可选 `openai` / `dashscope` / `cohere`（本地 vLLM 走 cohere 协议时 URL 不带 `/v1`），模型名须与 vLLM 实际部署一致 |
 | 稀疏/下载 | `HF_ENDPOINT` / `BM25_CACHE_DIR` | legacy fastembed BM25 模型的下载端点（默认 hf-mirror）与缓存目录（jieba 主路径用不到） |
-| 检索工具开关 | `AGENTIC_TOOLS_ENABLED` / `ENTITY_INDEX_ENABLED` | Agentic 分层工具（默认 false）、实体索引（默认 true） |
+| 检索工具开关 | `AGENTIC_TOOLS_ENABLED` | 分层证据核验工具 `chunk_read`（默认 false） |
 
 > **配置双轨机制**：部署级基础设施配置（PostgreSQL/Qdrant 连接、`EMBEDDING_*` 等）在环境配置文件中维护（`EMBEDDING_*` 因更换模型即改变向量空间、损坏向量库，故作为部署级配置严格固定）；
 > 运行时各角色模型（chat/rewrite/rerank 等）与 RAG 检索参数（`RAG_*`、`CHAT_*`）均在数据库（`sys.sys_model_config` / `sys.sys_config`）中维护，通过配置快照 `core.config_snapshot.CFG` 读取并支持前端免重启热更新。

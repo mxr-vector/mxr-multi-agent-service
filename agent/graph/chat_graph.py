@@ -48,7 +48,6 @@ from agent.tools.rag_tools import (
     TOOL_IMPLS,
     ToolOutcome,
     chunk_read,
-    entity_relation_lookup,
     knowledge_base_search,
     web_search,
 )
@@ -350,10 +349,10 @@ class ChatGraph:
     def _build_toolset(self, state: ChatState) -> List:
         """装配本轮工具集（开关语义：关闭的工具对模型不可见）。"""
         tools = [knowledge_base_search]
-        # 分层确定性工具（零在线 LLM）：关系查询 + 块读取，供多跳推理自主调用；
+        # 分层确定性工具（零在线 LLM）：按 id 读取原文，供证据核验；
         # 关闭开关即回到原工具集（行为不变）
         if ENV.agent_tools_enabled:
-            tools.extend([entity_relation_lookup, chunk_read])
+            tools.append(chunk_read)
         if state.get("use_web_search"):
             tools.append(web_search)
         return tools
@@ -430,12 +429,12 @@ class ChatGraph:
                 ),
                 {},
             )
-        if name in ("entity_relation_lookup", "chunk_read"):
+        if name == "chunk_read":
             # 分层工具同口径强制以请求解析的库范围快照覆盖模型入参（含空集），
             # 防止幻觉/被检索内容注入的 kb id 越权读取；
             # chunk_read 对空作用域显式拒绝（impl 层空列表=无权限，非全库）。
             args["knowledge_base_ids"] = list(kb_ids or [])
-            if name == "chunk_read" and not kb_ids:
+            if not kb_ids:
                 return (
                     tool_call["id"],
                     ToolOutcome(

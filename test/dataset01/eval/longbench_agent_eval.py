@@ -45,7 +45,7 @@ from v3 import attach_v3_gold
 TIMEOUT = 240
 CONCURRENCY = 4
 SUBSETS = ["2wikimqa", "hotpotqa", "musique"]
-AGENT_TOOLS = {"entity_relation_lookup", "chunk_read"}
+AGENT_TOOLS = {"chunk_read"}
 
 
 def contain_match(prediction: str, answers: list[str]) -> bool:

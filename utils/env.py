@@ -149,13 +149,8 @@ class ENV_CONFIG:
         return self.get_bool("MULTIHOP_ENABLED", True)
 
     @property
-    def entity_index_enabled(self) -> bool:
-        """实体索引（离线构建）：为实体关系查询工具提供倒排与共现桥数据。"""
-        return self.get_bool("ENTITY_INDEX_ENABLED", True)
-
-    @property
     def agent_tools_enabled(self) -> bool:
-        """分层确定性工具（entity_relation_lookup / chunk_read）。
+        """分层确定性工具（chunk_read）。
 
         默认 False：四臂归因（four_arm_attribution_report.md）显示强模型下
         净贡献 ≈ 0 且延迟 +18~60%；弱模型/小上下文场景可显式开启。

@@ -41,17 +41,9 @@ from utils.logger import logger
 # 工具名常量：respond 节点经 TOOL_IMPLS 按此分派，bind_tools 亦按此构造
 TOOL_KNOWLEDGE_BASE_SEARCH = "knowledge_base_search"
 TOOL_WEB_SEARCH = "web_search"
-TOOL_ENTITY_RELATION_LOOKUP = "entity_relation_lookup"
 TOOL_CHUNK_READ = "chunk_read"
 
 # ---------- 工具侧限额常量 ----------
-# 检索/导航类工具允许模型传入的 top_k 上限；chat_graph._execute_tool 在分派前
-# 做同值收敛（max(1, min(top_k, 20))），两处对应，调整需同步
-TOOL_TOP_K_MAX = 20
-# 实体关系查询返回条数的缺省值（top_k 未传时生效）
-ENTITY_RELATION_DEFAULT_TOP_K = 8
-# 实体关系 SQL 单次扫描的行数上限（防御大库把无关行整表拉进内存）
-ENTITY_RELATION_SQL_ROW_LIMIT = 2000
 # chunk_read 单次调用最多读取的 id 数（防单次读取把上下文窗口撑爆）
 CHUNK_READ_MAX_IDS = 5
 # chunk_read 单块返回字符的缺省上限 / 硬上限
@@ -410,99 +402,7 @@ async def web_search(query: str, top_k: Optional[int] = None) -> str:
     return outcome.text
 
 
-# ---------- 分层确定性工具（agentic-relation-retrieval：零在线 LLM） ----------
-async def entity_relation_lookup_impl(
-    entity: str,
-    knowledge_base_ids: List[str],
-    top_k: Optional[int] = None,
-) -> ToolOutcome:
-    """按实体查询类型化关系与桥接事实句（关系索引，零 LLM）。
-
-    关系表缺失/实体无记录时返回空结果提示，不报错不阻断。
-    """
-    from sqlalchemy import text as sql
-    from database.postgre_client import get_async_engine
-
-    top_n = max(1, min(top_k or ENTITY_RELATION_DEFAULT_TOP_K, TOOL_TOP_K_MAX))
-    entity_norm = (entity or "").strip().casefold()
-    if not entity_norm:
-        return ToolOutcome(
-            text="实体关系查询：实体为空。", docs=[], metrics={"relations": 0}
-        )
-    kb_uuids = []
-    for kb in knowledge_base_ids or []:
-        try:
-            kb_uuids.append(uuid.UUID(str(kb)))
-        except ValueError:
-            continue
-    rows: list = []
-    if kb_uuids:
-        # 复用进程级共享引擎（连接池），避免每次工具调用重建引擎/dispose 的开销
-        engine = get_async_engine()
-        try:
-            async with engine.connect() as conn:
-                rows = (
-                    await conn.execute(
-                        sql(
-                            "SELECT head_entity, tail_entity, relation, fact_text, "
-                            "chunk_id, document_id FROM rag.entity_index_relations "
-                            "WHERE kb_id = ANY(:kbs) AND (head_entity=:e OR tail_entity=:e) "
-                            f"LIMIT {ENTITY_RELATION_SQL_ROW_LIMIT}"
-                        ),
-                        {"kbs": kb_uuids, "e": entity_norm},
-                    )
-                ).all()
-        except Exception as exc:  # 表缺失/连接异常：静默降级为空结果（调用方继续对话）
-            logger.warning(f"[RAG-TOOL] 关系索引查询降级: {exc}")
-            rows = []
-    # 按（对端实体, 关系）聚合：频次 + 首条事实句 + 来源指针（id 统一无连字符 hex，
-    # 与 chunk_read 入参约定一致）
-    agg: dict[tuple, dict] = {}
-    for row in rows:
-        other = row.tail_entity if row.head_entity == entity_norm else row.head_entity
-        key = (other, row.relation)
-        item = agg.get(key)
-        if item is None:
-            agg[key] = {
-                "other": other,
-                "relation": row.relation,
-                "fact": row.fact_text,
-                "chunk_id": row.chunk_id.hex,
-                "document_id": row.document_id.hex,
-                "count": 1,
-            }
-        else:
-            item["count"] += 1
-    ranked = sorted(agg.values(), key=lambda item: -item["count"])[:top_n]
-    if not ranked:
-        return ToolOutcome(
-            text=f"实体关系查询：实体「{entity}」没有关系记录。",
-            docs=[],
-            metrics={"relations": 0, "entity": entity_norm},
-        )
-    lines = []
-    for item in ranked:
-        fact = (item["fact"] or "").strip()
-        lines.append(
-            f"- {item['other']} | {item['relation']}（出现 {item['count']} 次）"
-            + (f" | 事实: {fact[:200]}" if fact else "")
-            + f" | chunk_id={item['chunk_id']}"
-        )
-    text_out = (
-        f"实体「{entity}」的关系（可用 chunk_read 读取来源块全文）：\n"
-        + "\n".join(lines)
-    )
-    return ToolOutcome(
-        text=text_out,
-        docs=[],
-        metrics={
-            "relations": len(ranked),
-            "entity": entity_norm,
-            "raw_rows": len(rows),
-        },
-    )
-
-
+# ---------- 分层确定性工具（零在线 LLM） ----------
 async def chunk_read_impl(
     ids: List[str],
     max_chars: Optional[int] = None,
@@ -630,25 +530,6 @@ async def chunk_read_impl(
 
 
 @tool
-async def entity_relation_lookup(
-    entity: str, knowledge_base_ids: List[str], top_k: Optional[int] = None
-) -> str:
-    """按实体查询其类型化关系与桥接事实句（离线构建的关系索引，确定性结果）。
-
-    多跳推理中发现桥接实体时使用：返回该实体参与的关系、对端实体、承载事实的
-    原句与来源块指针；可再用 chunk_read 读取来源块全文，或用对端实体继续检索。
-    关系索引未构建或实体无记录时会返回明确提示，应改走 knowledge_base_search。
-
-    Args:
-        entity: 要查询的实体名称（与文本中出现的写法一致）。
-        knowledge_base_ids: 目标知识库 id 列表（hex 无连字符），取自请求的 kb_ids。
-        top_k: 返回关系条数上限（缺省 8）。
-    """
-    outcome = await entity_relation_lookup_impl(entity, knowledge_base_ids, top_k)
-    return outcome.text
-
-
-@tool
 async def chunk_read(
     ids: List[str],
     max_chars: Optional[int] = None,
@@ -673,7 +554,6 @@ async def chunk_read(
 TOOL_IMPLS = {
     TOOL_KNOWLEDGE_BASE_SEARCH: knowledge_base_search_impl,
     TOOL_WEB_SEARCH: web_search_impl,
-    TOOL_ENTITY_RELATION_LOOKUP: entity_relation_lookup_impl,
     TOOL_CHUNK_READ: chunk_read_impl,
 }
 

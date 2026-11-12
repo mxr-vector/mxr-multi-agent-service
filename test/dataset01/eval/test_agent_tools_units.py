@@ -15,13 +15,12 @@ import common  # noqa: F401  # 注入项目根到 sys.path
 async def _run() -> int:
     from agent.tools.rag_tools import (
         TOOL_CHUNK_READ,
-        TOOL_ENTITY_RELATION_LOOKUP,
         TOOL_IMPLS,
         chunk_read_impl,
-        entity_relation_lookup_impl,
     )
 
     failed = 0
+    total = 4
 
     def check(name: str, cond: bool, detail: str = "") -> None:
         nonlocal failed
@@ -30,18 +29,6 @@ async def _run() -> int:
         else:
             failed += 1
             print(f"FAIL {name}: {detail}")
-
-    # 空实体：短路返回空结果（不触库）
-    out = await entity_relation_lookup_impl("", ["kb"], None)
-    check(
-        "relation_empty_entity",
-        out.metrics.get("relations") == 0 and "为空" in out.text,
-        out.text,
-    )
-
-    # 无效库 id：解析后为空 → 无记录路径（不报错）
-    out = await entity_relation_lookup_impl("some entity", ["not-a-uuid"], None)
-    check("relation_bad_kb", out.metrics.get("relations") == 0, str(out.metrics))
 
     # chunk_read：空 ids 与无效 id 均短路为空
     out = await chunk_read_impl([], None)
@@ -52,16 +39,16 @@ async def _run() -> int:
     # TOOL_IMPLS 注册完整
     check(
         "tool_impls_registered",
-        TOOL_ENTITY_RELATION_LOOKUP in TOOL_IMPLS and TOOL_CHUNK_READ in TOOL_IMPLS,
+        TOOL_CHUNK_READ in TOOL_IMPLS,
         str(list(TOOL_IMPLS)),
     )
 
     # chat 图可导入新工具（绑定链路不抛错）
-    from agent.graph.chat_graph import chunk_read, entity_relation_lookup  # noqa: F401
+    from agent.graph.chat_graph import chunk_read  # noqa: F401
 
     check("chat_graph_import", True)
 
-    print(f"{5 - failed}/5 passed" if failed < 5 else "0/5 passed")
+    print(f"{total - failed}/{total} passed")
     return 1 if failed else 0
 
 

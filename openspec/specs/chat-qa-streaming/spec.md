@@ -57,7 +57,7 @@ status='active'，与 `KnowledgeBaseService.list_visible_ids` 同口径）取交
 过滤后为空 SHALL 拒绝请求；未传 `kb_ids` 时服务端 SHALL 按当前用户的缺省
 可见范围（`KnowledgeBaseService.list_visible_ids`）解析。实际生效的 kb 范围
 SHALL 以快照形式存储在该轮 user 消息的 `kb_ids` 字段，仅作溯源，不约束后续
-轮次。图运行期（含分层工具 chunk_read / entity_relation_lookup）SHALL 以该
+轮次。图运行期（含分层工具 chunk_read）SHALL 以该
 快照覆盖全部检索/读取工具的 `knowledge_base_ids` 入参，杜绝注入的 kb id
 越权读取。
 

@@ -118,5 +118,5 @@ LongBench 评测建库 SHALL 保留原始 passage 标题、来源 query 标识�
 
 #### Scenario: 工具使用归因
 
-- **WHEN** 某样本答案正确且调用过 `entity_relation_lookup` 或 `chunk_read`
+- **WHEN** 某样本答案正确且调用过 `chunk_read`
 - **THEN** 报告能标识该样本经由分层工具路径命中（与仅走混合检索的样本区分）
