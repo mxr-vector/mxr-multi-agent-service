@@ -45,7 +45,8 @@ class ScriptGenerateRequest(BaseModel):
     episodes: Optional[int] = Field(default=None, ge=1, le=100)
     tone: Optional[str] = None
     episode_duration: Optional[int] = Field(
-        default=None, description="每集大致生成秒数（目前视频模型仅支持 15 或 30 秒，默认 30）"
+        default=None,
+        description="每集大致生成秒数（目前视频模型仅支持 15 或 30 秒，默认 30）",
     )
 
     @field_validator("episode_duration")
@@ -54,12 +55,15 @@ class ScriptGenerateRequest(BaseModel):
         if v is not None and v not in (15, 30):
             raise ValueError("单集生成时长目前仅支持 15 秒或 30 秒（15s 或 30s）")
         return v
+
     mode: Optional[str] = Field(
         default="story",
         description="创作模式：story(剧情短剧) / scenery(纯景意境/场景变换，无剧情人物)",
     )
     image_file: Optional[str] = Field(default=None, description="主图片相对路径")
-    images: Optional[list[str]] = Field(default=None, description="多模态输入图片相对路径列表")
+    images: Optional[list[str]] = Field(
+        default=None, description="多模态输入图片相对路径列表"
+    )
     action: Literal["new", "rewrite", "regenerate", "continue"] = Field(
         default="new",
         description=(
@@ -90,7 +94,10 @@ async def upload_story_image(
         )
     data = await read_upload_capped(file, ENV.upload_max_size_mb * 1024 * 1024)
     relative = await asyncio.to_thread(
-        save_story_upload, ctx.user_id or "common", file.filename or f"upload.{ext}", data
+        save_story_upload,
+        ctx.user_id or "common",
+        file.filename or f"upload.{ext}",
+        data,
     )
     return R.success(
         data={

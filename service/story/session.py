@@ -59,12 +59,6 @@ def cancel_generation(session_id_hex: str) -> bool:
     return _generation_registry.cancel(session_id_hex)
 
 
-def assert_session_free(session_id_hex: str) -> None:
-    """同会话生成互斥：在途任务或占位 sentinel 未结束时拒绝新请求。"""
-    if _generation_registry.in_flight(session_id_hex):
-        bad_except("上一条生成尚未完成，请稍候或先停止生成")
-
-
 async def reset_stale_generating_messages() -> int:
     """启动清扫：残留 generating 的 story 消息与残留在途状态的生成任务
     统一置为 failed，返回处理条数。
@@ -126,7 +120,11 @@ class StorySessionService:
         if row is None:
             bad_except(f"会话不存在: {session_id.hex}")
         project = await ProjectRepository(session).get(row.project_id)
-        if project is None or project.status == StoryProjectStatus.DELETED or project.user_id != ctx.user_id:
+        if (
+            project is None
+            or project.status == StoryProjectStatus.DELETED
+            or project.user_id != ctx.user_id
+        ):
             bad_except(f"会话不存在: {session_id.hex}")
         return row, project
 
@@ -181,7 +179,9 @@ class StorySessionService:
             row = await SessionRepository(session).latest_by_project(project_id)
             return row.to_dict() if row is not None else None
 
-    async def messages(self, ctx: UserContext, session_id: uuid.UUID, page: int, size: int):
+    async def messages(
+        self, ctx: UserContext, session_id: uuid.UUID, page: int, size: int
+    ):
         """会话消息历史（仅属主可见），按 sequence 升序分页。"""
         async with get_session() as session:
             await self._assert_session_owned(session, session_id, ctx)

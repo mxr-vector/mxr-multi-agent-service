@@ -149,8 +149,8 @@ async def _ttl_loop(retry_first: bool = False) -> None:
     - 主体包 try/except：异常记录完整堆栈（logger.exception）后以较短间隔
       重试，而非等待满 24 小时。
     """
-    interval = _TTL_RETRY_INTERVAL_SECONDS if retry_first else (
-        _TTL_LOOP_INTERVAL_SECONDS
+    interval = (
+        _TTL_RETRY_INTERVAL_SECONDS if retry_first else (_TTL_LOOP_INTERVAL_SECONDS)
     )
     while True:
         await asyncio.sleep(interval)

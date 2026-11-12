@@ -7,7 +7,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Path, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from service.story.export import ExportService

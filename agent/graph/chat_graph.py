@@ -76,9 +76,9 @@ _message_token_cache: dict[tuple, int] = {}
 def _message_token_cost(model_name: str, message: BaseMessage) -> int:
     """单条消息 token 估算（进程内缓存）：等价于 count_messages_tokens(model, [m])。"""
     digest = hashlib.md5(
-        (
-            f"{type(message).__name__}:{getattr(message, 'content', None)!r}"
-        ).encode("utf-8")
+        (f"{type(message).__name__}:{getattr(message, 'content', None)!r}").encode(
+            "utf-8"
+        )
     ).hexdigest()
     key = (model_name, digest)
     cached = _message_token_cache.get(key)
@@ -566,7 +566,6 @@ class ChatGraph:
         检索进度经 stream_mode="custom"（get_stream_writer）外发 think 事件。
         """
         writer = self._safe_stream_writer()
-        question = state["question"]
         msgs, remove_ids, budget, model_name = await self._prepare_messages(
             state, config
         )

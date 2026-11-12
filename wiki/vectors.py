@@ -91,7 +91,7 @@ def build_document_vectors(
     texts = [build_document_text(document) for document in normalized]
     output: list[DocumentVector] = []
     for batch_documents, batch_texts in zip(
-        _batches(normalized, batch_size), _batches(texts, batch_size)
+        _batches(normalized, batch_size), _batches(texts, batch_size), strict=True
     ):
         vectors = client.embed_documents(list(batch_texts))
         if len(vectors) != len(batch_texts):
@@ -104,7 +104,9 @@ def build_document_vectors(
                 text=text,
                 vector=tuple(float(value) for value in vector),
             )
-            for document, text, vector in zip(batch_documents, batch_texts, vectors)
+            for document, text, vector in zip(
+                batch_documents, batch_texts, vectors, strict=True
+            )
         )
     return output
 

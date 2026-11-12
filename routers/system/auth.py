@@ -70,7 +70,9 @@ async def login(payload: LoginRequest = Body(...), request: Request = None):
     按（客户端 IP + 用户名）做失败限速：业务认证失败计数、达上限临时锁定，
     成功即清零（防爆破；限速器为进程内实现，见 utils/rate_limit.py）。
     """
-    client_ip = request.client.host if request is not None and request.client else "unknown"
+    client_ip = (
+        request.client.host if request is not None and request.client else "unknown"
+    )
     rate_key = f"{client_ip}:{payload.username}"
     check_locked(rate_key)
     try:

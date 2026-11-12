@@ -117,7 +117,9 @@ def save_story_upload(user_id: str, filename: str, data: bytes) -> str:
     """保存用户上传的图片到 story/upload/<user_id>/ 目录下，返回相对路径。"""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
     if ext not in IMAGE_EXTENSIONS:
-        bad_except(f"不支持的图片格式: {ext}（仅支持 {', '.join(sorted(IMAGE_EXTENSIONS))}）")
+        bad_except(
+            f"不支持的图片格式: {ext}（仅支持 {', '.join(sorted(IMAGE_EXTENSIONS))}）"
+        )
     from uuid_utils.compat import uuid7
 
     rel_path = f"{STORY_UPLOAD_ROOT}/{user_id}/{uuid7().hex}.{ext}"

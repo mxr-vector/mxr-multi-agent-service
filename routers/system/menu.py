@@ -11,7 +11,8 @@ from utils.user_context import require_admin
 
 # 创建路由
 router = APIRouter(
-    prefix="/system/menus", tags=["OpenAPI - 系统菜单管理"],
+    prefix="/system/menus",
+    tags=["OpenAPI - 系统菜单管理"],
     dependencies=[Depends(require_admin)],
 )
 

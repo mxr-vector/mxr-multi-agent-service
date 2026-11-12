@@ -172,10 +172,14 @@ class ModelConfigService:
                 db_url = config.api_url
                 db_key = config.api_key
 
-        effective_url = (api_url.strip() if api_url and api_url.strip() else db_url) or ""
+        effective_url = (
+            api_url.strip() if api_url and api_url.strip() else db_url
+        ) or ""
         if not effective_url:
             bad_except("接口地址不能为空")
-        if not (effective_url.startswith("http://") or effective_url.startswith("https://")):
+        if not (
+            effective_url.startswith("http://") or effective_url.startswith("https://")
+        ):
             bad_except("接口地址必须以 http:// 或 https:// 开头")
 
         # 密钥解析：未传或为掩码占位则回退库中真实密钥
@@ -195,7 +199,9 @@ class ModelConfigService:
         """
         测试目标模型接口连通性，探测 /v1/models 或基地址并返回耗时（ms）。
         """
-        effective_url, effective_key = await self._resolve_url_and_key(config_id, api_url, api_key)
+        effective_url, effective_key = await self._resolve_url_and_key(
+            config_id, api_url, api_key
+        )
         candidates = _get_candidate_models_urls(effective_url)
         # 基地址也作为备选探针
         base_clean = effective_url.strip().rstrip("/")
@@ -210,11 +216,15 @@ class ModelConfigService:
         last_error_msg = ""
         last_status_code: int | None = None
 
-        async with httpx.AsyncClient(timeout=10.0, verify=False, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0, verify=False, follow_redirects=True
+        ) as client:
             for url in candidates:
                 try:
                     resp = await client.get(url, headers=headers)
-                    latency_ms = max(1, round((time.perf_counter() - start_time) * 1000))
+                    latency_ms = max(
+                        1, round((time.perf_counter() - start_time) * 1000)
+                    )
                     last_status_code = resp.status_code
                     if resp.status_code == 200:
                         return {
@@ -285,7 +295,9 @@ class ModelConfigService:
         """
         请求远程 OpenAI 兼容接口（v1/models）拉取可用模型列表。
         """
-        effective_url, effective_key = await self._resolve_url_and_key(config_id, api_url, api_key)
+        effective_url, effective_key = await self._resolve_url_and_key(
+            config_id, api_url, api_key
+        )
         candidates = _get_candidate_models_urls(effective_url)
 
         headers: dict[str, str] = {}
@@ -293,11 +305,15 @@ class ModelConfigService:
             headers["Authorization"] = f"Bearer {effective_key}"
 
         start_time = time.perf_counter()
-        async with httpx.AsyncClient(timeout=15.0, verify=False, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=15.0, verify=False, follow_redirects=True
+        ) as client:
             for url in candidates:
                 try:
                     resp = await client.get(url, headers=headers)
-                    latency_ms = max(1, round((time.perf_counter() - start_time) * 1000))
+                    latency_ms = max(
+                        1, round((time.perf_counter() - start_time) * 1000)
+                    )
                     if resp.status_code == 200:
                         try:
                             resp_json = resp.json()
@@ -309,7 +325,9 @@ class ModelConfigService:
                             "latency_ms": latency_ms,
                         }
                     elif resp.status_code in (401, 403):
-                        bad_except(f"认证失败 (HTTP {resp.status_code})，请检查 API 密钥是否正确")
+                        bad_except(
+                            f"认证失败 (HTTP {resp.status_code})，请检查 API 密钥是否正确"
+                        )
                     elif resp.status_code == 404:
                         continue
                     else:
@@ -320,4 +338,3 @@ class ModelConfigService:
                     bad_except(f"无法连接到目标接口地址: {e}")
 
         bad_except("未找到可用模型接口，目标服务可能不支持 /v1/models 协议 (HTTP 404)")
-

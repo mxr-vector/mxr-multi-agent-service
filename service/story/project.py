@@ -23,7 +23,6 @@ from exception.bad_except import bad_except
 from service.story.storage import (
     KEYFRAME_IMAGE_ROOT,
     assert_asset_relative,
-    keyframe_image_dir,
     move_without_overwrite,
     resolve_upload_path,
     sanitize_dir_name,

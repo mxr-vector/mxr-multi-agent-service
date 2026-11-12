@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 from common import (
     BASE_K_VALUES,
-    GOLD_DIR,
     RESULTS_DIR,
     ensure_cfg_async,
     load_json,

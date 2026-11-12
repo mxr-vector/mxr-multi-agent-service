@@ -89,7 +89,9 @@ class AuthService:
             user = await repo.get(user_id)
             if user is None:
                 bad_except("用户不存在或已被删除")
-            if not await asyncio.to_thread(verify_password, old_password, user.password):
+            if not await asyncio.to_thread(
+                verify_password, old_password, user.password
+            ):
                 bad_except("原密码错误")
             try:
                 hashed = await asyncio.to_thread(hash_password, new_password)

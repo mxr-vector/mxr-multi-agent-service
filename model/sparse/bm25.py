@@ -158,10 +158,3 @@ def legacy_embed_documents(texts: List[str]) -> List[SparseVector]:
         return []
     model = _get_legacy_model()
     return [_legacy_to_sparse(emb) for emb in model.embed(list(texts))]
-
-
-def legacy_embed_query(text: str) -> SparseVector:
-    """legacy：fastembed BM25 查询编码（英文分词器，中文 query 失效）。"""
-    model = _get_legacy_model()
-    embedding = next(iter(model.query_embed(text)))
-    return _legacy_to_sparse(embedding)

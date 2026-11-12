@@ -16,7 +16,7 @@ import argparse
 import asyncio
 import sys
 import uuid
-from typing import Any, Callable
+from typing import Callable
 
 from sqlalchemy import select, text
 
@@ -57,7 +57,9 @@ async def list_kbs() -> None:
         kbs = (
             (
                 await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.status != KBStatus.DELETED)
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.status != KBStatus.DELETED
+                    )
                 )
             )
             .scalars()
@@ -133,7 +135,7 @@ async def migrate_kb(kb_id: str, batch_size: int, encoder: str) -> None:
         batch = chunks[start : start + batch_size]
         sparse_vectors = await asyncio.to_thread(embed_documents, [t for _, t in batch])
         points = []
-        for (cid, _), sv in zip(batch, sparse_vectors):
+        for (cid, _), sv in zip(batch, sparse_vectors, strict=True):
             if not sv.indices:  # 空分词点（全停用词）：update_vectors 拒绝空向量
                 skipped += 1
                 continue

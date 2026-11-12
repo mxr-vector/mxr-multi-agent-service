@@ -5,7 +5,6 @@ env.py - 环境配置加载工具类
     print(config.db_host)
 """
 
-from enum import Enum
 import os
 from pathlib import Path
 from typing import Optional

@@ -598,6 +598,8 @@ async def read_upload_capped(file, max_bytes: int) -> bytes:
             break
         total += len(chunk)
         if total > max_bytes:
-            bad_except(f"文件超过大小上限（{max_bytes // (1024 * 1024)}MB）: {file.filename}")
+            bad_except(
+                f"文件超过大小上限（{max_bytes // (1024 * 1024)}MB）: {file.filename}"
+            )
         chunks.append(chunk)
     return b"".join(chunks)

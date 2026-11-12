@@ -186,7 +186,12 @@ async def upload_art(
         effective_name = effective_name[:100]
 
     art = await _character_service.add_art(
-        ctx, character_id, file_data=data, ext=ext, name=effective_name, art_type=art_type
+        ctx,
+        character_id,
+        file_data=data,
+        ext=ext,
+        name=effective_name,
+        art_type=art_type,
     )
     return R.success(data=art)
 

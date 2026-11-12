@@ -91,10 +91,14 @@ def match_cast_bindings(bindings: list[dict], text: str) -> list[dict]:
                 matched_aliases.add(alias)
                 break
 
-    return [binding for _, binding in sorted(matched.values(), key=lambda item: item[0])]
+    return [
+        binding for _, binding in sorted(matched.values(), key=lambda item: item[0])
+    ]
 
 
-async def load_cast_bindings(session: AsyncSession, project_id: uuid.UUID) -> list[dict]:
+async def load_cast_bindings(
+    session: AsyncSession, project_id: uuid.UUID
+) -> list[dict]:
     """加载项目人物出演角色及其项目姓名/默认参考立绘。"""
     asset_repo = ProjectAssetRepository(session)
     rows = await asset_repo.list_by_type(project_id, "character")

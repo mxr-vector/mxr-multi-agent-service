@@ -116,7 +116,7 @@ def _split_vectors(
     matrix = np.asarray([item.vector for item in items])
     labels = _kmeans_labels(matrix, count, random_state)
     groups: dict[int, list[DocumentVector]] = {}
-    for label, item in zip(labels, items):
+    for label, item in zip(labels, items, strict=True):
         groups.setdefault(int(label), []).append(item)
     output: list[tuple[str, list[DocumentVector]]] = []
     for index, group in enumerate(groups.values()):
@@ -182,7 +182,7 @@ def cluster_documents(
     for coarse_label in sorted(set(int(value) for value in coarse_labels)):
         coarse_items = [
             item
-            for label, item in zip(coarse_labels, documents)
+            for label, item in zip(coarse_labels, documents, strict=True)
             if int(label) == coarse_label
         ]
         local_matrix = np.asarray([item.vector for item in coarse_items], dtype=float)
@@ -190,7 +190,7 @@ def cluster_documents(
             local_matrix, min(config.min_cluster_size, len(coarse_items))
         )
         groups: dict[int, list[DocumentVector]] = {}
-        for label, item in zip(local_labels, coarse_items):
+        for label, item in zip(local_labels, coarse_items, strict=True):
             groups.setdefault(int(label), []).append(item)
         for local_label, items in sorted(groups.items()):
             noisy = local_label < 0
@@ -396,9 +396,11 @@ def find_cross_partition_duplicates(
         pairs: list[tuple[TopicCluster, TopicCluster]] = []
         seen: set[tuple[int, int]] = set()
         for left_index, (row_distances, row_indices) in enumerate(
-            zip(distances, indices)
+            zip(distances, indices, strict=True)
         ):
-            for distance, right_index in zip(row_distances[1:], row_indices[1:]):
+            for distance, right_index in zip(
+                row_distances[1:], row_indices[1:], strict=True
+            ):
                 right_index = int(right_index)
                 key = tuple(sorted((left_index, right_index)))
                 if (

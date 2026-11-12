@@ -168,11 +168,7 @@ def _replace_markers(content: str, replacements: list[tuple[dict, int]]) -> str:
         replacements, key=lambda item: item[0]["start"], reverse=True
     ):
         label = f"图{index}" if index > 0 else "缺图"
-        marked = (
-            marked[: marker["start"]]
-            + f"【{label}】"
-            + marked[marker["end"] :]
-        )
+        marked = marked[: marker["start"]] + f"【{label}】" + marked[marker["end"] :]
     return marked
 
 
@@ -409,9 +405,7 @@ class VideoPlanService:
             if keyframe.image_file:
                 image_index[keyframe.id] = len(image_index) + 1
         keyframe_ids = [
-            keyframe.id.hex
-            for _, keyframe, _, _ in items
-            if keyframe.id in image_index
+            keyframe.id.hex for _, keyframe, _, _ in items if keyframe.id in image_index
         ]
 
         matched: dict[tuple[int, int], tuple[int, object]] = {}
@@ -435,9 +429,7 @@ class VideoPlanService:
         for _, keyframe, shot_content, _ in items:
             if keyframe.id in attached_ids:
                 continue
-            blocks.append(
-                _image_block(keyframe, image_index.get(keyframe.id, 0))
-            )
+            blocks.append(_image_block(keyframe, image_index.get(keyframe.id, 0)))
             detail = shot_content or _shot_detail(keyframe, names.get(keyframe.id, []))
             if detail:
                 blocks.append({"type": "text", "text": detail})

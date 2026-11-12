@@ -181,7 +181,9 @@ class DictDataService:
             items = await repo.list_by_type(dict_type, status=status)
             return [i.to_dict() for i in items]
 
-    async def get_all_map(self, status: str = RecordStatus.ACTIVE) -> dict[str, list[dict]]:
+    async def get_all_map(
+        self, status: str = RecordStatus.ACTIVE
+    ) -> dict[str, list[dict]]:
         """按字典类型分组聚合返回字典项列表（{ [dict_type]: items[] }），供前端全局词典一次性加载。"""
         async with get_session() as session:
             repo = DictDataRepository(session)

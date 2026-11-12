@@ -146,7 +146,6 @@ async def run_queries(
 def render_multihop_diagnostics(results: list[dict]) -> str:
     """Multihop path diagnostics: per-hop attribution, nav effectiveness,
     degradation denominators, and the annotated 2-hop hop@10 0.80 target."""
-    from collections import Counter
 
     ok = [item for item in results if item.get("status") == "ok"]
     timeouts = sum(1 for item in results if item.get("status") == "timeout")

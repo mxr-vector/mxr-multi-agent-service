@@ -127,9 +127,7 @@ def _input_budget(context_window: int | None = None) -> int:
     """输入预算 = context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。"""
     window = context_window or getattr(CFG.chat, "context_window", 200000)
     return (
-        window
-        - CFG.chat_max_output_tokens
-        - int(window * _INPUT_BUDGET_SAFETY_MARGIN)
+        window - CFG.chat_max_output_tokens - int(window * _INPUT_BUDGET_SAFETY_MARGIN)
     )
 
 
@@ -184,7 +182,9 @@ async def _stream_round(
     response = None
     async for chunk in model.astream(messages):
         response = chunk if response is None else response + chunk
-        if getattr(chunk, "tool_call_chunks", None) or getattr(chunk, "tool_calls", None):
+        if getattr(chunk, "tool_call_chunks", None) or getattr(
+            chunk, "tool_calls", None
+        ):
             tool_seen = True
         delta = chunk.content if isinstance(chunk.content, str) else ""
         if not delta or tool_seen:
@@ -403,7 +403,9 @@ class StoryGraph:
             user_message,
         ]
         # 对话模型默认采用多模态模型（基于 OpenAI 兼容接口）
-        model = _build_story_model().bind_tools([build_skill_read_tool(style.skill_dir)])
+        model = _build_story_model().bind_tools(
+            [build_skill_read_tool(style.skill_dir)]
+        )
 
         read_count = 0
         corrections = 0

@@ -9,7 +9,7 @@ AI 创作工作台（story-ai-workspace）已消费。
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Integer, SmallInteger, String, Text, func, text
+from sqlalchemy import Boolean, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

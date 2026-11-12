@@ -50,6 +50,7 @@ from exception.bad_except import bad_except
 from service.story.contract import CARDS_BEGIN, CARDS_END, split_dual_track
 from service.story.session import (
     StorySessionService,
+    cancel_generation,
     register_generation,
     release_session,
     reserve_session,
@@ -119,7 +120,9 @@ class StoryGenerationService:
         if action != "new" and target_message_id is None:
             bad_except("缺少目标消息 id")
 
-        payload_images = list(images) if images else ([image_file] if image_file else [])
+        payload_images = (
+            list(images) if images else ([image_file] if image_file else [])
+        )
 
         if action in ("new", "rewrite"):
             idea = (idea or "").strip()
@@ -146,8 +149,10 @@ class StoryGenerationService:
         reserve_session(session_hex)
         try:
             async with get_session() as session:
-                story_session, project = await self._session_service._assert_session_owned(
-                    session, session_id, ctx
+                story_session, project = (
+                    await self._session_service._assert_session_owned(
+                        session, session_id, ctx
+                    )
                 )
                 task_repo = GenerationTaskRepository(session)
                 # 项目级互斥（任务表在途检查，覆盖多会话并发场景）
@@ -439,7 +444,11 @@ class StoryGenerationService:
         all_images = [img for img in raw_images if isinstance(img, str) and img]
         # 主图可能单独存于 image_file（旧消息），补回参考图列表避免丢失
         stored_image = params.get("image_file")
-        if isinstance(stored_image, str) and stored_image and stored_image not in all_images:
+        if (
+            isinstance(stored_image, str)
+            and stored_image
+            and stored_image not in all_images
+        ):
             all_images.insert(0, stored_image)
 
         snapshot = {
@@ -691,7 +700,9 @@ class StoryGenerationService:
             await self._session_service._assert_session_owned(db, session_id, ctx)
         return cancel_generation(session_id.hex)
 
-    async def task_detail(self, ctx, task_id: uuid.UUID, with_result_text: bool = False) -> dict:
+    async def task_detail(
+        self, ctx, task_id: uuid.UUID, with_result_text: bool = False
+    ) -> dict:
         """生成任务详情（属主经项目收敛）。"""
         if not ctx.user_id:
             bad_except("剧本生成仅支持用户通道调用")
@@ -814,7 +825,9 @@ class StoryGenerationService:
                             for key, value in params_snapshot.items()
                             if key not in ("style_key",)
                         },
-                        "generation_count": await task_repo.count_by_project(project_id),
+                        "generation_count": await task_repo.count_by_project(
+                            project_id
+                        ),
                         "last_generated_at": datetime.now(timezone.utc),
                     },
                 )

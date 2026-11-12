@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 
 from common import (
     CORPUS_STATS_PATH,
-    DEFAULT_SAMPLE_SIZE,
     DEFAULT_SEED,
     EVAL_RESULTS_PATH,
     GOLD_RELAXED_PATH,

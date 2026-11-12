@@ -15,6 +15,7 @@
 未沉淀的产物不进任何正式资产表，随会话删除丢弃。
 """
 
+import asyncio
 import re
 import uuid
 
@@ -72,6 +73,19 @@ _CARD_EDITABLE = {
 }
 
 
+async def _remove_files_quietly(paths: list[str]) -> None:
+    """尽力删除被替换的旧资产文件并清理空目录，失败不影响业务结果。"""
+
+    def _cleanup() -> None:
+        for path in paths:
+            unlink_quietly(path)
+            parent = path.rsplit("/", 1)[0] if "/" in path else None
+            if parent:
+                rmdir_if_empty(parent)
+
+    await asyncio.to_thread(_cleanup)
+
+
 class SedimentService:
     """沉淀业务层：剧本版本 / 角色库角色两条收敛路径。"""
 
@@ -81,15 +95,17 @@ class SedimentService:
         """消息须存在且所属项目归属当前用户，返回 (消息, 项目)。"""
         from service.story.art import ArtGenerationService
 
-        message, story_session, project = await ArtGenerationService()._assert_message_owned(
-            db, message_id, ctx
+        message, story_session, project = (
+            await ArtGenerationService()._assert_message_owned(db, message_id, ctx)
         )
         return message, project
 
     def _load_card(self, message: StoryMessage) -> dict:
         """取角色卡数据（缺失/非卡片消息拒绝）。"""
         card = (message.params or {}).get(CARD_DATA_KEY)
-        if message.kind != StoryMessageKind.CHARACTER.value or not isinstance(card, dict):
+        if message.kind != StoryMessageKind.CHARACTER.value or not isinstance(
+            card, dict
+        ):
             bad_except("该消息不是角色卡")
         return card
 
@@ -136,7 +152,9 @@ class SedimentService:
 
     # ---------- 剧本沉淀 ----------
 
-    async def save_script(self, ctx, message_id: uuid.UUID, title: str | None, set_current: bool) -> dict:
+    async def save_script(
+        self, ctx, message_id: uuid.UUID, title: str | None, set_current: bool
+    ) -> dict:
         """剧本卡"存为版本"：kind='script' 消息 → 项目剧本新版本（source='ai'）。"""
         if not ctx.user_id:
             bad_except("剧本沉淀仅支持用户通道调用")
@@ -144,7 +162,10 @@ class SedimentService:
             message, project = await self._assert_message_owned(db, message_id, ctx)
             if message.kind != StoryMessageKind.SCRIPT.value:
                 bad_except("该消息不是剧本卡")
-            if message.status != ChatMessageStatus.DONE.value or not (message.content or "").strip():
+            if (
+                message.status != ChatMessageStatus.DONE.value
+                or not (message.content or "").strip()
+            ):
                 bad_except("该剧本卡尚未完成，无法沉淀")
             # 行锁串行化版本号分配（对齐 ScriptService.save）
             project_repo = ProjectRepository(db)
@@ -285,16 +306,24 @@ class SedimentService:
 
                 # 冗余计数按真实数量重算；merge 模式不改共享角色的头像
                 # （头像跨项目可见，本入口无"改全局角色"预期，防可见漂移）
-                character.art_count = len(await art_repo.list_by_character(character.id))
+                character.art_count = len(
+                    await art_repo.list_by_character(character.id)
+                )
                 if mode == "new" and saved_arts and not character.avatar_file:
                     character.avatar_file = saved_arts[0].image_file
 
                 # 出演登记（引用既有编排语义，重复登记静默跳过）
                 casting_added = False
                 if not await asset_repo.exists(project.id, "character", character.id):
-                    sort_order = await asset_repo.next_sort_order(project.id, "character")
+                    sort_order = await asset_repo.next_sort_order(
+                        project.id, "character"
+                    )
                     await asset_repo.add(
-                        uuid7(), project.id, "character", character.id, sort_order=sort_order
+                        uuid7(),
+                        project.id,
+                        "character",
+                        character.id,
+                        sort_order=sort_order,
                     )
                     casting_added = True
 
@@ -343,7 +372,10 @@ class SedimentService:
                 bad_except(f"立绘消息不存在: {art_message_id.hex}")
             if art_message.kind != StoryMessageKind.ART.value:
                 bad_except("该消息不是立绘消息")
-            if art_message.status != ChatMessageStatus.DONE.value or not art_message.image_file:
+            if (
+                art_message.status != ChatMessageStatus.DONE.value
+                or not art_message.image_file
+            ):
                 bad_except("立绘尚未完成生成或文件缺失")
             if (art_message.params or {}).get(_SEDIMESTED_KEY):
                 bad_except("该立绘已存入角色库，请勿重复操作")
@@ -384,7 +416,9 @@ class SedimentService:
                     existing_chars, _ = await char_repo.list(
                         ctx.user_id, page=1, size=20, keyword=card_data["name"]
                     )
-                    match = next((c for c in existing_chars if c.name == card_data["name"]), None)
+                    match = next(
+                        (c for c in existing_chars if c.name == card_data["name"]), None
+                    )
                     if match:
                         target_char = await char_repo.get_for_update(match.id)
                     else:
@@ -464,15 +498,23 @@ class SedimentService:
                 }
                 await message_repo.update_fields(art_message, {})
 
-                target_char.art_count = len(await art_repo.list_by_character(target_char.id))
+                target_char.art_count = len(
+                    await art_repo.list_by_character(target_char.id)
+                )
                 if not target_char.avatar_file:
                     target_char.avatar_file = image_file
 
                 casting_added = False
                 if not await asset_repo.exists(project.id, "character", target_char.id):
-                    sort_order = await asset_repo.next_sort_order(project.id, "character")
+                    sort_order = await asset_repo.next_sort_order(
+                        project.id, "character"
+                    )
                     await asset_repo.add(
-                        uuid7(), project.id, "character", target_char.id, sort_order=sort_order
+                        uuid7(),
+                        project.id,
+                        "character",
+                        target_char.id,
+                        sort_order=sort_order,
                     )
                     casting_added = True
 
@@ -625,7 +667,10 @@ class SedimentService:
                 new_image_file = None
                 update_fields = {}
                 if message.kind == StoryMessageKind.ART.value:
-                    if message.status != ChatMessageStatus.DONE.value or not message.image_file:
+                    if (
+                        message.status != ChatMessageStatus.DONE.value
+                        or not message.image_file
+                    ):
                         bad_except("关键帧图片尚未完成生成或文件缺失")
                     new_image_file = await self._copy_into_keyframe_dir(
                         message.image_file, project, target_keyframe
@@ -654,8 +699,13 @@ class SedimentService:
                 card_msg_id = (message.params or {}).get("card_message_id")
                 if card_msg_id:
                     try:
-                        kf_card_msg = await message_repo.get(uuid.UUID(str(card_msg_id)))
-                        if kf_card_msg and kf_card_msg.kind == StoryMessageKind.KEYFRAME.value:
+                        kf_card_msg = await message_repo.get(
+                            uuid.UUID(str(card_msg_id))
+                        )
+                        if (
+                            kf_card_msg
+                            and kf_card_msg.kind == StoryMessageKind.KEYFRAME.value
+                        ):
                             kf_card_msg.params = {
                                 **(kf_card_msg.params or {}),
                                 _SEDIMENTED_KEYFRAME_KEY: target_keyframe.id.hex,
@@ -670,13 +720,7 @@ class SedimentService:
                 await db.commit()
 
                 if new_image_file and old_file and old_file != new_image_file:
-                    def _cleanup() -> None:
-                        unlink_quietly(old_file)
-                        parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
-                        if parent:
-                            rmdir_if_empty(parent)
-
-                    await asyncio.to_thread(_cleanup)
+                    await _remove_files_quietly([old_file])
 
                 return target_keyframe.to_dict()
 
@@ -685,18 +729,29 @@ class SedimentService:
             # ----------------------------------------------------
             # 分支 2.1：入参为关键帧出图消息（kind='art'）
             if message.kind == StoryMessageKind.ART.value:
-                if message.status != ChatMessageStatus.DONE.value or not message.image_file:
+                if (
+                    message.status != ChatMessageStatus.DONE.value
+                    or not message.image_file
+                ):
                     bad_except("关键帧图片尚未完成生成或文件缺失")
                 if (message.params or {}).get(_SEDIMENTED_KEYFRAME_KEY):
                     bad_except("该关键帧图片已存入关键帧库，请勿重复操作")
 
-                art_name = name or (message.params or {}).get("card_name") or message.content or ""
+                art_name = (
+                    name
+                    or (message.params or {}).get("card_name")
+                    or message.content
+                    or ""
+                )
                 card_msg_id = (message.params or {}).get("card_message_id")
                 kf_msg = None
                 if card_msg_id:
                     try:
                         candidate = await message_repo.get(uuid.UUID(str(card_msg_id)))
-                        if candidate and candidate.kind == StoryMessageKind.KEYFRAME.value:
+                        if (
+                            candidate
+                            and candidate.kind == StoryMessageKind.KEYFRAME.value
+                        ):
                             kf_msg = candidate
                     except Exception:
                         pass
@@ -711,18 +766,22 @@ class SedimentService:
                         req_shot_no = req_shot_no or int(match.group(2))
 
                 # 若未通过 card_message_id 关联，则在当前会话中按编号寻找匹配的关键帧卡片
-                if kf_msg is None and req_scene_no is not None and req_shot_no is not None:
-                    stmt = (
-                        select(StoryMessage)
-                        .where(
-                            StoryMessage.session_id == message.session_id,
-                            StoryMessage.kind == StoryMessageKind.KEYFRAME.value,
-                        )
+                if (
+                    kf_msg is None
+                    and req_scene_no is not None
+                    and req_shot_no is not None
+                ):
+                    stmt = select(StoryMessage).where(
+                        StoryMessage.session_id == message.session_id,
+                        StoryMessage.kind == StoryMessageKind.KEYFRAME.value,
                     )
                     all_kf_msgs = list((await db.execute(stmt)).scalars().all())
                     for item in all_kf_msgs:
                         item_kf = (item.params or {}).get(KEYFRAME_DATA_KEY) or {}
-                        if item_kf.get("scene_no") == req_scene_no and item_kf.get("shot_no") == req_shot_no:
+                        if (
+                            item_kf.get("scene_no") == req_scene_no
+                            and item_kf.get("shot_no") == req_shot_no
+                        ):
                             kf_msg = item
                             break
 
@@ -733,11 +792,15 @@ class SedimentService:
                     kf = self._load_keyframe(kf_msg)
                     final_scene = req_scene_no or kf.get("scene_no") or 1
                     final_shot = req_shot_no or kf.get("shot_no") or 1
-                    existing = await keyframe_repo.get_by_scene_shot(project.id, final_scene, final_shot)
+                    existing = await keyframe_repo.get_by_scene_shot(
+                        project.id, final_scene, final_shot
+                    )
 
                     kf_fields = {
                         "name": art_name or kf.get("name"),
-                        "prompt": kf.get("prompt") or message.prompt or f"分镜镜头 {final_scene}-{final_shot}",
+                        "prompt": kf.get("prompt")
+                        or message.prompt
+                        or f"分镜镜头 {final_scene}-{final_shot}",
                         "script_id": script_id,
                         "status": "done",
                     }
@@ -751,6 +814,7 @@ class SedimentService:
                         target_keyframe = existing
                     else:
                         dummy_kf_id = uuid7()
+
                         class _TmpKF:
                             id = dummy_kf_id
                             scene_no = final_scene
@@ -782,7 +846,9 @@ class SedimentService:
                     final_shot = req_shot_no
                     existing = None
                     if final_shot is not None:
-                        existing = await keyframe_repo.get_by_scene_shot(project.id, final_scene, final_shot)
+                        existing = await keyframe_repo.get_by_scene_shot(
+                            project.id, final_scene, final_shot
+                        )
 
                     if existing is not None:
                         old_file = existing.image_file
@@ -815,6 +881,7 @@ class SedimentService:
 
                         dummy_kf_id = uuid7()
                         kf_name = art_name or f"镜头 {final_scene}-{final_shot}"
+
                         class _TmpKF:
                             id = dummy_kf_id
                             scene_no = final_scene
@@ -849,13 +916,7 @@ class SedimentService:
                 await db.commit()
 
                 if new_image_file and old_file and old_file != new_image_file:
-                    def _cleanup() -> None:
-                        unlink_quietly(old_file)
-                        parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
-                        if parent:
-                            rmdir_if_empty(parent)
-
-                    await asyncio.to_thread(_cleanup)
+                    await _remove_files_quietly([old_file])
 
                 return target_keyframe.to_dict()
 
@@ -863,7 +924,9 @@ class SedimentService:
             kf = self._load_keyframe(message)
             final_scene = scene_no or kf.get("scene_no") or 1
             final_shot = shot_no or kf.get("shot_no") or 1
-            existing = await keyframe_repo.get_by_scene_shot(project.id, final_scene, final_shot)
+            existing = await keyframe_repo.get_by_scene_shot(
+                project.id, final_scene, final_shot
+            )
 
             kf_fields = {
                 "name": name or kf.get("name"),
@@ -888,7 +951,9 @@ class SedimentService:
                 )
                 art_rows = list((await db.execute(art_stmt)).scalars().all())
                 for art_msg in art_rows:
-                    art_name = (art_msg.params or {}).get("card_name") or art_msg.content or ""
+                    art_name = (
+                        (art_msg.params or {}).get("card_name") or art_msg.content or ""
+                    )
                     art_card_id = (art_msg.params or {}).get("card_message_id")
                     kf_label = f"{final_scene}-{final_shot}"
                     if (
@@ -913,6 +978,7 @@ class SedimentService:
             else:
                 dummy_kf_id = uuid7()
                 if matched_art_msg and matched_art_msg.image_file:
+
                     class _TmpKF:
                         id = dummy_kf_id
                         scene_no = final_scene
@@ -957,13 +1023,7 @@ class SedimentService:
             await db.commit()
 
             if new_image_file and old_file and old_file != new_image_file:
-                def _cleanup() -> None:
-                    unlink_quietly(old_file)
-                    parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
-                    if parent:
-                        rmdir_if_empty(parent)
-
-                await asyncio.to_thread(_cleanup)
+                await _remove_files_quietly([old_file])
 
             return target_keyframe.to_dict()
 
@@ -1040,7 +1100,11 @@ class SedimentService:
                     )
                     art_rows = list((await db.execute(art_stmt)).scalars().all())
                     for art_msg in art_rows:
-                        art_name = (art_msg.params or {}).get("card_name") or art_msg.content or ""
+                        art_name = (
+                            (art_msg.params or {}).get("card_name")
+                            or art_msg.content
+                            or ""
+                        )
                         art_card_id = (art_msg.params or {}).get("card_message_id")
                         kf_label = f"{scene_no}-{shot_no}"
                         if (
@@ -1065,6 +1129,7 @@ class SedimentService:
                 else:
                     dummy_kf_id = uuid7()
                     if matched_art_msg and matched_art_msg.image_file:
+
                         class _TmpKF:
                             id = dummy_kf_id
                             scene_no = scene_no
@@ -1126,14 +1191,8 @@ class SedimentService:
                 await ProjectRepository(db).recount_assets(project)
                 await db.commit()
 
-            for old_f in files_to_clean:
-                def _cleanup(f=old_f) -> None:
-                    unlink_quietly(f)
-                    parent = f.rsplit("/", 1)[0] if "/" in f else None
-                    if parent:
-                        rmdir_if_empty(parent)
-
-                await asyncio.to_thread(_cleanup)
+            if files_to_clean:
+                await _remove_files_quietly(files_to_clean)
 
             return {"saved_count": saved_count, "items": saved_keyframes}
 
@@ -1180,7 +1239,9 @@ class SedimentService:
 
             cards = extract_characters_from_script(script_text)
             if not cards:
-                bad_except("未能从剧本中识别出角色，请确认剧本中包含人物小传或主要角色说明")
+                bad_except(
+                    "未能从剧本中识别出角色，请确认剧本中包含人物小传或主要角色说明"
+                )
 
             stmt = select(StoryMessage).where(
                 StoryMessage.session_id == session_id,

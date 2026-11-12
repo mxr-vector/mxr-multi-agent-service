@@ -179,9 +179,7 @@ async def save_version(
     if preview is not None:
         # 与全局上传约定同口径：分块读+超限即断，防超大 multipart 在读取阶段打爆内存；
         # 内容校验为真实 PNG（编辑器导出的 xmlpng），与 .png 落盘名实相符
-        data = await read_upload_capped(
-            preview, ENV.upload_max_size_mb * 1024 * 1024
-        )
+        data = await read_upload_capped(preview, ENV.upload_max_size_mb * 1024 * 1024)
         if not data.startswith(b"\x89PNG\r\n\x1a\n"):
             bad_except("预览图必须为 PNG 格式")
         preview_file = f"{_PREVIEW_SUBDIR}/{uuid7().hex}.png"

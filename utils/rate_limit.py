@@ -40,7 +40,9 @@ def check_locked(key: str) -> None:
         return
     remain = entry[2] - time.monotonic()
     if remain > 0:
-        bad_except(f"失败次数过多，账号已临时锁定，请约 {int(remain) // 60 + 1} 分钟后重试")
+        bad_except(
+            f"失败次数过多，账号已临时锁定，请约 {int(remain) // 60 + 1} 分钟后重试"
+        )
 
 
 def record_failure(key: str) -> None:

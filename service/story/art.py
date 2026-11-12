@@ -91,7 +91,7 @@ class ArtGenerationService:
                     bad_except("该角色卡缺少出图提示词，请先编辑补全")
                 if await GenerationTaskRepository(db).has_running(project.id):
                     bad_except("本项目已有生成任务进行中，请稍候")
-                
+
                 card_name = str(card.get("name") or "角色")
                 message_repo = MessageRepository(db)
                 art_msg_id = uuid7()
@@ -145,7 +145,9 @@ class ArtGenerationService:
                         },
                     )
                 await SessionRepository(db).touch(
-                    story_session, message_delta=1, message_at=datetime.now(timezone.utc)
+                    story_session,
+                    message_delta=1,
+                    message_at=datetime.now(timezone.utc),
                 )
                 await db.commit()
             except BaseException:
@@ -192,7 +194,9 @@ class ArtGenerationService:
         session_hex = session_id.hex
 
         async with get_session() as db:
-            story_session, project = await self._assert_session_owned(db, session_id, ctx)
+            story_session, project = await self._assert_session_owned(
+                db, session_id, ctx
+            )
             if await GenerationTaskRepository(db).has_running(project.id):
                 bad_except("本项目已有生成任务进行中，请稍候")
             reserve_session(session_hex)
@@ -252,7 +256,9 @@ class ArtGenerationService:
                     content=art_content,
                     prompt=prompt,
                     params={
-                        "card_message_id": card_message_id.hex if card_message_id else None,
+                        "card_message_id": (
+                            card_message_id.hex if card_message_id else None
+                        ),
                         "card_name": card_name,
                         "card_type": card_type,
                         "size": size,
@@ -264,7 +270,11 @@ class ArtGenerationService:
                 gen_task = await GenerationTaskRepository(db).create(
                     task_id=uuid7(),
                     project_id=project.id,
-                    task_type=StoryTaskType.IMAGE.value if is_kf else StoryTaskType.CHARACTER_ART.value,
+                    task_type=(
+                        StoryTaskType.IMAGE.value
+                        if is_kf
+                        else StoryTaskType.CHARACTER_ART.value
+                    ),
                     session_id=session_id,
                     target_type=StoryMessageKind.ART.value,
                     target_id=art_msg_id,
@@ -273,7 +283,9 @@ class ArtGenerationService:
                     prompt=prompt,
                     params={
                         "art_message_id": art_msg_id.hex,
-                        "card_message_id": card_message_id.hex if card_message_id else None,
+                        "card_message_id": (
+                            card_message_id.hex if card_message_id else None
+                        ),
                         "card_name": card_name,
                         "card_type": card_type,
                         "size": size,
@@ -293,7 +305,9 @@ class ArtGenerationService:
                         },
                     )
                 await SessionRepository(db).touch(
-                    story_session, message_delta=2, message_at=datetime.now(timezone.utc)
+                    story_session,
+                    message_delta=2,
+                    message_at=datetime.now(timezone.utc),
                 )
                 await db.commit()
             except BaseException:
@@ -418,7 +432,9 @@ class ArtGenerationService:
                     )
                     return
                 message_repo = MessageRepository(db)
-                art_msg = await message_repo.get(art_message_id) if art_message_id else None
+                art_msg = (
+                    await message_repo.get(art_message_id) if art_message_id else None
+                )
                 if art_msg is not None:
                     await message_repo.update_fields(
                         art_msg,
@@ -453,13 +469,17 @@ class ArtGenerationService:
                         image_file=image_file,
                         prompt=prompt,
                         params={
-                            "card_message_id": card_message_id.hex if card_message_id else None,
+                            "card_message_id": (
+                                card_message_id.hex if card_message_id else None
+                            ),
                             "generation_task_id": gen_task_id.hex,
                             "source": "ai",
                         },
                     )
                     await session_repo.touch(
-                        story_session, message_delta=1, message_at=datetime.now(timezone.utc)
+                        story_session,
+                        message_delta=1,
+                        message_at=datetime.now(timezone.utc),
                     )
                 # 项目生成冗余计数同步（与剧本生成同口径）
                 project = await ProjectRepository(db).get(project_id)
@@ -505,7 +525,9 @@ class ArtGenerationService:
                     }
                 )
             except Exception as inner_exc:
-                logger.error(f"[STORY] 立绘取消终态落库失败 task={gen_task_id.hex}: {inner_exc}")
+                logger.error(
+                    f"[STORY] 立绘取消终态落库失败 task={gen_task_id.hex}: {inner_exc}"
+                )
             raise
         except Exception as exc:
             logger.exception(f"[STORY] 立绘生成失败 task={gen_task_id.hex}: {exc}")
@@ -514,10 +536,16 @@ class ArtGenerationService:
             try:
                 async with get_session() as db:
                     if await SessionRepository(db).get(session_id) is None:
-                        logger.info(f"[STORY] 会话已删除，跳过失败消息落库 task={gen_task_id.hex}")
+                        logger.info(
+                            f"[STORY] 会话已删除，跳过失败消息落库 task={gen_task_id.hex}"
+                        )
                     else:
                         message_repo = MessageRepository(db)
-                        art_msg = await message_repo.get(art_message_id) if art_message_id else None
+                        art_msg = (
+                            await message_repo.get(art_message_id)
+                            if art_message_id
+                            else None
+                        )
                         if art_msg is not None:
                             await message_repo.update_fields(
                                 art_msg,
@@ -548,7 +576,9 @@ class ArtGenerationService:
                                 status=ChatMessageStatus.FAILED.value,
                                 error=str(exc)[:500],
                                 params={
-                                    "card_message_id": card_message_id.hex if card_message_id else None,
+                                    "card_message_id": (
+                                        card_message_id.hex if card_message_id else None
+                                    ),
                                     "generation_task_id": gen_task_id.hex,
                                     "source": "ai",
                                 },

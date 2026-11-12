@@ -558,4 +558,3 @@ class DrawCompletionService:
                 )
             await session.commit()
             return version_id
-

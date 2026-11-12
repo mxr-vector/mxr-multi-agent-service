@@ -12,7 +12,8 @@ from utils.user_context import get_user_context, require_admin
 # 创建路由（dict-types 与 dict-data 两组端点共用一个模块级 router）
 # 读接口开放给全体已登录用户（供前端全局词典与下拉框消费）；写与删除接口施加 require_admin 校验
 router = APIRouter(
-    prefix="/system", tags=["OpenAPI - 系统字典管理"],
+    prefix="/system",
+    tags=["OpenAPI - 系统字典管理"],
     dependencies=[Depends(get_user_context)],
 )
 
@@ -155,7 +156,9 @@ async def list_dict_data(
 
 @router.get("/dict-data/all")
 async def get_all_dict_data_map(
-    status: Optional[str] = Query(default=RecordStatus.ACTIVE, description="按状态精确过滤，缺省仅返回启用项"),
+    status: Optional[str] = Query(
+        default=RecordStatus.ACTIVE, description="按状态精确过滤，缺省仅返回启用项"
+    ),
 ):
     """按字典类型分组聚合返回全部字典项（{ [dict_type]: items[] }），供前端全局词典一次性加载。"""
     data = await _data_service.get_all_map(status=status or "")

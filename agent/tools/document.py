@@ -11,8 +11,8 @@ RAG 混合检索入口（模型调用）。
   扇出后合并，未选库时的缺省范围（当前用户部门可见的全部知识库）由调用方
   在进图前解析为 id 列表（见 service.rag.knowledge_base
   .KnowledgeBaseService.list_visible_ids）；
-- 联网搜索由 use_web_search 方法级开关显式触发（见 web_search_retrieve，
-  暂未实现），与"知识库缺省"语义彻底解绑；
+- 联网搜索由 use_web_search 方法级开关显式触发（工具实现见
+  agent.tools.rag_tools.web_search_impl，暂为占位），与"知识库缺省"语义彻底解绑；
 - 不再返回拼接字符串，而是返回结构化候选
   `{point_id, knowledge_base_id, text, source, score, chapter_title,
   document_id, chunk_id, page_start, page_end}`，其中 point_id / knowledge_base_id /
@@ -38,11 +38,6 @@ _FANOUT_MAX_WORKERS = 8
 _FANOUT_EXECUTOR = ThreadPoolExecutor(
     max_workers=_FANOUT_MAX_WORKERS, thread_name_prefix="rag-fanout"
 )
-
-
-def web_search_retrieve(query: str, pool_size: Optional[int] = None) -> List[dict]:
-    """联网搜索检索：由调用方经 use_web_search 方法级开关显式触发（暂未实现）。"""
-    raise NotImplementedError("websearch 检索暂未实现")
 
 
 def hybrid_retrieve(

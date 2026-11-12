@@ -36,16 +36,13 @@ from database.rag.knowledge_base import KnowledgeBaseRepository
 from entity.rag.chat import ChatSession
 from exception.bad_except import bad_except
 from service.rag.knowledge_base import KnowledgeBaseService
-from utils.env import ENV
 from utils.logger import logger
 from utils.page import PageResult, build_page_result
 from utils.stream_runtime import GenerationTaskRegistry, sse_frame, spawn_side_task
 from utils.user_context import UserContext
 
 # 会话级在途生成任务注册表（占位式互斥，公共实现见 utils/stream_runtime.py）
-_generation_registry = GenerationTaskRegistry(
-    "上一条回答尚未完成，请稍候或先停止生成"
-)
+_generation_registry = GenerationTaskRegistry("上一条回答尚未完成，请稍候或先停止生成")
 
 # 标题摘要生成超时（秒），超时回落首问截断
 _TITLE_TIMEOUT_SECONDS = 15

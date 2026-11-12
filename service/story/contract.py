@@ -17,8 +17,25 @@ CARDS_BEGIN = "<<<STORY_CARDS>>>"
 CARDS_END = "<<<END_STORY_CARDS>>>"
 
 # 卡片字段白名单与角色类型取值域
-_CARD_FIELDS = ("name", "role_type", "profile", "visual_profile", "appearance_prompt", "art_prompt", "negative_prompt")
-_ROLE_TYPES = {"protagonist", "supporting", "antagonist", "npc", "other", "scenery", "building", "landscape"}
+_CARD_FIELDS = (
+    "name",
+    "role_type",
+    "profile",
+    "visual_profile",
+    "appearance_prompt",
+    "art_prompt",
+    "negative_prompt",
+)
+_ROLE_TYPES = {
+    "protagonist",
+    "supporting",
+    "antagonist",
+    "npc",
+    "other",
+    "scenery",
+    "building",
+    "landscape",
+}
 _MAX_CARDS = 8
 
 # 尾逗号（对象/数组最后一项后）；多逗号（`,,`）单独坍缩
@@ -65,12 +82,14 @@ def _extract_keyframes_from_script(script_text: str) -> list[dict]:
         camera_desc = (m[4] or "").strip() or None
         raw_desc = (m[5] or "").strip()
         prompt = f"{camera_desc}，{raw_desc}" if camera_desc else raw_desc
-        results.append({
-            "scene_no": scene_no,
-            "shot_no": shot_no,
-            "name": f"镜头 {scene_no}-{shot_no}",
-            "prompt": prompt or f"分镜镜头 {scene_no}-{shot_no}",
-        })
+        results.append(
+            {
+                "scene_no": scene_no,
+                "shot_no": shot_no,
+                "name": f"镜头 {scene_no}-{shot_no}",
+                "prompt": prompt or f"分镜镜头 {scene_no}-{shot_no}",
+            }
+        )
     return results[:_MAX_KEYFRAMES]
 
 
@@ -158,37 +177,187 @@ def classify_entity_type(
         # 进一步按名称和细节微调是建筑空间还是自然风光
         text_check = f"{name} {appearance}"
         building_hints = (
-            "城", "楼", "阁", "殿", "寺", "庙", "塔", "桥", "馆", "府", "院", "庄",
-            "亭", "台", "轩", "榭", "宫", "房", "坞", "门", "寨", "站", "基地", "空间站",
-            "穹顶", "大厦", "建筑", "街道", "街区", "地下街", "长廊", "遗迹", "舱室", "市集"
+            "城",
+            "楼",
+            "阁",
+            "殿",
+            "寺",
+            "庙",
+            "塔",
+            "桥",
+            "馆",
+            "府",
+            "院",
+            "庄",
+            "亭",
+            "台",
+            "轩",
+            "榭",
+            "宫",
+            "房",
+            "坞",
+            "门",
+            "寨",
+            "站",
+            "基地",
+            "空间站",
+            "穹顶",
+            "大厦",
+            "建筑",
+            "街道",
+            "街区",
+            "地下街",
+            "长廊",
+            "遗迹",
+            "舱室",
+            "市集",
         )
         if any(h in text_check for h in building_hints):
             return "building"
         return "scenery"
     if role_type in ("protagonist", "supporting", "antagonist", "npc"):
         # 如果明确标注为人物类型，且名称不含明显非生物建筑/山水地貌，判定为人物
-        non_human = ("城", "天空之城", "殿", "寺", "庙", "塔", "桥", "空间站", "古刹", "雪山", "星空", "残阳")
+        non_human = (
+            "城",
+            "天空之城",
+            "殿",
+            "寺",
+            "庙",
+            "塔",
+            "桥",
+            "空间站",
+            "古刹",
+            "雪山",
+            "星空",
+            "残阳",
+        )
         if not any(h in name for h in non_human):
             return "character"
 
     text = f"{name} {appearance} {' '.join(str(v) for v in (profile or {}).values())} {' '.join(str(v) for v in (visual_profile or {}).values())}"
 
     building_keywords = (
-        "城", "天空之城", "楼", "阁", "殿", "寺", "庙", "塔", "桥", "馆", "府", "院", "庄",
-        "亭", "台", "轩", "榭", "宫", "房", "坞", "门", "寨", "站", "基地", "空间站", "穹顶",
-        "大厦", "城堡", "宫殿", "古刹", "庭院", "建筑", "街道", "街区", "地下街", "广场", "遗迹",
-        "渡口", "飞檐", "斗拱", "长廊", "舱室", "市集", "室内", "车厢"
+        "城",
+        "天空之城",
+        "楼",
+        "阁",
+        "殿",
+        "寺",
+        "庙",
+        "塔",
+        "桥",
+        "馆",
+        "府",
+        "院",
+        "庄",
+        "亭",
+        "台",
+        "轩",
+        "榭",
+        "宫",
+        "房",
+        "坞",
+        "门",
+        "寨",
+        "站",
+        "基地",
+        "空间站",
+        "穹顶",
+        "大厦",
+        "城堡",
+        "宫殿",
+        "古刹",
+        "庭院",
+        "建筑",
+        "街道",
+        "街区",
+        "地下街",
+        "广场",
+        "遗迹",
+        "渡口",
+        "飞檐",
+        "斗拱",
+        "长廊",
+        "舱室",
+        "市集",
+        "室内",
+        "车厢",
     )
     landscape_keywords = (
-        "湖", "山", "海", "江", "河", "溪", "瀑", "森林", "丛林", "树林", "林海", "竹林",
-        "草原", "峡谷", "雪山", "雪原", "云海", "晨曦", "暮色", "残阳", "星河", "星空", "极光",
-        "烟雨", "风景", "自然", "景观", "景致", "意境", "四季", "荒漠", "沙漠", "海岛", "原野",
-        "水波", "断桥残雪", "雨景", "雪景", "雾气", "旷野"
+        "湖",
+        "山",
+        "海",
+        "江",
+        "河",
+        "溪",
+        "瀑",
+        "森林",
+        "丛林",
+        "树林",
+        "林海",
+        "竹林",
+        "草原",
+        "峡谷",
+        "雪山",
+        "雪原",
+        "云海",
+        "晨曦",
+        "暮色",
+        "残阳",
+        "星河",
+        "星空",
+        "极光",
+        "烟雨",
+        "风景",
+        "自然",
+        "景观",
+        "景致",
+        "意境",
+        "四季",
+        "荒漠",
+        "沙漠",
+        "海岛",
+        "原野",
+        "水波",
+        "断桥残雪",
+        "雨景",
+        "雪景",
+        "雾气",
+        "旷野",
     )
     person_keywords = (
-        "主角", "配角", "反派", "少年", "少女", "男子", "女子", "青年", "老者", "老人", "将军",
-        "侠客", "书生", "皇帝", "刺客", "警官", "侦探", "医生", "五官", "发型", "身材", "长相",
-        "面容", "衣着", "服饰", "体态", "样貌", "神态", "眼神", "面部", "站姿", "肢体"
+        "主角",
+        "配角",
+        "反派",
+        "少年",
+        "少女",
+        "男子",
+        "女子",
+        "青年",
+        "老者",
+        "老人",
+        "将军",
+        "侠客",
+        "书生",
+        "皇帝",
+        "刺客",
+        "警官",
+        "侦探",
+        "医生",
+        "五官",
+        "发型",
+        "身材",
+        "长相",
+        "面容",
+        "衣着",
+        "服饰",
+        "体态",
+        "样貌",
+        "神态",
+        "眼神",
+        "面部",
+        "站姿",
+        "肢体",
     )
 
     b_score = sum(1 for kw in building_keywords if kw in text)
@@ -196,9 +365,39 @@ def classify_entity_type(
     p_score = sum(1 for kw in person_keywords if kw in text)
 
     # 实体名具有极高权重
-    if any(kw in name for kw in ("城", "天空之城", "楼", "阁", "殿", "寺", "塔", "桥", "大厦", "空间站", "宫", "街区")):
+    if any(
+        kw in name
+        for kw in (
+            "城",
+            "天空之城",
+            "楼",
+            "阁",
+            "殿",
+            "寺",
+            "塔",
+            "桥",
+            "大厦",
+            "空间站",
+            "宫",
+            "街区",
+        )
+    ):
         b_score += 4
-    if any(kw in name for kw in ("湖", "海", "江", "河", "雪原", "星空", "烟雨", "风景", "残阳", "晨曦")):
+    if any(
+        kw in name
+        for kw in (
+            "湖",
+            "海",
+            "江",
+            "河",
+            "雪原",
+            "星空",
+            "烟雨",
+            "风景",
+            "残阳",
+            "晨曦",
+        )
+    ):
         l_score += 4
 
     if b_score > 0 and b_score >= p_score and b_score >= l_score:
@@ -218,8 +417,10 @@ def build_entity_art_prompt(
     role_type: str | None = None,
 ) -> tuple[str, str, str]:
     """根据实体类型（人物、建筑、风景）生成规范的 16:9 出图提示词与负向词，返回 (art_prompt, negative_prompt, role_type)。"""
-    entity_type = classify_entity_type(name, appearance, profile, visual_profile, role_type)
-    
+    entity_type = classify_entity_type(
+        name, appearance, profile, visual_profile, role_type
+    )
+
     if entity_type == "building":
         assigned_role = role_type if role_type in ("building", "scenery") else "scenery"
         app_text = appearance or f"{name}空间规制与建筑材质细节"
@@ -236,7 +437,9 @@ def build_entity_art_prompt(
         return art_prompt, negative_prompt, assigned_role
 
     elif entity_type == "scenery":
-        assigned_role = role_type if role_type in ("landscape", "scenery") else "scenery"
+        assigned_role = (
+            role_type if role_type in ("landscape", "scenery") else "scenery"
+        )
         app_text = appearance or f"{name}自然意境与光影流转细节"
         art_prompt = (
             f"16:9比例画面，超写实自然风景与意境概念设定图，多视角排版设计。"
@@ -290,9 +493,19 @@ def _normalize_card(item) -> dict | None:
     negative_prompt = _as_str(item.get("negative_prompt"))
 
     # 如果缺少出图提示词，或提示词与建筑/风景类型错位（如建筑实体被套用了人物四视图），自动纠偏重构
-    entity_type = classify_entity_type(name, appearance_prompt or "", profile, visual_profile, role_type)
+    entity_type = classify_entity_type(
+        name, appearance_prompt or "", profile, visual_profile, role_type
+    )
     if entity_type in ("building", "scenery"):
-        if not art_prompt or any(hp in art_prompt for hp in ("角色立绘四视图", "半身大头照", "五官轮廓", "全身正面、全身侧面、全身背面")):
+        if not art_prompt or any(
+            hp in art_prompt
+            for hp in (
+                "角色立绘四视图",
+                "半身大头照",
+                "五官轮廓",
+                "全身正面、全身侧面、全身背面",
+            )
+        ):
             art_prompt, default_neg, inferred_role = build_entity_art_prompt(
                 name, appearance_prompt or "", profile, visual_profile, role_type
             )
@@ -344,7 +557,19 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
         block = block.strip()
         if not block:
             continue
-        if any(h in block for h in ("人物小传", "主要角色", "角色设定", "视觉亮点与空间设计", "场景变换大纲")) and len(block) < 30:
+        if (
+            any(
+                h in block
+                for h in (
+                    "人物小传",
+                    "主要角色",
+                    "角色设定",
+                    "视觉亮点与空间设计",
+                    "场景变换大纲",
+                )
+            )
+            and len(block) < 30
+        ):
             continue
 
         first_line = block.split("\n")[0].strip("*# -")
@@ -357,7 +582,9 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
             if m2:
                 raw = m2.group(1).strip()
                 if re.match(r"^(?:角色|景物|建筑)?\d+$", raw):
-                    sub = re.search(r"(?:角色|景物|建筑)?\d+[·\s]+([^\s（(【】]+)", first_line)
+                    sub = re.search(
+                        r"(?:角色|景物|建筑)?\d+[·\s]+([^\s（(【】]+)", first_line
+                    )
                     if sub:
                         name = sub.group(1).strip()
                 else:
@@ -366,7 +593,18 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
                 m3 = re.search(r"^(?:\d+[\.、]\s*)?([^\s:：（(]+)", first_line)
                 if m3:
                     cand = m3.group(1).strip()
-                    if cand not in ("四", "人物小传", "角色", "主要角色", "一", "二", "三", "五", "六", "视觉亮点与空间设计"):
+                    if cand not in (
+                        "四",
+                        "人物小传",
+                        "角色",
+                        "主要角色",
+                        "一",
+                        "二",
+                        "三",
+                        "五",
+                        "六",
+                        "视觉亮点与空间设计",
+                    ):
                         name = cand
 
         if not name or len(name) > 15:
@@ -383,26 +621,61 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
 
         for line in lines:
             line = line.strip("* -")
-            if not line or line.startswith(("#", "四、", "一、", "二、", "三、", "五、", "六、")):
+            if not line or line.startswith(
+                ("#", "四、", "一、", "二、", "三、", "五、", "六、")
+            ):
                 continue
-            if any(h in line for h in ("视觉亮点与空间设计", "空间设计", "场景设计", "人物小传")):
+            if any(
+                h in line
+                for h in ("视觉亮点与空间设计", "空间设计", "场景设计", "人物小传")
+            ):
                 continue
             if "：" in line or ":" in line:
                 parts = re.split(r"[：:]", line, maxsplit=1)
                 k = parts[0].strip()
                 v = parts[1].strip() if len(parts) > 1 else ""
-                if any(vk in k for vk in ("视觉", "外貌", "外观", "形象", "服饰", "体态", "样貌", "空间", "材质", "环境")):
+                if any(
+                    vk in k
+                    for vk in (
+                        "视觉",
+                        "外貌",
+                        "外观",
+                        "形象",
+                        "服饰",
+                        "体态",
+                        "样貌",
+                        "空间",
+                        "材质",
+                        "环境",
+                    )
+                ):
                     visual_profile[k] = v
                     appearance_parts.append(v)
                 else:
                     profile[k] = v
-            elif any(vk in line for vk in ("视觉", "长相", "身材", "穿着", "面容", "空间", "材质", "建筑")):
+            elif any(
+                vk in line
+                for vk in (
+                    "视觉",
+                    "长相",
+                    "身材",
+                    "穿着",
+                    "面容",
+                    "空间",
+                    "材质",
+                    "建筑",
+                )
+            ):
                 appearance_parts.append(line)
 
         appearance = "，".join(appearance_parts)
         idx = len(characters)
         default_role = "protagonist" if idx in (0, 1) else "supporting"
-        if any(ant in str(profile.get("核心标签", "")) or ant in str(profile.get("身份背景", "")) for ant in ("反派", "敌对", "反角")):
+        if any(
+            ant in str(profile.get("核心标签", ""))
+            or ant in str(profile.get("身份背景", ""))
+            for ant in ("反派", "敌对", "反角")
+        ):
             default_role = "antagonist"
 
         art_prompt, negative_prompt, role_type = build_entity_art_prompt(
@@ -413,15 +686,17 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
             role_type=default_role,
         )
 
-        characters.append({
-            "name": name,
-            "role_type": role_type,
-            "profile": profile,
-            "visual_profile": visual_profile,
-            "appearance_prompt": appearance or f"{name}视觉特征描述",
-            "art_prompt": art_prompt,
-            "negative_prompt": negative_prompt,
-        })
+        characters.append(
+            {
+                "name": name,
+                "role_type": role_type,
+                "profile": profile,
+                "visual_profile": visual_profile,
+                "appearance_prompt": appearance or f"{name}视觉特征描述",
+                "art_prompt": art_prompt,
+                "negative_prompt": negative_prompt,
+            }
+        )
 
     # 若未能从小传解析出角色，尝试从出场人物或正文锚点提取
     if not characters:
@@ -433,24 +708,32 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
                 if m:
                     cand_name = m.group(1).strip("【】*· ")
                     cand_name = re.sub(r"[（(][^）)]*[）)]", "", cand_name).strip()
-                    if cand_name and cand_name not in seen_names and len(cand_name) <= 10:
+                    if (
+                        cand_name
+                        and cand_name not in seen_names
+                        and len(cand_name) <= 10
+                    ):
                         seen_names.add(cand_name)
                         art_prompt, neg_prompt, r_type = build_entity_art_prompt(
                             cand_name,
                             role_type="protagonist" if not characters else "supporting",
                         )
-                        characters.append({
-                            "name": cand_name,
-                            "role_type": r_type,
-                            "profile": {},
-                            "visual_profile": {},
-                            "appearance_prompt": f"{cand_name}形象特写与外观细节",
-                            "art_prompt": art_prompt,
-                            "negative_prompt": neg_prompt,
-                        })
+                        characters.append(
+                            {
+                                "name": cand_name,
+                                "role_type": r_type,
+                                "profile": {},
+                                "visual_profile": {},
+                                "appearance_prompt": f"{cand_name}形象特写与外观细节",
+                                "art_prompt": art_prompt,
+                                "negative_prompt": neg_prompt,
+                            }
+                        )
 
     if not characters:
-        matches = re.findall(r"【(?:角色|景物|建筑)?\d*[·\s]+([^\s（(【】·]+)】", script_text)
+        matches = re.findall(
+            r"【(?:角色|景物|建筑)?\d*[·\s]+([^\s（(【】·]+)】", script_text
+        )
         for cand_name in matches:
             cand_name = cand_name.strip("【】*· ")
             cand_name = re.sub(r"[（(][^）)]*[）)]", "", cand_name).strip()
@@ -460,15 +743,17 @@ def extract_characters_from_script(script_text: str) -> list[dict]:
                     cand_name,
                     role_type="protagonist" if not characters else "supporting",
                 )
-                characters.append({
-                    "name": cand_name,
-                    "role_type": r_type,
-                    "profile": {},
-                    "visual_profile": {},
-                    "appearance_prompt": f"{cand_name}形象特写与外观细节",
-                    "art_prompt": art_prompt,
-                    "negative_prompt": neg_prompt,
-                })
+                characters.append(
+                    {
+                        "name": cand_name,
+                        "role_type": r_type,
+                        "profile": {},
+                        "visual_profile": {},
+                        "appearance_prompt": f"{cand_name}形象特写与外观细节",
+                        "art_prompt": art_prompt,
+                        "negative_prompt": neg_prompt,
+                    }
+                )
 
     return characters[:_MAX_CARDS]
 
@@ -616,7 +901,9 @@ def split_dual_track(full_text: str) -> DualTrack:
         )
     script_text = full_text[:begin_index].rstrip()
     end_index = full_text.find(CARDS_END, begin_index + len(CARDS_BEGIN))
-    raw = full_text[begin_index + len(CARDS_BEGIN) : end_index if end_index > 0 else None]
+    raw = full_text[
+        begin_index + len(CARDS_BEGIN) : end_index if end_index > 0 else None
+    ]
     payload = _loads_tolerant(raw)
     if not isinstance(payload, dict):
         keyframes = _extract_keyframes_from_script(script_text)

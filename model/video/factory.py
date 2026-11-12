@@ -211,7 +211,7 @@ def _first_frame_mode(extra: dict, override: str | None) -> str:
     MaaS 自定义别名无法从名字判断时，可在 video 角色 extra 显式配置
     `"first_frame_mode": "media" | "img_url"`。
     """
-    mode = (override or extra.get("first_frame_mode") or "auto")
+    mode = override or extra.get("first_frame_mode") or "auto"
     mode = str(mode).strip().lower()
     if mode in ("media", "img_url"):
         return mode
@@ -287,7 +287,11 @@ def _submit_openai(
 
     url = f"{_openai_base_address(CFG.video.api_url)}/videos/generations"
     data = _openai_request("POST", url, json_body=payload)
-    task_id = data.get("id") or data.get("task_id") or (data.get("output") or {}).get("task_id")
+    task_id = (
+        data.get("id")
+        or data.get("task_id")
+        or (data.get("output") or {}).get("task_id")
+    )
     if not task_id:
         raise VideoApiError(f"视频生成任务提交成功但未返回任务 id: {data}")
     return str(task_id)
@@ -324,9 +328,7 @@ def _submit_dashscope(
             media: list[dict] = []
             if frame_url:
                 media.append({"type": "first_frame", "url": frame_url})
-            media.extend(
-                {"type": "reference_image", "url": url} for url in images
-            )
+            media.extend({"type": "reference_image", "url": url} for url in images)
             optional["media"] = media
         else:
             if frame_url:
@@ -465,7 +467,9 @@ def _extract_gateway_video_url(data: dict) -> str:
 
 
 def _map_gateway_status(raw: str) -> str:
-    return _OPENAI_STATUS_MAP.get((raw or "").strip().lower(), (raw or "").upper() or "UNKNOWN")
+    return _OPENAI_STATUS_MAP.get(
+        (raw or "").strip().lower(), (raw or "").upper() or "UNKNOWN"
+    )
 
 
 def _openai_request(
@@ -519,7 +523,9 @@ def _get_openai_task(task_id: str) -> dict:
     error = data.get("error") if isinstance(data.get("error"), dict) else {}
     return {
         "task_id": str(data.get("id") or data.get("task_id") or task_id),
-        "task_status": _map_gateway_status(str(data.get("status") or data.get("task_status") or "")),
+        "task_status": _map_gateway_status(
+            str(data.get("status") or data.get("task_status") or "")
+        ),
         "video_url": _extract_gateway_video_url(data),
         "code": data.get("code") or error.get("code"),
         "message": data.get("message") or error.get("message"),
@@ -563,9 +569,7 @@ def cancel_remote_video(task_id: str) -> bool:
             _openai_request("DELETE", url)
             logger.info(f"[VIDEO] 上游任务已取消: task_id={task_id}")
             return True
-        resp = BaseAsyncApi.cancel(
-            task_id, **_request_kwargs(include_timeout=False)
-        )
+        resp = BaseAsyncApi.cancel(task_id, **_request_kwargs(include_timeout=False))
         if resp.status_code != HTTPStatus.OK:
             logger.warning(
                 f"[VIDEO] 上游任务取消失败: task_id={task_id}, "

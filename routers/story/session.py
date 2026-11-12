@@ -45,9 +45,7 @@ async def list_sessions(
     ctx: UserContext = Depends(get_user_context),
 ):
     """分页列出项目下生成会话，最近活跃倒序。"""
-    return R.success(
-        data=await _session_service.list(ctx, project_id, page, size)
-    )
+    return R.success(data=await _session_service.list(ctx, project_id, page, size))
 
 
 @router.get("/projects/{project_id}/sessions/latest")
@@ -76,9 +74,7 @@ async def list_session_messages(
     ctx: UserContext = Depends(get_user_context),
 ):
     """会话消息历史（仅属主可见），按 sequence 升序分页。"""
-    return R.success(
-        data=await _session_service.messages(ctx, session_id, page, size)
-    )
+    return R.success(data=await _session_service.messages(ctx, session_id, page, size))
 
 
 @router.delete("/sessions/{session_id}")

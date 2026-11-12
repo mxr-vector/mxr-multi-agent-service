@@ -19,7 +19,9 @@ class RerankProvider(str, Enum):
             return cls(raw.strip().lower())
         except ValueError:
             valid = ", ".join(p.value for p in cls)
-            raise ValueError(f"无效的 RERANK_PROVIDER: {raw!r}，合法值为: {valid}")
+            raise ValueError(
+                f"无效的 RERANK_PROVIDER: {raw!r}，合法值为: {valid}"
+            ) from None
 
 
 class RerankFactory:

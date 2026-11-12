@@ -24,7 +24,7 @@ tool calling 自主决定何时检索、检索几次（见 agent.graph.chat_grap
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, List, Literal, Optional
+from typing import List, Literal, Optional
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -115,11 +115,9 @@ async def _context_sufficient(question: str, context: str, compressor) -> bool:
     只构造一次，避免反思循环每轮重造）。
     """
     prompt = REFLECT_PROMPT.format(question=question, context=context)
-    verdict = (
-        await compressor.with_structured_output(
-            SufficiencyGrade, method="function_calling"
-        ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
-    )
+    verdict = await compressor.with_structured_output(
+        SufficiencyGrade, method="function_calling"
+    ).ainvoke([{"role": MessageRole.USER.value, "content": prompt}])
     return verdict.binary_score == GradeScore.YES.value
 
 
@@ -178,9 +176,7 @@ async def _load_entity_bundles(kb_ids: List[uuid.UUID]) -> list:
 
         # 各库加载相互独立且底层已做 per-KB 锁：并发加载，避免多库扇出时
         # 2N 条全量查询串行往返（缓存命中时 gather 开销可忽略）
-        bundles = await asyncio.gather(
-            *(load_entity_bundle(kb_id) for kb_id in kb_ids)
-        )
+        bundles = await asyncio.gather(*(load_entity_bundle(kb_id) for kb_id in kb_ids))
         return [bundle for bundle in bundles if bundle is not None]
     except Exception as exc:
         logger.warning(f"[RAG-TOOL] 实体索引加载失败，静默降级: {exc}")
@@ -256,14 +252,16 @@ async def _run_multihop(
                 (
                     index,
                     hop_query,
-                    _retrieve_hop(hop_query.query, kb_ids, hop_pool_size, merge_pool_size),
+                    _retrieve_hop(
+                        hop_query.query, kb_ids, hop_pool_size, merge_pool_size
+                    ),
                 )
             )
         # return_exceptions=True：单跳失败降级记录，不阻断其余跳与 hop0 候选
         outcomes = await asyncio.gather(
             *(task for _, _, task in hop_tasks), return_exceptions=True
         )
-        for (index, hop_query, _), outcome in zip(hop_tasks, outcomes):
+        for (index, hop_query, _), outcome in zip(hop_tasks, outcomes, strict=True):
             hop_queries.append(
                 {
                     "hop": index,
@@ -289,9 +287,7 @@ async def _run_multihop(
                 continue
             pool_ids, docs = outcome
             hop_pools[index] = pool_ids
-            hop_results.append(
-                HopResult(hop=index, query=hop_query.query, docs=docs)
-            )
+            hop_results.append(HopResult(hop=index, query=hop_query.query, docs=docs))
 
     pool, merge_meta = collect_hop_pool(hop_results, merge_pool_size)
     # 终排：合并池对原问题统一重排（各跳 rerank 分数跨跳不可比，
@@ -408,7 +404,9 @@ async def knowledge_base_search_impl(
         # 上下文充分或已达到最大检索轮数上限：跳出反思循环进入重排序
         if navigation_guided or reflect_rounds >= CFG.rag_reflect_round_cap:
             break
-        if await _context_sufficient(evidence_query, _join_context(retrieved), compressor):
+        if await _context_sufficient(
+            evidence_query, _join_context(retrieved), compressor
+        ):
             break
         # 上下文不足且仍在轮数内：扩展/改写查询后回到检索
         current_query = await _rewrite_query(evidence_query, compressor)
@@ -443,17 +441,6 @@ async def web_search_impl(query: str, top_k: Optional[int] = None) -> ToolOutcom
         docs=[],
         metrics={"reflect_rounds": 0, "retrieved_count": 0, "reranked_count": 0},
     )
-
-
-def build_navigation_query(query: str, navigation: List[dict] | None) -> str:
-    """Return the evidence query unchanged.
-
-    Kept as a compatibility helper for offline callers.  Wiki pages are
-    planning context, not query text: concatenating generic topic summaries
-    can displace the question's lexical and semantic signal in the candidate
-    pool.  Runtime callers pass the page list through ``navigation`` instead.
-    """
-    return str(query or "").strip()
 
 
 async def kb_wiki_lookup_impl(

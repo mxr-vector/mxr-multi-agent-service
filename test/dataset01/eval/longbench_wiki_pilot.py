@@ -14,7 +14,6 @@ import json
 import random
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from common import RESULTS_DIR, ensure_cfg_async, save_json
 from dual_retrieval import get_eval_session

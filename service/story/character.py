@@ -70,9 +70,6 @@ ART_TYPES = {
     "other",
 }
 
-# 必备参考图类型（角色详情页完整性提示用：一体化设定图或分立三视图与正面半身）
-REQUIRED_ART_TYPES = ("character_sheet", "turnaround", "front_bust")
-
 
 def _assert_user_channel(ctx) -> None:
     """角色库仅支持用户通道调用（机器通道无属主概念）。"""
@@ -509,9 +506,7 @@ class CastingService:
             await session.commit()
             return character.to_dict()
 
-    async def list_script_characters(
-        self, ctx, project_id: uuid.UUID
-    ) -> "list[dict]":
+    async def list_script_characters(self, ctx, project_id: uuid.UUID) -> "list[dict]":
         """解析当前剧本中的角色名，供项目角色配置选择与绑定。"""
         _assert_user_channel(ctx)
         async with get_session() as session:

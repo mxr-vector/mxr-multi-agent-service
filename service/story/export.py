@@ -14,7 +14,6 @@ import json
 import re
 import uuid
 import zipfile
-from pathlib import Path
 
 from uuid_utils.compat import uuid7
 
@@ -109,7 +108,9 @@ class ExportService:
                 sort_order_map = {row.asset_id: row.sort_order for row in kf_sel_rows}
             else:
                 # 若未在编排表中单独挑选，默认导出项目下全部未归档关键帧（按章节/场景/镜头排序）
-                all_kfs, _ = await kf_repo.list_by_project(project_id, page=1, size=1000)
+                all_kfs, _ = await kf_repo.list_by_project(
+                    project_id, page=1, size=1000
+                )
                 active_kfs = [
                     kf for kf in all_kfs if kf.status != StoryKeyframeStatus.ARCHIVED
                 ]
@@ -300,7 +301,6 @@ class ExportService:
                 ]
                 if active_kfs:
                     kf_ids = [kf.id for kf in active_kfs]
-                    keyframes_map = await kf_repo.get_many(set(kf_ids))
                     kfc_rows = await kfc_repo.list_by_keyframes(kf_ids)
                     kfc_characters = await char_repo.get_many(
                         {row.character_id for row in kfc_rows}
@@ -324,7 +324,9 @@ class ExportService:
                 asset_repo = ProjectAssetRepository(session)
                 char_repo = CharacterRepository(session)
                 art_repo = CharacterArtRepository(session)
-                cast_rows = await asset_repo.list_by_type(package.project_id, "character")
+                cast_rows = await asset_repo.list_by_type(
+                    package.project_id, "character"
+                )
                 cast_char_ids = {row.asset_id for row in cast_rows}
                 if not cast_char_ids and payload.get("keyframes"):
                     for kf in payload["keyframes"]:
@@ -344,7 +346,11 @@ class ExportService:
                             cd = ch.to_dict()
                             arts = cast_arts.get(ch.id, [])
                             chosen = (
-                                [art for art in arts if art.art_type == "character_sheet"]
+                                [
+                                    art
+                                    for art in arts
+                                    if art.art_type == "character_sheet"
+                                ]
                                 or [art for art in arts if art.is_primary]
                                 or (arts[:1] if arts else [])
                             )
@@ -405,7 +411,9 @@ class ExportService:
                 char_overview_lines.append(f"## {idx}. {char.get('name') or '未命名'}")
                 char_overview_lines.append(f"- 角色类型：{role_type}")
                 if char.get("appearance_prompt"):
-                    char_overview_lines.append(f"- 外观描述：{char['appearance_prompt']}")
+                    char_overview_lines.append(
+                        f"- 外观描述：{char['appearance_prompt']}"
+                    )
                 if char.get("profile"):
                     profile_str = (
                         char["profile"]
@@ -469,7 +477,9 @@ class ExportService:
                         abs_path = resolve_upload_path(char["avatar_file"])
                         if abs_path.is_file():
                             ext = abs_path.suffix or ".png"
-                            zf.writestr(f"{char_dir}/01_头像{ext}", abs_path.read_bytes())
+                            zf.writestr(
+                                f"{char_dir}/01_头像{ext}", abs_path.read_bytes()
+                            )
                     except Exception as e:
                         logger.warning(
                             f"导出包添加角色头像失败: {char['avatar_file']}: {e}"

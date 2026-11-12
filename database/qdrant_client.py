@@ -201,7 +201,9 @@ class QdrantManager:
 
         points = [
             PointStruct(id=pid, vector=list(vec), payload=payload)
-            for pid, vec, payload in zip(point_ids, vectors, point_payloads)
+            for pid, vec, payload in zip(
+                point_ids, vectors, point_payloads, strict=True
+            )
         ]
         self.client.upsert(collection_name=self.collection, points=points)
         logger.info(f"[Qdrant] 写入 {len(points)} 条向量到集合: {self.collection}")

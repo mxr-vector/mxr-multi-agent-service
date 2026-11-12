@@ -64,9 +64,7 @@ class GenerationTaskRegistry:
     def in_flight(self, session_hex: str) -> bool:
         """是否有未结束的在途任务（含占位哨兵；供删除守卫等只读检查）。"""
         existing = self._tasks.get(session_hex)
-        return existing is not None and (
-            existing is _RESERVED or not existing.done()
-        )
+        return existing is not None and (existing is _RESERVED or not existing.done())
 
 
 # 旁路后台任务的强引用集合（防 create_task 产物被 GC 提前回收）

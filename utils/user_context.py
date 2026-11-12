@@ -111,7 +111,7 @@ async def get_user_context(request: Request) -> UserContext:
     try:
         user_id = uuid.UUID(payload["user_id"])
     except (KeyError, TypeError, ValueError, AttributeError):
-        raise HTTPException(status_code=401, detail="无效的认证凭据")
+        raise HTTPException(status_code=401, detail="无效的认证凭据") from None
     async with get_session() as session:
         user = await UserRepository(session).get(user_id)
         # 已删除与已禁用（status != 'active'）同文案拒绝：不向调用方暴露

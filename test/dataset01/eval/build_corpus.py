@@ -16,7 +16,6 @@ S1 建库：把农业维基 QA 110K 按维基页面聚合为文档，复用项�
 import argparse
 import asyncio
 import statistics
-import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
@@ -126,7 +125,7 @@ async def ingest_page_document(
 
     leaf_specs: list[dict] = []
     leaf_chunks: list[Chunk] = []
-    for parent_chunk, p in zip(parent_chunks, parents):
+    for parent_chunk, p in zip(parent_chunks, parents, strict=True):
         for c in p["children"]:
             leaf_chunks.append(
                 Chunk(

@@ -19,7 +19,9 @@ from agent.graph.chat_graph import chat_graph
 from core.config_snapshot import CFG
 from service.rag.chat import reset_stale_generating
 from service.draw.diagram import reset_stale_generating as reset_stale_draw_generating
-from service.story.session import reset_stale_generating_messages as reset_stale_story_generating
+from service.story.session import (
+    reset_stale_generating_messages as reset_stale_story_generating,
+)
 from service.rag.document import DocumentService
 from utils.logger import logger
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
     # 配置快照加载（fail-fast）：模型配置与运行参数的运行期事实源，
     # 必须先于图节点/工厂的首次使用；缺配置或校验失败即抛异常拒绝启动
     await CFG.load()
+
     # 启动清扫 + 持久化装配：以下任务相互独立，并发执行缩短冷启动
     # （checkpointer open 最多等 30s，串行时冷启动时间为各项之和）。
     # 失败语义逐项保留：reset_stale_reindexing 失败仍 fail-fast 拒绝启动，

@@ -58,15 +58,36 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             skill_dir="seedance-storyboard-generator",
             aspect_ratios=("16:9", "9:16", "4:3"),
             readable_files=(
-                ("SKILL.md", "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）"),
-                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：无剧情/无人物风光流转、空镜光影、场景流转分镜与关键帧出图规则（意境景色任务必读）"),
-                ("references/人物特写与三视图立绘设计规范.md", "16:9 人物立绘专门技能规范：半身大头照主视图+三张侧式图排版结构、五大模块公式与同一人物一致性法则（角色立绘出图必读）"),
-                ("references/景物与场景建筑立绘设计规范.md", "16:9 景物与场景建筑立绘专门规范：建筑、景物、道具设定图多视角排版、材质细节与无人物光影出图规则（景物立绘生成必读）"),
-                ("references/好剧本.md", "优秀剧本范例（核心梗/故事梗概/一句话卖点的结构示范）"),
-                ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板"),
+                (
+                    "SKILL.md",
+                    "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）",
+                ),
+                (
+                    "references/纯景意境与场景变换设计规范.md",
+                    "纯景意境与场景变换专门规范：无剧情/无人物风光流转、空镜光影、场景流转分镜与关键帧出图规则（意境景色任务必读）",
+                ),
+                (
+                    "references/人物特写与三视图立绘设计规范.md",
+                    "16:9 人物立绘专门技能规范：半身大头照主视图+三张侧式图排版结构、五大模块公式与同一人物一致性法则（角色立绘出图必读）",
+                ),
+                (
+                    "references/景物与场景建筑立绘设计规范.md",
+                    "16:9 景物与场景建筑立绘专门规范：建筑、景物、道具设定图多视角排版、材质细节与无人物光影出图规则（景物立绘生成必读）",
+                ),
+                (
+                    "references/好剧本.md",
+                    "优秀剧本范例（核心梗/故事梗概/一句话卖点的结构示范）",
+                ),
+                (
+                    "references/seedance-manual.md",
+                    "Seedance 2.0 平台手册与分镜提示词模板",
+                ),
                 ("references/分镜优化与声音设计.md", "分镜优化与声音设计进阶指南"),
                 ("references/优化分镜.md", "分镜优化速查"),
-                ("references/故事转视频脚本-转换工具.md", "剧本转视频脚本的转换工具说明"),
+                (
+                    "references/故事转视频脚本-转换工具.md",
+                    "剧本转视频脚本的转换工具说明",
+                ),
             ),
         ),
         StyleEntry(
@@ -77,13 +98,31 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             skill_dir="seedance-storyboard-generator",
             aspect_ratios=("16:9", "9:16", "4:3"),
             readable_files=(
-                ("SKILL.md", "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）"),
-                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：国风山水、水墨空镜与场景变换分镜规则"),
-                ("references/上美影风格指南.md", "风格权威定义：上美影风格块/色盘/造型规范/资产模板（涉国风风格以此为准）"),
-                ("references/人物特写与三视图立绘设计规范.md", "16:9 人物立绘专门技能规范：半身大头照主视图+三张侧式图排版结构、国风造型与五大模块公式（角色立绘出图必读）"),
-                ("references/景物与场景建筑立绘设计规范.md", "16:9 景物与场景建筑立绘专门规范：国风建筑、山水景物、道具设定图多视角排版与材质细节出图规则（景物立绘生成必读）"),
+                (
+                    "SKILL.md",
+                    "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）",
+                ),
+                (
+                    "references/纯景意境与场景变换设计规范.md",
+                    "纯景意境与场景变换专门规范：国风山水、水墨空镜与场景变换分镜规则",
+                ),
+                (
+                    "references/上美影风格指南.md",
+                    "风格权威定义：上美影风格块/色盘/造型规范/资产模板（涉国风风格以此为准）",
+                ),
+                (
+                    "references/人物特写与三视图立绘设计规范.md",
+                    "16:9 人物立绘专门技能规范：半身大头照主视图+三张侧式图排版结构、国风造型与五大模块公式（角色立绘出图必读）",
+                ),
+                (
+                    "references/景物与场景建筑立绘设计规范.md",
+                    "16:9 景物与场景建筑立绘专门规范：国风建筑、山水景物、道具设定图多视角排版与材质细节出图规则（景物立绘生成必读）",
+                ),
                 ("references/上美影原始提示词.txt", "上美影原始提示词素材与实测范例"),
-                ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板（含上美影国风动画模板）"),
+                (
+                    "references/seedance-manual.md",
+                    "Seedance 2.0 平台手册与分镜提示词模板（含上美影国风动画模板）",
+                ),
                 ("references/好剧本.md", "优秀剧本范例"),
             ),
         ),
@@ -94,12 +133,27 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             skill_dir="seedance-storyboard-generator",
             aspect_ratios=("16:9", "9:16", "3:4"),
             readable_files=(
-                ("SKILL.md", "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）"),
-                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：手绘风光、场景变换分镜规则"),
-                ("references/人物特写与三视图立绘设计规范.md", "16:9 人物立绘设计规范与出图公式"),
-                ("references/景物与场景建筑立绘设计规范.md", "16:9 景物与场景建筑立绘设计规范与出图公式（景物立绘生成必读）"),
+                (
+                    "SKILL.md",
+                    "技能主文档：完整工作流、剧本格式规范、人物立绘与关键帧出图提示词规则（生成前必读）",
+                ),
+                (
+                    "references/纯景意境与场景变换设计规范.md",
+                    "纯景意境与场景变换专门规范：手绘风光、场景变换分镜规则",
+                ),
+                (
+                    "references/人物特写与三视图立绘设计规范.md",
+                    "16:9 人物立绘设计规范与出图公式",
+                ),
+                (
+                    "references/景物与场景建筑立绘设计规范.md",
+                    "16:9 景物与场景建筑立绘设计规范与出图公式（景物立绘生成必读）",
+                ),
                 ("references/好剧本.md", "优秀剧本范例"),
-                ("references/seedance-manual.md", "Seedance 2.0 平台手册与分镜提示词模板"),
+                (
+                    "references/seedance-manual.md",
+                    "Seedance 2.0 平台手册与分镜提示词模板",
+                ),
             ),
         ),
         StyleEntry(
@@ -109,11 +163,26 @@ STYLE_REGISTRY: dict[str, StyleEntry] = {
             skill_dir="seedance-storyboard-generator",
             aspect_ratios=("16:9", "9:16", "4:3"),
             readable_files=(
-                ("SKILL.md", "技能主文档：完整工作流、分镜格式规范与关键帧出图提示词规则（生成前必读）"),
-                ("references/纯景意境与场景变换设计规范.md", "纯景意境与场景变换专门规范：无剧情/无人物风光流转、空镜光影、场景流转分镜与关键帧出图规则（必读）"),
-                ("references/景物与场景建筑立绘设计规范.md", "16:9 景物与场景建筑立绘专门规范：建筑、景物、地标与道具设定图多视角排版、材质肌理与无人物光影出图规则（景物立绘生成必读）"),
-                ("references/seedance-manual.md", "Seedance 2.0 平台手册与风景旅拍/空镜提示词模板"),
-                ("references/分镜优化与声音设计.md", "分镜优化与声音设计进阶指南（空镜与环境音效）"),
+                (
+                    "SKILL.md",
+                    "技能主文档：完整工作流、分镜格式规范与关键帧出图提示词规则（生成前必读）",
+                ),
+                (
+                    "references/纯景意境与场景变换设计规范.md",
+                    "纯景意境与场景变换专门规范：无剧情/无人物风光流转、空镜光影、场景流转分镜与关键帧出图规则（必读）",
+                ),
+                (
+                    "references/景物与场景建筑立绘设计规范.md",
+                    "16:9 景物与场景建筑立绘专门规范：建筑、景物、地标与道具设定图多视角排版、材质肌理与无人物光影出图规则（景物立绘生成必读）",
+                ),
+                (
+                    "references/seedance-manual.md",
+                    "Seedance 2.0 平台手册与风景旅拍/空镜提示词模板",
+                ),
+                (
+                    "references/分镜优化与声音设计.md",
+                    "分镜优化与声音设计进阶指南（空镜与环境音效）",
+                ),
                 ("references/优化分镜.md", "分镜优化速查"),
             ),
         ),
@@ -157,7 +226,9 @@ def read_skill_file(skill_dir: str, rel_path: str) -> str:
     """
     skill_root = (SKILLS_ROOT / skill_dir).resolve()
     if not skill_root.is_dir():
-        logger.warning(f"[SKILL] 技能包目录缺失: {skill_root}（检查部署是否漏拷 agent/skills）")
+        logger.warning(
+            f"[SKILL] 技能包目录缺失: {skill_root}（检查部署是否漏拷 agent/skills）"
+        )
         return f"技能包不存在：{skill_dir}。"
     target = (skill_root / (rel_path or "")).resolve()
     if not target.is_relative_to(skill_root):
@@ -173,7 +244,10 @@ def read_skill_file(skill_dir: str, rel_path: str) -> str:
         logger.warning(f"[SKILL] 文件读取失败 {skill_dir}/{rel_path}: {exc}")
         return f"文件读取失败：{rel_path}。"
     if len(text) > _READ_MAX_CHARS:
-        return text[:_READ_MAX_CHARS] + f"\n\n（内容过长已截断，仅显示前 {_READ_MAX_CHARS} 字符）"
+        return (
+            text[:_READ_MAX_CHARS]
+            + f"\n\n（内容过长已截断，仅显示前 {_READ_MAX_CHARS} 字符）"
+        )
     return text
 
 
@@ -186,7 +260,9 @@ if __name__ == "__main__":
         text = read_skill_file(style.skill_dir, path)
         assert text and not text.startswith("读取被拒绝"), f"正常读取失败: {path}"
         logger.info(f"读取 OK：{path}（{len(text)} 字符）")
-    assert "越出技能包目录" in read_skill_file(style.skill_dir, "../../env/.env.development")
+    assert "越出技能包目录" in read_skill_file(
+        style.skill_dir, "../../env/.env.development"
+    )
     assert "越出技能包目录" in read_skill_file(style.skill_dir, "/etc/hostname")
     assert "不是可读的文本资料" in read_skill_file(style.skill_dir, "SKILL.md.bak")
     assert "文件不存在" in read_skill_file(style.skill_dir, "references/不存在.md")

@@ -27,7 +27,9 @@ class ArtGenerateRequest(BaseModel):
 
     size: Optional[str] = None
     quality: Optional[str] = None
-    reference_images: Optional[list[str]] = Field(default=None, description="参考图相对路径或URL列表")
+    reference_images: Optional[list[str]] = Field(
+        default=None, description="参考图相对路径或URL列表"
+    )
 
 
 class DirectArtGenerateRequest(BaseModel):
@@ -35,10 +37,14 @@ class DirectArtGenerateRequest(BaseModel):
 
     prompt: str = Field(..., min_length=1, max_length=4000, description="出图提示词")
     name: Optional[str] = Field(default=None, description="角色名/立绘标题")
-    card_message_id: Optional[uuid.UUID] = Field(default=None, description="可选关联的角色卡消息 ID")
+    card_message_id: Optional[uuid.UUID] = Field(
+        default=None, description="可选关联的角色卡消息 ID"
+    )
     size: Optional[str] = None
     quality: Optional[str] = None
-    reference_images: Optional[list[str]] = Field(default=None, description="参考图相对路径或URL列表")
+    reference_images: Optional[list[str]] = Field(
+        default=None, description="参考图相对路径或URL列表"
+    )
 
 
 class CardEditRequest(BaseModel):
@@ -139,7 +145,9 @@ async def edit_card(
 ):
     """编辑角色卡字段（沉淀前修订；沉淀以修订后内容入库）。"""
     return R.success(
-        data=await _sediment_service.edit_card(ctx, message_id, payload.model_dump(exclude_unset=True))
+        data=await _sediment_service.edit_card(
+            ctx, message_id, payload.model_dump(exclude_unset=True)
+        )
     )
 
 
@@ -208,15 +216,15 @@ async def save_all_keyframes(
     ctx: UserContext = Depends(get_user_context),
 ):
     """一键将当前会话中的全部关键帧存入项目关键帧库。"""
-    return R.success(
-        data=await _sediment_service.save_all_keyframes(ctx, session_id)
-    )
+    return R.success(data=await _sediment_service.save_all_keyframes(ctx, session_id))
 
 
 class ExtractCharactersRequest(BaseModel):
     """提取角色请求体：可选指定剧本消息 ID。"""
 
-    message_id: Optional[uuid.UUID] = Field(default=None, description="指定剧本消息ID（可选）")
+    message_id: Optional[uuid.UUID] = Field(
+        default=None, description="指定剧本消息ID（可选）"
+    )
 
 
 @router.post("/sessions/{session_id}/extract-characters")
@@ -227,7 +235,9 @@ async def extract_characters(
 ):
     """从会话剧本中提取角色卡并生成角色卡消息。"""
     return R.success(
-        data=await _sediment_service.extract_characters(ctx, session_id, payload.message_id)
+        data=await _sediment_service.extract_characters(
+            ctx, session_id, payload.message_id
+        )
     )
 
 
@@ -237,8 +247,4 @@ async def save_all_characters(
     ctx: UserContext = Depends(get_user_context),
 ):
     """一键将当前会话中的全部角色卡存入角色库并登记项目出演。"""
-    return R.success(
-        data=await _sediment_service.save_all_characters(ctx, session_id)
-    )
-
-
+    return R.success(data=await _sediment_service.save_all_characters(ctx, session_id))

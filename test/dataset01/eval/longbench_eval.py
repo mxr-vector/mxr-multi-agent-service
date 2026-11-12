@@ -530,7 +530,7 @@ async def main() -> None:
         "--subsets",
         type=str,
         default=",".join(SUBSETS),
-        help=f"评测子集列表（逗号分隔，默认全 5 个）",
+        help="评测子集列表（逗号分隔，默认全 5 个）",
     )
     parser.add_argument(
         "--max-queries",
@@ -600,7 +600,7 @@ async def main() -> None:
             from entity.rag.document import Document
 
             mapping = {}
-            for subset, kb in kb_by_subset.items():
+            for _subset, kb in kb_by_subset.items():
                 stmt = select(Document.id, Document.source_uri).where(
                     Document.knowledge_base_id == kb.id
                 )

@@ -204,9 +204,7 @@ class KnowledgeBaseService:
             )
             return [format_id(kb_id) for kb_id in ids]
 
-    async def _assert_kb_writable(
-        self, kb: KnowledgeBase, ctx: UserContext
-    ) -> None:
+    async def _assert_kb_writable(self, kb: KnowledgeBase, ctx: UserContext) -> None:
         """写操作（元数据更新 / 删除）权限收口，实现见模块级 assert_kb_writable。"""
         await assert_kb_writable(kb, ctx)
 
@@ -218,7 +216,9 @@ class KnowledgeBaseService:
             await assert_kb_visible(kb, ctx, kb_id)
             return kb.to_dict()
 
-    async def update(self, ctx: UserContext, kb_id: uuid.UUID, changes: dict[str, Any]) -> dict:
+    async def update(
+        self, ctx: UserContext, kb_id: uuid.UUID, changes: dict[str, Any]
+    ) -> dict:
         """
         仅元数据更新（name/description/icon/visibility/owner/status）；
         dept_id/qdrant_collection/embedding_* 不可变。知识库不存在时抛出业务异常；

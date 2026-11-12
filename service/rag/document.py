@@ -91,7 +91,9 @@ class DocumentService:
 
             # 解析 + 切块（纯预处理，不落库）；不支持类型/策略组合在此抛业务异常。
             # 解析与语义切块是秒级 CPU/同步 IO 操作，丢线程池避免卡死事件循环
-            parsed = await asyncio.to_thread(ingest_file, filename, data, chunk_strategy)
+            parsed = await asyncio.to_thread(
+                ingest_file, filename, data, chunk_strategy
+            )
             content = parsed["content"]
             content_hash = parsed["content_hash"]
             doc_type = parsed["doc_type"]
@@ -306,7 +308,7 @@ class DocumentService:
         await chunk_repo.bulk_insert(parent_chunks)
 
         leaf_chunks = []
-        for parent_chunk, p in zip(parent_chunks, parents):
+        for parent_chunk, p in zip(parent_chunks, parents, strict=True):
             for c in p["children"]:
                 leaf_chunks.append(
                     chunk_repo.build_chunk(
@@ -352,7 +354,9 @@ class DocumentService:
 
             # 并发拦截：条件 UPDATE 原子判定 + 置 reindexing，
             # 消除「读-判-写」窗口内的双触发竞态
-            if not await doc_repo.set_status_if_not_reindexing(doc.id, DocumentStatus.REINDEXING):
+            if not await doc_repo.set_status_if_not_reindexing(
+                doc.id, DocumentStatus.REINDEXING
+            ):
                 bad_except("文档正在同步中，请稍后再试")
             await session.commit()
             return doc.to_dict()
@@ -547,7 +551,9 @@ class DocumentService:
                 f"集合: {kb.qdrant_collection}）"
             )
 
-    async def update(self, ctx: UserContext, doc_id: uuid.UUID, changes: dict[str, Any]) -> dict:
+    async def update(
+        self, ctx: UserContext, doc_id: uuid.UUID, changes: dict[str, Any]
+    ) -> dict:
         """
         仅元数据更新（title/folder_id/metadata/source_*/valid_*/last_verified_at/doc_type）；
         不触碰 content/content_hash/version/knowledge_base_id/status，不再切块/向量化。

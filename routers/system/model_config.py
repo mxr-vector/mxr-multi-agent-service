@@ -11,7 +11,8 @@ from utils.user_context import require_admin
 
 # 创建路由（模型配置卡片页专用；角色集合由代码消费方固定，不提供创建入口）
 router = APIRouter(
-    prefix="/system/model-configs", tags=["OpenAPI - 系统模型配置"],
+    prefix="/system/model-configs",
+    tags=["OpenAPI - 系统模型配置"],
     dependencies=[Depends(require_admin)],
 )
 
@@ -75,7 +76,6 @@ async def list_remote_models(payload: ModelListPayload = Body(...)):
         api_key=payload.api_key,
     )
     return R.success(data=result)
-
 
 
 @router.get("")

@@ -150,9 +150,7 @@ async def project_video_chain_status(
     ctx: UserContext = Depends(get_user_context),
 ):
     """串行链实时状态（章节状态以数据库为准，供面板轮询）。"""
-    return R.success(
-        data=await _video_generation_service.chain_status(ctx, project_id)
-    )
+    return R.success(data=await _video_generation_service.chain_status(ctx, project_id))
 
 
 @router.get("/videos/generation-options")
@@ -190,9 +188,7 @@ async def download_video(
 ):
     """下载单个视频片段（附件流式下发，文件名取片段标题）。"""
     path, filename = await _video_service.download(ctx, video_id)
-    media_type = _VIDEO_MEDIA_TYPES.get(
-        path.suffix.lower(), "application/octet-stream"
-    )
+    media_type = _VIDEO_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(
         path,
         media_type=media_type,

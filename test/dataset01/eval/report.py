@@ -182,7 +182,6 @@ async def report(max_queries: int | None) -> None:
     acc = _collect_metrics(results, ks)
 
     # 有效样本与空占比（严格口径）
-    valid_a = acc[("chunk", "a")]["valid"]
     skipped = acc[("chunk", "a")]["skipped_gold_empty"]
     failed_a = sum(1 for r in results if r["pipeline_a"]["status"] == "failed")
     failed_b = sum(

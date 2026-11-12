@@ -205,7 +205,9 @@ async def _cancel_remote_task(task_id: str | None) -> None:
             timeout=REMOTE_CANCEL_TIMEOUT,
         )
     except asyncio.TimeoutError:
-        logger.warning(f"[STORY] 上游任务取消超时（{REMOTE_CANCEL_TIMEOUT}s）: {task_id}")
+        logger.warning(
+            f"[STORY] 上游任务取消超时（{REMOTE_CANCEL_TIMEOUT}s）: {task_id}"
+        )
     except Exception as exc:
         logger.warning(f"[STORY] 上游任务取消失败 task_id={task_id}: {exc}")
 
@@ -436,9 +438,7 @@ class VideoGenerationService:
             resolve_upload_path(relative),
         )
         if not ok:
-            logger.warning(
-                f"[STORY] 尾帧抽取失败，衔接降级 video={snapshot['id'].hex}"
-            )
+            logger.warning(f"[STORY] 尾帧抽取失败，衔接降级 video={snapshot['id'].hex}")
             return None
         await self._merge_params(snapshot["id"], {"tail_frame_file": relative})
         snapshot["params"]["tail_frame_file"] = relative
@@ -554,9 +554,7 @@ class VideoGenerationService:
                         "status": prev_video.status,
                         "video_file": prev_video.video_file,
                         "params": (
-                            dict(prev_params)
-                            if isinstance(prev_params, dict)
-                            else {}
+                            dict(prev_params) if isinstance(prev_params, dict) else {}
                         ),
                     }
 
@@ -588,9 +586,7 @@ class VideoGenerationService:
         params = {
             "chapter_no": chapter_no,
             "chapter_title": final_title,
-            "chapter_content": _truncate(
-                chapter_content or "", CHAPTER_CONTENT_MAX
-            )
+            "chapter_content": _truncate(chapter_content or "", CHAPTER_CONTENT_MAX)
             or None,
             "keyframe_ids": [item["id"].hex for item in keyframe_infos],
             "reference_images": inputs.reference_images,
@@ -665,9 +661,9 @@ class VideoGenerationService:
         task = asyncio.create_task(coro)
         _video_tasks[video_id.hex] = task
         task.add_done_callback(
-            lambda done, vid=video_id.hex: _video_tasks.pop(vid, None)
-            if _video_tasks.get(vid) is done
-            else None
+            lambda done, vid=video_id.hex: (
+                _video_tasks.pop(vid, None) if _video_tasks.get(vid) is done else None
+            )
         )
 
     async def _execute_video(
@@ -774,9 +770,7 @@ class VideoGenerationService:
                         negative_prompt=negative_prompt,
                     )
                     used_mode = "text_only"
-                    await self._update_video(
-                        video_id, {"external_task_id": task_id}
-                    )
+                    await self._update_video(video_id, {"external_task_id": task_id})
                     await self._merge_params(
                         video_id,
                         {"image_mode": "text_only", "image_fallback": True},
@@ -989,9 +983,7 @@ class VideoGenerationService:
             all_ids.extend(ids)
 
         chain_id = uuid7().hex
-        state = _ChainState(
-            chain_id=chain_id, project_id=project_id, chapters=[]
-        )
+        state = _ChainState(chain_id=chain_id, project_id=project_id, chapters=[])
         _chains[project_id.hex] = state
         try:
             keyframe_snapshots: dict[uuid.UUID, dict] = {}
@@ -1012,20 +1004,13 @@ class VideoGenerationService:
                         keyframe = by_id.get(keyframe_id)
                         if keyframe is None or keyframe.project_id != project_id:
                             bad_except("部分关键帧不存在或不属于本项目")
-                        if (
-                            keyframe.status
-                            == StoryKeyframeStatus.ARCHIVED.value
-                        ):
+                        if keyframe.status == StoryKeyframeStatus.ARCHIVED.value:
                             bad_except("存在已归档关键帧，无法生成视频")
                         if (
                             not keyframe.image_file
-                            or not resolve_upload_path(
-                                keyframe.image_file
-                            ).is_file()
+                            or not resolve_upload_path(keyframe.image_file).is_file()
                         ):
-                            bad_except(
-                                f"章节「{title}」存在缺失图片的关键帧，请先出图"
-                            )
+                            bad_except(f"章节「{title}」存在缺失图片的关键帧，请先出图")
                 for keyframe_id, keyframe in by_id.items():
                     keyframe_snapshots[keyframe_id] = {
                         "id": keyframe.id,
@@ -1039,9 +1024,7 @@ class VideoGenerationService:
             for index, item in enumerate(ordered):
                 chapter_no = item.get("chapter_no")
                 title = (item.get("title") or "").strip() or (
-                    f"第{chapter_no}集"
-                    if chapter_no is not None
-                    else "未匹配章节片段"
+                    f"第{chapter_no}集" if chapter_no is not None else "未匹配章节片段"
                 )
                 base_prompt = _truncate(
                     item.get("prompt") or "", VIDEO_PROMPT_MAX_CHARS
@@ -1073,9 +1056,7 @@ class VideoGenerationService:
                         "own_first_keyframe" if index == 0 else "prev_tail"
                     ),
                     "first_frame_file": None,
-                    "prev_video_id": (
-                        prev_video_id.hex if prev_video_id else None
-                    ),
+                    "prev_video_id": (prev_video_id.hex if prev_video_id else None),
                     "link_degraded": False,
                     "resolution": resolution,
                     "ratio": ratio,
@@ -1116,9 +1097,7 @@ class VideoGenerationService:
                             source="generated",
                             title=entry.title,
                             episode_no=(
-                                entry.chapter_no
-                                if entry.chapter_no is not None
-                                else 0
+                                entry.chapter_no if entry.chapter_no is not None else 0
                             ),
                             status="queued",
                             provider="video",
@@ -1140,9 +1119,7 @@ class VideoGenerationService:
 
             state.chapters = created
             try:
-                state.task = asyncio.create_task(
-                    self._run_chain(state, entries)
-                )
+                state.task = asyncio.create_task(self._run_chain(state, entries))
                 state.starting = False
                 state.task.add_done_callback(
                     lambda done, st=state, ents=entries: self._handle_chain_done(
@@ -1168,9 +1145,7 @@ class VideoGenerationService:
             "chapters": created,
         }
 
-    async def _run_chain(
-        self, state: _ChainState, entries: list[_ChainEntry]
-    ) -> None:
+    async def _run_chain(self, state: _ChainState, entries: list[_ChainEntry]) -> None:
         """逐章串行执行：上一章成片尾帧作为下一章首帧。"""
         current_video_hex: str | None = None
         prev_snapshot: dict | None = None
@@ -1182,9 +1157,7 @@ class VideoGenerationService:
                 state.cursor = index
                 snapshot = await self._video_snapshot(entry.video_id)
                 if snapshot is None or snapshot["status"] == "cancelled":
-                    await self._cancel_remaining(
-                        entries[index:], "串行链已终止"
-                    )
+                    await self._cancel_remaining(entries[index:], "串行链已终止")
                     break
 
                 if index == 0:
@@ -1196,9 +1169,7 @@ class VideoGenerationService:
                     first_frame_source = "prev_tail"
                     link_degraded = False
                     if prev_snapshot is not None:
-                        first_frame_file = await self._ensure_tail_frame(
-                            prev_snapshot
-                        )
+                        first_frame_file = await self._ensure_tail_frame(prev_snapshot)
                     if first_frame_file is None:
                         first_frame_file = entry.first_keyframe_image
                         first_frame_source = "own_first_keyframe"
@@ -1243,14 +1214,14 @@ class VideoGenerationService:
                 current_video_hex = None
                 if not ok:
                     await self._cancel_remaining(
-                        entries[index + 1:],
+                        entries[index + 1 :],
                         "前序章节生成失败，串行链已终止",
                     )
                     break
                 prev_snapshot = await self._video_snapshot(entry.video_id)
                 state.cursor = index + 1
         except asyncio.CancelledError:
-            await self._cancel_remaining(entries[state.cursor:], "串行链已中止")
+            await self._cancel_remaining(entries[state.cursor :], "串行链已中止")
             logger.warning(
                 f"[STORY] 串行链被中止 project={state.project_id.hex} "
                 f"chain={state.chain_id}"
@@ -1263,9 +1234,7 @@ class VideoGenerationService:
                 f"chain={state.chain_id}: {exc}"
             )
             try:
-                await self._cancel_remaining(
-                    entries[state.cursor:], "串行链异常终止"
-                )
+                await self._cancel_remaining(entries[state.cursor :], "串行链异常终止")
             except Exception as cancel_exc:
                 logger.error(f"[STORY] 串行链收尾失败: {cancel_exc}")
         finally:
@@ -1297,9 +1266,7 @@ class VideoGenerationService:
             if state.task is task:
                 state.task = None
 
-    async def _cancel_remaining(
-        self, entries: list[_ChainEntry], message: str
-    ) -> None:
+    async def _cancel_remaining(self, entries: list[_ChainEntry], message: str) -> None:
         """批量把链内剩余在途章节置为 cancelled。"""
         ids = [entry.video_id for entry in entries]
         if not ids:
@@ -1318,19 +1285,14 @@ class VideoGenerationService:
             if state is None:
                 return {"running": False, "total": 0, "chapters": []}
             status_map: dict[str, str] = {}
-            ids = [
-                uuid.UUID(chapter["video_id"])
-                for chapter in state.chapters
-            ]
+            ids = [uuid.UUID(chapter["video_id"]) for chapter in state.chapters]
             if ids:
                 rows = await session.execute(
                     select(StoryVideo.id, StoryVideo.status).where(
                         StoryVideo.id.in_(ids)
                     )
                 )
-                status_map = {
-                    row[0].hex: row[1] for row in rows.all()
-                }
+                status_map = {row[0].hex: row[1] for row in rows.all()}
 
         chapters = [
             {**chapter, "status": status_map.get(chapter["video_id"], "unknown")}
@@ -1357,9 +1319,7 @@ class VideoGenerationService:
             "finished": finished,
             "success": sum(1 for item in chapters if item["status"] == "done"),
             "failed": sum(1 for item in chapters if item["status"] == "failed"),
-            "cancelled": sum(
-                1 for item in chapters if item["status"] == "cancelled"
-            ),
+            "cancelled": sum(1 for item in chapters if item["status"] == "cancelled"),
             "cursor": state.cursor,
             "current_chapter_no": current_chapter_no,
             "chapters": chapters,

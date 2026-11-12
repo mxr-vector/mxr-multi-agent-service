@@ -437,7 +437,9 @@ async def build_relations(
                         (cid, did, (content or "")[:RELATION_CHUNK_CHARS], ents_here)
                     )
                 results = await asyncio.gather(*(extract(*item) for item in pending))
-                for (cid, did, _chunk, _ents), (status, rels) in zip(pending, results):
+                for (cid, did, _chunk, _ents), (status, rels) in zip(
+                    pending, results, strict=True
+                ):
                     flush_prog.append({"kb": kb_id, "chunk": cid, "status": status})
                     if status == "failed":
                         stats["failed"] += 1

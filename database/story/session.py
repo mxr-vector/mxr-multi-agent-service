@@ -83,7 +83,10 @@ class SessionRepository:
         return await self.session.scalar(stmt) or 0
 
     async def touch(
-        self, row: StorySession, message_delta: int = 0, message_at: datetime | None = None
+        self,
+        row: StorySession,
+        message_delta: int = 0,
+        message_at: datetime | None = None,
     ) -> StorySession:
         """写消息后同步冗余计数与最后消息时间，并刷新 updated_at。"""
         if message_delta:
@@ -163,9 +166,7 @@ class MessageRepository:
     async def get_for_update(self, message_id: uuid.UUID) -> StoryMessage | None:
         """按 id 获取消息并加行锁（SELECT FOR UPDATE，沉淀幂等串行化用）。"""
         stmt = (
-            select(StoryMessage)
-            .where(StoryMessage.id == message_id)
-            .with_for_update()
+            select(StoryMessage).where(StoryMessage.id == message_id).with_for_update()
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
@@ -181,7 +182,9 @@ class MessageRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
-    async def list_recent(self, session_id: uuid.UUID, limit: int) -> list[StoryMessage]:
+    async def list_recent(
+        self, session_id: uuid.UUID, limit: int
+    ) -> list[StoryMessage]:
         """会话最近 N 条消息（序号升序返回），供生成时拼装历史上下文。"""
         stmt = (
             select(StoryMessage)
@@ -395,7 +398,9 @@ class GenerationTaskRepository:
         items, total = await paginate(self.session, stmt, page, size)
         return list(items), total
 
-    async def update_fields(self, row: StoryGenerationTask, fields: dict) -> StoryGenerationTask:
+    async def update_fields(
+        self, row: StoryGenerationTask, fields: dict
+    ) -> StoryGenerationTask:
         """按传入字段局部更新并刷新 updated_at（状态流转统一入口）。"""
         for key, value in fields.items():
             setattr(row, key, value)
@@ -437,15 +442,24 @@ if __name__ == "__main__":
             await project_repo.create(project_id, user_id, "会话冒烟项目")
 
             # 1) 会话创建 + 消息追加（序号分配 + touch）
-            row = await session_repo.create(session_id, project_id, "冒烟会话", "script")
+            row = await session_repo.create(
+                session_id, project_id, "冒烟会话", "script"
+            )
             assert row.message_count == 0 and row.last_message_at is None
             for i in range(2):
                 seq = await message_repo.next_sequence(session_id)
                 msg = await message_repo.create(
-                    uuid7(), session_id, "assistant", seq,
-                    kind="script", content=f"剧本片段{i}", status=ChatMessageStatus.DONE,
+                    uuid7(),
+                    session_id,
+                    "assistant",
+                    seq,
+                    kind="script",
+                    content=f"剧本片段{i}",
+                    status=ChatMessageStatus.DONE,
                 )
-                await session_repo.touch(row, message_delta=1, message_at=msg.created_at)
+                await session_repo.touch(
+                    row, message_delta=1, message_at=msg.created_at
+                )
             assert row.message_count == 2 and row.last_message_at is not None
 
             # 2) 回放与最近消息
@@ -479,7 +493,11 @@ if __name__ == "__main__":
             assert await task_repo.has_running(project_id) is True
             await task_repo.update_fields(
                 task,
-                {"status": StoryTaskStatus.GENERATING, "progress": 50, "started_at": datetime.now(timezone.utc)},
+                {
+                    "status": StoryTaskStatus.GENERATING,
+                    "progress": 50,
+                    "started_at": datetime.now(timezone.utc),
+                },
             )
             await task_repo.update_fields(
                 task,
@@ -501,9 +519,7 @@ if __name__ == "__main__":
             assert deleted == 2
             await session_repo.delete(session_id)
             await task_repo.delete(task_id)
-            await project_repo.session.delete(
-                await project_repo.get(project_id)
-            )
+            await project_repo.session.delete(await project_repo.get(project_id))
             await project_repo.session.flush()
             assert await message_repo.delete_by_session(session_id) == 0
 

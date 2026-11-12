@@ -143,13 +143,9 @@ def generate_image(
             enhanced_prompt = prompt
             if "参考图" not in prompt and "reference" not in prompt.lower():
                 if len(loaded_files) > 1:
-                    enhanced_prompt = (
-                        f"根据提供的多个出场角色参考图生成画面，严格保持参考图中对应人物的外貌特征、五官发型与服饰设定。{prompt}"
-                    )
+                    enhanced_prompt = f"根据提供的多个出场角色参考图生成画面，严格保持参考图中对应人物的外貌特征、五官发型与服饰设定。{prompt}"
                 else:
-                    enhanced_prompt = (
-                        f"根据参考图生成形象，严格保持参考图中的人物特征、五官发型与造型设计。{prompt}"
-                    )
+                    enhanced_prompt = f"根据参考图生成形象，严格保持参考图中的人物特征、五官发型与造型设计。{prompt}"
 
             extra_body_multi = {
                 "images": b64_list,
@@ -173,7 +169,9 @@ def generate_image(
                         extra_body=extra_body_multi,
                     )
                     cost = time.monotonic() - t0
-                    logger.info(f"[IMAGE] 多参考图 images.generate 成功耗时={cost:.2f}s")
+                    logger.info(
+                        f"[IMAGE] 多参考图 images.generate 成功耗时={cost:.2f}s"
+                    )
                     return [item.b64_json or item.url or "" for item in resp.data]
                 except Exception as exc:
                     logger.warning(

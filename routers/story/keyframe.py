@@ -128,9 +128,7 @@ async def batch_delete_keyframes(
 ):
     """批量删除关键帧：整批校验归属，清理出场角色、编排引用与图片。"""
     return R.success(
-        data=await _keyframe_service.delete_many(
-            ctx, project_id, payload.keyframe_ids
-        )
+        data=await _keyframe_service.delete_many(ctx, project_id, payload.keyframe_ids)
     )
 
 
@@ -140,9 +138,7 @@ async def auto_bind_keyframe_characters(
     ctx: UserContext = Depends(get_user_context),
 ):
     """按当前剧本与项目角色配置，为尚无出场角色的关键帧自动写入角色。"""
-    return R.success(
-        data=await _keyframe_service.auto_bind_characters(ctx, project_id)
-    )
+    return R.success(data=await _keyframe_service.auto_bind_characters(ctx, project_id))
 
 
 @router.get("/keyframes/{keyframe_id}")
@@ -218,7 +214,9 @@ async def set_keyframe_characters(
 @router.post("/keyframes/{keyframe_id}/generate-image")
 async def generate_keyframe_image(
     keyframe_id: uuid.UUID = Path(...),
-    payload: KeyframeGenerateImageRequest = Body(default=KeyframeGenerateImageRequest()),
+    payload: KeyframeGenerateImageRequest = Body(
+        default=KeyframeGenerateImageRequest()
+    ),
     ctx: UserContext = Depends(get_user_context),
 ):
     """根据关键帧提示词及已设置的出场角色（形象参考图与局部描述）生成关键帧图片。"""
@@ -250,4 +248,3 @@ async def stop_all_keyframe_generations(
     """中断本项目下所有在途的关键帧图片生成任务。"""
     stopped_count = await _keyframe_service.stop_all(ctx, project_id)
     return R.success(data={"stopped_count": stopped_count})
-

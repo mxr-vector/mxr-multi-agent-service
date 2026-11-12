@@ -188,7 +188,9 @@ async def _load_model_roles() -> tuple[str, ...]:
     """
     from service.system.dict import DictDataService
 
-    rows = await DictDataService().list_by_type(MODEL_TYPES_DICT_KEY, status=RecordStatus.ACTIVE)
+    rows = await DictDataService().list_by_type(
+        MODEL_TYPES_DICT_KEY, status=RecordStatus.ACTIVE
+    )
     roles = tuple(row["value"] for row in rows)
     if not roles:
         raise ValueError(

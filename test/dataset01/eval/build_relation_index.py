@@ -18,7 +18,6 @@ import asyncio
 import json
 import re
 import time
-import uuid
 
 from common import ensure_cfg_async, load_json
 from longbench_eval import DOC_MAP_PATH, load_rows
@@ -282,7 +281,9 @@ async def build_kb(
     for i in range(0, len(pending), concurrency * 2):
         batch = pending[i : i + concurrency * 2]
         results = await asyncio.gather(*(extract(*item) for item in batch))
-        for (cid, did, _chunk, _ents), (status, rels) in zip(batch, results):
+        for (cid, did, _chunk, _ents), (status, rels) in zip(
+            batch, results, strict=True
+        ):
             flush_prog.append({"kb": kb_hex, "chunk": cid, "status": status})
             if status == "failed":
                 stats["failed"] += 1

@@ -8,9 +8,7 @@ paragraph is an annotated fact.
 
 from __future__ import annotations
 
-import math
 import re
-import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Iterable, Sequence

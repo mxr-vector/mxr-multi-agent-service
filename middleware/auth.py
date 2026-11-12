@@ -19,8 +19,8 @@ def _is_excluded(path: str) -> bool:
     """
     if path in EXCLUDE_PATHS:
         return True
-    return path == "/public" or path.startswith("/public/") or path.startswith(
-        "/static/"
+    return (
+        path == "/public" or path.startswith("/public/") or path.startswith("/static/")
     )
 
 
@@ -38,8 +38,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         # 跳过无需认证的路径（含 BASE_URL 挂载前缀下的 /public，按路径段匹配）
         base_public = f"{ENV.base_url}/public"
-        if _is_excluded(path) or path == base_public or path.startswith(
-            base_public + "/"
+        if (
+            _is_excluded(path)
+            or path == base_public
+            or path.startswith(base_public + "/")
         ):
             return await call_next(request)
 

@@ -15,13 +15,12 @@ BM25，model/sparse/bm25.py 主路径）→ Qdrant 服务端 RRF 融合 → rera
 
 import asyncio
 import hashlib
-import statistics
 import time
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Any, Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
-from common import compute_metrics, mean_std, save_json
+from common import compute_metrics, mean_std
 
 # 单块文档的文本长度上限（Qwen3-Embedding-4B max-model-len 4096 tokens，
 # 中文按 1 字≈1 token 留余量）；超过则走 ingest_file 两级切块
@@ -247,7 +246,7 @@ async def ingest_document(
     ]
     await _bulk_insert_chunks(session, parent_chunks)
     leaf_chunks: list[Chunk] = []
-    for parent_chunk, p in zip(parent_chunks, parents):
+    for parent_chunk, p in zip(parent_chunks, parents, strict=True):
         for c in p["children"]:
             leaf_chunks.append(
                 Chunk(
@@ -333,7 +332,7 @@ async def vectorize_batch(kb, leaf_specs: list[dict]) -> None:
                 },
                 payload={**spec["payload"], "text": spec["text"]},
             )
-            for spec, dv, sv in zip(batch, dense_vectors, sparse_vectors)
+            for spec, dv, sv in zip(batch, dense_vectors, sparse_vectors, strict=True)
         ]
         await _write_with_retry(manager, points, len(dense_vectors[0]))
 

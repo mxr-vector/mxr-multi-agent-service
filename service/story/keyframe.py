@@ -213,7 +213,9 @@ class KeyframeService:
             bad_except("关键帧自动写入出场角色仅支持用户通道调用")
         async with get_session() as session:
             await self._project_service._assert_owned(session, project_id, ctx)
-            keyframes = await KeyframeRepository(session).list_all_by_project(project_id)
+            keyframes = await KeyframeRepository(session).list_all_by_project(
+                project_id
+            )
             result = {
                 "scanned_count": len(keyframes),
                 "unbound_count": 0,
@@ -223,11 +225,13 @@ class KeyframeService:
             if not keyframes:
                 return result
 
-            existing_rows = await KeyframeCharacterRepository(session).list_by_keyframes(
-                [keyframe.id for keyframe in keyframes]
-            )
+            existing_rows = await KeyframeCharacterRepository(
+                session
+            ).list_by_keyframes([keyframe.id for keyframe in keyframes])
             bound_ids = {row.keyframe_id for row in existing_rows}
-            unbound = [keyframe for keyframe in keyframes if keyframe.id not in bound_ids]
+            unbound = [
+                keyframe for keyframe in keyframes if keyframe.id not in bound_ids
+            ]
             result["unbound_count"] = len(unbound)
             if not unbound:
                 return result
@@ -553,6 +557,7 @@ class KeyframeService:
                 await db.commit()
 
             if old_file:
+
                 def _cleanup() -> None:
                     unlink_quietly(old_file)
                     parent = old_file.rsplit("/", 1)[0] if "/" in old_file else None
@@ -573,9 +578,7 @@ class KeyframeService:
                 f"[STORY] 关键帧图片生成完成 keyframe={keyframe_id.hex} file={rel_path}"
             )
         except asyncio.CancelledError:
-            logger.warning(
-                f"[STORY] 关键帧图片生成被取消 keyframe={keyframe_id.hex}"
-            )
+            logger.warning(f"[STORY] 关键帧图片生成被取消 keyframe={keyframe_id.hex}")
             try:
                 async with get_session() as db:
                     keyframe = await KeyframeRepository(db).get(keyframe_id)
@@ -642,7 +645,10 @@ class KeyframeService:
             task_repo = GenerationTaskRepository(session)
             if task_id:
                 task_row = await task_repo.get(task_id)
-                if task_row and task_row.status in GenerationTaskRepository.RUNNING_STATUSES:
+                if (
+                    task_row
+                    and task_row.status in GenerationTaskRepository.RUNNING_STATUSES
+                ):
                     await task_repo.update_fields(
                         task_row,
                         {
@@ -657,7 +663,9 @@ class KeyframeService:
             stmt = select(StoryGenerationTask).where(
                 StoryGenerationTask.project_id == keyframe.project_id,
                 StoryGenerationTask.target_id == keyframe.id,
-                StoryGenerationTask.status.in_(GenerationTaskRepository.RUNNING_STATUSES),
+                StoryGenerationTask.status.in_(
+                    GenerationTaskRepository.RUNNING_STATUSES
+                ),
             )
             orphan_tasks = (await session.scalars(stmt)).all()
             for ot in orphan_tasks:

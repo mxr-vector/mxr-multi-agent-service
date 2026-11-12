@@ -225,9 +225,9 @@ class DocumentRepository:
         """批量查状态：单条 id IN 查询返回 (id, knowledge_base_id, status) 三元组，供前端轮询（含可见性过滤所需归属）。"""
         if not ids:
             return []
-        stmt = select(
-            Document.id, Document.knowledge_base_id, Document.status
-        ).where(Document.id.in_(ids))
+        stmt = select(Document.id, Document.knowledge_base_id, Document.status).where(
+            Document.id.in_(ids)
+        )
         result = await self.session.execute(stmt)
         return [(row.id, row.knowledge_base_id, row.status) for row in result]
 

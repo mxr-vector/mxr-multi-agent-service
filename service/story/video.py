@@ -152,9 +152,7 @@ def extract_last_frame(video_path: Path, frame_path: Path) -> bool:
         return False
     frame_path.parent.mkdir(parents=True, exist_ok=True)
     # 唯一临时名：多章并发补抽同一前序尾帧时互不覆盖
-    temp_path = frame_path.with_name(
-        f"{frame_path.stem}.{uuid.uuid4().hex}.tmp.jpg"
-    )
+    temp_path = frame_path.with_name(f"{frame_path.stem}.{uuid.uuid4().hex}.tmp.jpg")
     for seek in ("-0.1", "-1"):
         try:
             result = subprocess.run(
@@ -408,6 +406,7 @@ class VideoService:
             await session.commit()
 
         if source == "generated":
+
             def _cleanup() -> None:
                 if video_file:
                     unlink_quietly(video_file)

@@ -11,7 +11,8 @@ from utils.user_context import require_admin
 
 # 创建路由
 router = APIRouter(
-    prefix="/system/roles", tags=["OpenAPI - 系统角色管理"],
+    prefix="/system/roles",
+    tags=["OpenAPI - 系统角色管理"],
     dependencies=[Depends(require_admin)],
 )
 
