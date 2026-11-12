@@ -58,14 +58,10 @@ export const STORY_PROJECT_URL = {
   keyframeSelection: (projectId: string) => `${BASE}/projects/${projectId}/keyframe-selection`,
   /** 视频上传登记 / 列表 */
   videos: (projectId: string) => `${BASE}/projects/${projectId}/videos`,
-  /** 一键批量生成视频 */
+  /** 生成一个章节片段 */
   generateVideos: (projectId: string) => `${BASE}/projects/${projectId}/videos/generate`,
-  /** 串行生成章节视频（上一章成片尾帧作为下一章首帧） */
-  generateVideoChain: (projectId: string) =>
-    `${BASE}/projects/${projectId}/videos/generate-chain`,
-  /** 串行链实时状态 */
-  videoChainStatus: (projectId: string) =>
-    `${BASE}/projects/${projectId}/videos/chain-status`,
+  /** 关联集：章节片段与集间衔接片段视图 / 创建衔接片段 */
+  videoLinks: (projectId: string) => `${BASE}/projects/${projectId}/video-links`,
   /** 章节化视频编排（剧本内容 + 关键帧自动对齐） */
   videoPlan: (projectId: string) => `${BASE}/projects/${projectId}/video-plan`,
   /** 中止项目下全部在途视频任务 */

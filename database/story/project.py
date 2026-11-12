@@ -132,13 +132,21 @@ class ProjectRepository:
             )
             or 0
         )
+        from database.story.video import TRANSITION_KIND
         from entity.story.video import StoryVideo
 
+        # 与「视频成品」列表口径一致：集间衔接片段不计入项目视频数
         project.video_count = (
             await self.session.scalar(
                 select(func.count())
                 .select_from(StoryVideo)
-                .where(StoryVideo.project_id == project_id)
+                .where(
+                    StoryVideo.project_id == project_id,
+                    func.coalesce(
+                        StoryVideo.generation_params["kind"].astext, ""
+                    )
+                    != TRANSITION_KIND,
+                )
             )
             or 0
         )

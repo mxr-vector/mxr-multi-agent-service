@@ -48,8 +48,12 @@ VIDEO_SUBDIR = "story/video"
 COVER_SUBDIR = "story/video-cover"
 # 手动上传封面子目录（抽帧降级路径或自定义封面）
 COVER_UPLOAD_SUBDIR = "story/video-cover-upload"
-# 串行衔接尾帧子目录（上一章成片最后一帧，作为下一章首帧）
+# 集间衔接收尾帧子目录（上一集成片尾帧 + 下一集成片首帧）
 FRAME_SUBDIR = "story/video-frame"
+# 关联集衔接片段的首尾帧子目录（按片段 id 独立存放，删除片段时精确清理）
+LINK_FRAME_SUBDIR = "story/video-link"
+# 集间衔接片段在 generation_params.kind 上的标记（与章节片段区分）
+LINK_KIND = "transition"
 
 # 视频大小上限（MB）：与图片上传上限分离，经 ENV property require() fail-loudly
 VIDEO_MAX_SIZE_MB = ENV.video_upload_max_size_mb
@@ -145,8 +149,9 @@ def extract_first_frame(video_path: Path, cover_path: Path) -> bool:
 def extract_last_frame(video_path: Path, frame_path: Path) -> bool:
     """抽取视频最后一帧（同步执行，60 秒超时），返回是否成功。
 
-    串行衔接用：先按末尾 0.1s 定位，失败再回退末尾 1s。写入临时文件后
-    原子替换，重复抽取幂等；任何失败只告警返回 False，由调用方降级。
+    集间衔接用：取相邻两集中上一集成片的最后一帧，作为衔接片段的首帧。
+    先按末尾 0.1s 定位，失败再回退末尾 1s。写入临时文件后原子替换，重复
+    抽取幂等；任何失败只告警返回 False，由调用方降级。
     """
     if _FFMPEG is None:
         return False
@@ -189,6 +194,30 @@ def extract_last_frame(video_path: Path, frame_path: Path) -> bool:
             temp_path.unlink(missing_ok=True)
     logger.warning(f"[STORY] 视频尾帧抽取最终失败: {video_path}")
     return False
+
+
+def video_local_files(video) -> list[str]:
+    """视频片段生成/合成产生的本地文件（上传文件不追删）。
+
+    首尾帧仅在 video-frame / video-link 子目录下才纳入清理：章节片段的
+    first_frame_file 是关键帧图片，与其它片段共享，不能随片段删除。
+    """
+    if video.source != "generated":
+        return []
+    params = video.generation_params or {}
+    files = [
+        path
+        for path in (video.video_file, video.cover_file)
+        if isinstance(path, str) and path
+    ]
+    for key in ("tail_frame_file", "first_frame_file", "last_frame_file"):
+        path = params.get(key) if isinstance(params, dict) else None
+        if isinstance(path, str) and (
+            path.startswith(f"{FRAME_SUBDIR}/")
+            or path.startswith(f"{LINK_FRAME_SUBDIR}/")
+        ):
+            files.append(path)
+    return files
 
 
 class VideoService:
@@ -376,45 +405,51 @@ class VideoService:
         """删除视频登记（不级联溯源对象），重算项目计数。
 
         仅对模型生成/合成的本地文件做精确清理；外部上传文件沿用既有
-        「不追删」约定，避免误删用户手工归档的原始素材。
+        「不追删」约定。删除章节片段时级联删除引用它的集间衔接片段
+        （衔接片段锚定该成片的首/尾帧，成片删除后已无意义），避免悬挂
+        引用与不可见的残留行。
         """
         async with get_session() as session:
             video = await self._assert_video_owned(session, video_id, ctx)
             project_id = video.project_id
             source = video.source
-            video_file = video.video_file
-            cover_file = video.cover_file
             params = video.generation_params or {}
-            tail_frame_file = (
-                params.get("tail_frame_file") if isinstance(params, dict) else None
-            )
-            chain_id = params.get("chain_id") if isinstance(params, dict) else None
-            if source == "generated":
-                # 在途任务先取消；链内任意章节被删都会破坏后续衔接，整链终止
-                from service.story.video_generation import (
-                    cancel_chain_for_video,
-                    cancel_video_task,
-                )
+            is_link = isinstance(params, dict) and params.get("kind") == LINK_KIND
 
-                cancel_video_task(video.id)
-                if chain_id:
-                    cancel_chain_for_video(video.id)
-            await VideoRepository(session).delete(video)
+            repo = VideoRepository(session)
+            removed = [video]
+            if source == "generated" and not is_link:
+                for row in await repo.list_generated(project_id):
+                    row_params = row.generation_params or {}
+                    if not isinstance(row_params, dict):
+                        continue
+                    if row_params.get("kind") != LINK_KIND:
+                        continue
+                    if video.id.hex in (
+                        row_params.get("transition_from_video_id"),
+                        row_params.get("transition_to_video_id"),
+                    ):
+                        removed.append(row)
+            if source == "generated":
+                # 在途任务先取消，避免后台协程继续消耗上游额度
+                from service.story.video_generation import cancel_video_task
+
+                for row in removed:
+                    cancel_video_task(row.id)
+            cleanup: list[str] = []
+            for row in removed:
+                cleanup.extend(video_local_files(row))
+                await repo.delete(row)
             project_repo = ProjectRepository(session)
             project = await project_repo.get(project_id)
             await project_repo.recount_assets(project)
             await session.commit()
 
-        if source == "generated":
+        def _cleanup() -> None:
+            for path in cleanup:
+                unlink_quietly(path)
 
-            def _cleanup() -> None:
-                if video_file:
-                    unlink_quietly(video_file)
-                if cover_file:
-                    unlink_quietly(cover_file)
-                if tail_frame_file:
-                    unlink_quietly(tail_frame_file)
-
+        if cleanup:
             await asyncio.to_thread(_cleanup)
 
     async def download(self, ctx, video_id: uuid.UUID) -> tuple[Path, str]:

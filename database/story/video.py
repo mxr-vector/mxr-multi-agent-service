@@ -19,6 +19,14 @@ from utils.page import paginate
 # 生成中任务状态（启动清扫与互斥判定共用口径）
 RUNNING_STATUSES = ("queued", "generating")
 
+# 集间衔接片段在 generation_params.kind 上的标记（默认列表与互斥判定需排除）
+TRANSITION_KIND = "transition"
+
+
+def _not_transition():
+    """排除集间衔接片段的 SQL 条件（JSONB kind 为空视为普通章节片段）。"""
+    return func.coalesce(StoryVideo.generation_params["kind"].astext, "") != TRANSITION_KIND
+
 
 class VideoRepository:
     """视频成品持久层：项目维度登记、关键帧反查与维护。"""
@@ -97,8 +105,15 @@ class VideoRepository:
         source: str | None = None,
         status: str | None = None,
     ) -> tuple[list[StoryVideo], int]:
-        """按项目分页列出视频（可按关键帧/来源/状态过滤），创建时间倒序。"""
-        stmt = select(StoryVideo).where(StoryVideo.project_id == project_id)
+        """按项目分页列出视频（可按关键帧/来源/状态过滤），创建时间倒序。
+
+        默认排除集间衔接片段：它们只在「关联集」视图展示，避免污染成品列表
+        与按集取最新片段的判定。
+        """
+        stmt = select(StoryVideo).where(
+            StoryVideo.project_id == project_id,
+            _not_transition(),
+        )
         if keyframe_id is not None:
             stmt = stmt.where(StoryVideo.keyframe_id == keyframe_id)
         if source is not None:
@@ -119,10 +134,23 @@ class VideoRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_generated(self, project_id: uuid.UUID) -> "list[StoryVideo]":
+        """列出项目全部生成片段（含衔接片段），创建时间升序。"""
+        stmt = (
+            select(StoryVideo)
+            .where(
+                StoryVideo.project_id == project_id,
+                StoryVideo.source == "generated",
+            )
+            .order_by(StoryVideo.created_at.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def has_active_for_episode(
         self, project_id: uuid.UUID, episode_no: int
     ) -> bool:
-        """同一章节是否已有在途片段生成任务（episode_no 作为章节分组号）。"""
+        """同一章节是否已有在途片段生成任务（衔接片段不计入章节互斥）。"""
         stmt = (
             select(StoryVideo.id)
             .where(
@@ -130,66 +158,11 @@ class VideoRepository:
                 StoryVideo.episode_no == episode_no,
                 StoryVideo.source == "generated",
                 StoryVideo.status.in_(RUNNING_STATUSES),
+                _not_transition(),
             )
             .limit(1)
         )
         return await self.session.scalar(stmt) is not None
-
-    async def has_active_for_project(self, project_id: uuid.UUID) -> bool:
-        """项目内是否已有在途的生成片段（串行链启动前互斥校验）。"""
-        stmt = (
-            select(StoryVideo.id)
-            .where(
-                StoryVideo.project_id == project_id,
-                StoryVideo.source == "generated",
-                StoryVideo.status.in_(RUNNING_STATUSES),
-            )
-            .limit(1)
-        )
-        return await self.session.scalar(stmt) is not None
-
-    async def get_latest_done_before(
-        self, project_id: uuid.UUID, episode_no: int
-    ) -> StoryVideo | None:
-        """取上一集最近一条已完成片段（单章生成自动衔接尾帧用）。"""
-        if episode_no <= 1:
-            return None
-        stmt = (
-            select(StoryVideo)
-            .where(
-                StoryVideo.project_id == project_id,
-                StoryVideo.source == "generated",
-                StoryVideo.status == "done",
-                StoryVideo.video_file.is_not(None),
-                StoryVideo.episode_no > 0,
-                StoryVideo.episode_no < episode_no,
-            )
-            .order_by(
-                StoryVideo.episode_no.desc(),
-                StoryVideo.created_at.desc(),
-            )
-            .limit(1)
-        )
-        return await self.session.scalar(stmt)
-
-    async def cancel_running(self, ids: list[uuid.UUID], message: str) -> int:
-        """把指定视频中仍在途的批量置为 cancelled（串行链终止/失败收尾）。"""
-        if not ids:
-            return 0
-        stmt = (
-            update(StoryVideo)
-            .where(
-                StoryVideo.id.in_(ids),
-                StoryVideo.status.in_(RUNNING_STATUSES),
-            )
-            .values(
-                status="cancelled",
-                error_message=message,
-                updated_at=datetime.now(timezone.utc),
-            )
-        )
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
 
     async def update_fields(self, video: StoryVideo, fields: dict) -> StoryVideo:
         """按传入字段局部更新并刷新 updated_at。"""

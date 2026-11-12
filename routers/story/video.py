@@ -2,7 +2,7 @@
 剧本模块视频路由：
 1. 外部成品回收：上传登记（抽首帧封面）、列表与维护；
 2. 章节化片段生成：读取剧本编排 → 用户确认整章提示词 → 一次生成/下载；
-3. 串行链生成：按集顺序逐章生成，上一章成片尾帧作为下一章首帧。
+3. 关联集：对相邻两集已完成片段抽首尾帧，生成集间衔接片段。
 
 上传守卫对齐既有模式（格式白名单 + 大小上限），视频大小上限与图片分离
 （VIDEO_UPLOAD_MAX_SIZE_MB）；封面默认服务端抽帧，失败降级手动上传。
@@ -66,25 +66,14 @@ class ChapterVideoGenerateRequest(BaseModel):
     resolution: Optional[str] = None
     ratio: Optional[str] = None
     duration: Optional[int] = Field(default=None, ge=2, le=30)
-    # 开启后自动取上一集最近一条已完成片段的尾帧作首帧（默认关闭，优先关键帧参考图）
-    link_previous: bool = False
 
 
-class ChapterVideoChainItem(BaseModel):
-    """串行链中的一个章节：整章提示词 + 该章全部关键帧。"""
+class VideoLinkCreateRequest(BaseModel):
+    """集间衔接片段请求体：相邻两集的已完成片段 + 可编辑提示词/规格。"""
 
-    chapter_no: Optional[int] = None
-    title: Optional[str] = None
-    prompt: str = Field(..., min_length=1)
-    keyframe_ids: list[uuid.UUID] = Field(default_factory=list)
-    chapter_content: Optional[str] = None
-
-
-class ChapterVideoChainRequest(BaseModel):
-    """串行链生成请求体：按集顺序逐章生成，下一章首帧取上一章成片尾帧。"""
-
-    chapters: list[ChapterVideoChainItem] = Field(..., min_length=1, max_length=50)
-    use_images: bool = True
+    from_video_id: uuid.UUID
+    to_video_id: uuid.UUID
+    prompt: Optional[str] = None
     resolution: Optional[str] = None
     ratio: Optional[str] = None
     duration: Optional[int] = Field(default=None, ge=2, le=30)
@@ -119,38 +108,38 @@ async def generate_project_video(
             resolution=payload.resolution,
             ratio=payload.ratio,
             duration=payload.duration,
-            link_previous=payload.link_previous,
         )
     )
 
 
-@router.post("/projects/{project_id}/videos/generate-chain")
-async def generate_project_video_chain(
+@router.get("/projects/{project_id}/video-links")
+async def project_video_links(
     project_id: uuid.UUID = Path(...),
-    payload: ChapterVideoChainRequest = Body(...),
     ctx: UserContext = Depends(get_user_context),
 ):
-    """串行生成章节片段：逐章执行，上一章成片尾帧作为下一章首帧。"""
+    """关联集视图：每集最新已完成片段 + 相邻集衔接片段（供轮询）。"""
+    return R.success(data=await _video_generation_service.list_links(ctx, project_id))
+
+
+@router.post("/projects/{project_id}/video-links")
+async def create_project_video_link(
+    project_id: uuid.UUID = Path(...),
+    payload: VideoLinkCreateRequest = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """生成集间衔接片段：上一集成片尾帧作首帧、下一集成片首帧作尾帧。"""
     return R.success(
-        data=await _video_generation_service.start_chain(
+        data=await _video_generation_service.create_link(
             ctx,
             project_id,
-            [chapter.model_dump() for chapter in payload.chapters],
-            use_images=payload.use_images,
+            from_video_id=payload.from_video_id,
+            to_video_id=payload.to_video_id,
+            prompt=payload.prompt,
             resolution=payload.resolution,
             ratio=payload.ratio,
             duration=payload.duration,
         )
     )
-
-
-@router.get("/projects/{project_id}/videos/chain-status")
-async def project_video_chain_status(
-    project_id: uuid.UUID = Path(...),
-    ctx: UserContext = Depends(get_user_context),
-):
-    """串行链实时状态（章节状态以数据库为准，供面板轮询）。"""
-    return R.success(data=await _video_generation_service.chain_status(ctx, project_id))
 
 
 @router.get("/videos/generation-options")

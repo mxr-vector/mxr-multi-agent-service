@@ -8,13 +8,14 @@ extra.video_protocol 显式覆盖（"dashscope" | "openai" | "auto"）：
   `{base_address}/services/aigc/video-generation/video-synthesis`，任务查询走
   `/tasks/{task_id}`。适用于 dashscope.aliyuncs.com 与 MaaS / Token Plan 端点；
   接口地址填 OpenAI 兼容基地址（`.../compatible-mode/v1`）时会自动归一为
-  原生接口所在的 `/api/v1`。该协议的 first_frame 不能与 reference_image
-  同时下发（仅可与 last_frame 组合），业务层须二选一。
+  原生接口所在的 `/api/v1`。该协议 media 形态支持 first_frame 与 last_frame
+  同时下发（集间衔接），但两者都不能与 reference_image 并存，业务层须拆开
+  提交。
 - openai：聚合网关（如 tokenrhythm.studio）的 OpenAI 风格视频接口
   `POST {base}/videos/generations`、`GET {base}/videos/{task_id}`，请求体为
-  `content` 数组（text / image_url + first_frame|reference_image 角色），
-  创建返回 202 + 任务 id，轮询成功后从 video_url / result.url 取成片。
-  该协议首帧与参考图可同时携带（章节串行衔接），上游拒绝时由业务层降级。
+  `content` 数组（text / image_url + first_frame|last_frame|reference_image
+  角色），创建返回 202 + 任务 id，轮询成功后从 video_url / result.url 取成片。
+  该协议首帧/尾帧/参考图可同时携带，上游拒绝时由业务层降级。
 
 判定规则：接口地址主机属于阿里云 DashScope / MaaS 时走 dashscope，其余
 （第三方聚合网关、自建兼容端点）走 openai；无法从域名判断时在 extra 配
@@ -26,9 +27,10 @@ video 角色行，写时刷新）。可调规格（resolution/ratio/duration）�
 管理」改后免重启生效。wan3.0 文档未暴露 negative_prompt，默认不透传；
 如上游确认支持，可在 extra 配 `"supports_negative_prompt": true`。
 
-业务代码通过 supports_mixed_media() / submit_video() / get_video_task() /
-wait_video_task() / generate_video() 使用，无需关心协议与端点拼接。同步阻塞，
-异步调用方请用 asyncio.to_thread 包裹（与仓库内其他同步 IO 的约定一致）。
+业务代码通过 supports_mixed_media() / supports_last_frame() / submit_video() /
+get_video_task() / wait_video_task() / generate_video() 使用，无需关心协议
+与端点拼接。同步阻塞，异步调用方请用 asyncio.to_thread 包裹（与仓库内其他
+同步 IO 的约定一致）。
 """
 
 import time
@@ -223,12 +225,25 @@ def _first_frame_mode(extra: dict, override: str | None) -> str:
 def supports_mixed_media() -> bool:
     """当前协议是否支持 first_frame 与 reference_image 同时下发。
 
-    DashScope 原生接口不允许首帧与参考图并存（异步任务返回
+    DashScope 原生接口不允许首帧/尾帧与参考图并存（异步任务返回
     `InvalidParameter: first_frame cannot be combined with other media types
     except last_frame`）；聚合网关的 content 数组按 role 区分，可同时携带。
     业务层据此决定首个图片入参形态，避免提交必然失败的任务。
     """
     return _protocol(CFG.video.extra or {}) == PROTOCOL_OPENAI
+
+
+def supports_last_frame() -> bool:
+    """当前协议/模型是否支持尾帧入参（first_frame + last_frame 组合）。
+
+    聚合网关按 content role 携带；DashScope 原生仅 media 形态（wan3.0/2.7）
+    支持，img_url 形态的旧模型不接受尾帧。业务层据此决定集间衔接片段的
+    提交形态，避免必然失败的任务。
+    """
+    extra = CFG.video.extra or {}
+    if _protocol(extra) == PROTOCOL_OPENAI:
+        return True
+    return _first_frame_mode(extra, None) == "media"
 
 
 def _normalize_images(
@@ -248,6 +263,7 @@ def _submit_openai(
     frame_url: str,
     images: list[str],
     *,
+    last_frame_url: str = "",
     resolution: str,
     ratio: str,
     duration: int,
@@ -258,8 +274,9 @@ def _submit_openai(
 ) -> str:
     """按聚合网关协议提交任务（POST {base}/videos/generations）。
 
-    首帧与参考图可同时下发：上一章成片尾帧作 first_frame，本章关键帧作
-    reference_image（串行衔接）；上游不支持混合入参时由业务层降级重试。
+    首帧/尾帧/参考图按 content role 区分，可同时下发：集间衔接用上一集成片
+    尾帧作 first_frame、下一集成片首帧作 last_frame；上游不支持混合入参时
+    由业务层降级重试。
     """
     content: list[dict] = [{"type": "text", "text": prompt}]
     if frame_url:
@@ -268,6 +285,14 @@ def _submit_openai(
                 "type": "image_url",
                 "image_url": {"url": frame_url},
                 "role": "first_frame",
+            }
+        )
+    if last_frame_url:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": last_frame_url},
+                "role": "last_frame",
             }
         )
     content.extend(
@@ -314,6 +339,7 @@ def _submit_dashscope(
     frame_url: str,
     images: list[str],
     *,
+    last_frame_url: str = "",
     extra: dict,
     resolution: str,
     ratio: str,
@@ -335,16 +361,21 @@ def _submit_dashscope(
     if supports_negative:
         optional["negative_prompt"] = (negative_prompt or "").strip() or None
 
-    if images and frame_url:
+    mode = _first_frame_mode(extra, first_frame_mode)
+    if images and (frame_url or last_frame_url):
         raise ValueError(
-            "DashScope 视频接口不支持首帧与参考图同时下发，请在调用前二选一"
+            "DashScope 视频接口不支持参考图与首帧/尾帧同时下发，请在调用前拆分"
         )
+    if last_frame_url and mode == "img_url":
+        raise ValueError("当前视频模型不支持尾帧入参（需 media 形态模型或聚合网关）")
 
-    if images or frame_url:
-        if _first_frame_mode(extra, first_frame_mode) == "media":
+    if images or frame_url or last_frame_url:
+        if mode == "media":
             media: list[dict] = []
             if frame_url:
                 media.append({"type": "first_frame", "url": frame_url})
+            if last_frame_url:
+                media.append({"type": "last_frame", "url": last_frame_url})
             media.extend({"type": "reference_image", "url": url} for url in images)
             optional["media"] = media
         else:
@@ -383,6 +414,7 @@ def submit_video(
     duration: int | None = None,
     *,
     first_frame_url: str | None = None,
+    last_frame_url: str | None = None,
     reference_image_urls: list[str] | None = None,
     first_frame_mode: str | None = None,
     negative_prompt: str | None = None,
@@ -393,16 +425,17 @@ def submit_video(
 
     参考图：单图可作首帧；多图（章节级一次生成）作为 reference_image 序列
     传入，由提示词按【图1】【图2】顺序引用。聚合网关协议可同时传入
-    first_frame_url 与 reference_image_urls（上一章尾帧 + 本章关键帧的串行
-    衔接）；DashScope 原生协议两者互斥，须由业务层先二选一
-    （supports_mixed_media() 可判定当前协议能力）。协议按 CFG.video.api_url
-    自动判定，见模块 docstring。
+    first_frame_url / last_frame_url 与 reference_image_urls；DashScope 原生
+    协议的 media 形态支持首帧 + 尾帧组合（集间衔接片段），但首尾帧与参考图
+    不可并存，须由业务层拆分提交（supports_mixed_media() / supports_last_frame()
+    可判定当前协议能力）。协议按 CFG.video.api_url 自动判定，见模块 docstring。
     """
     if not prompt or not prompt.strip():
         raise ValueError("视频生成提示词不能为空")
     extra = CFG.video.extra or {}
     protocol = _protocol(extra)
     frame_url, images = _normalize_images(first_frame_url, reference_image_urls)
+    last_url = (last_frame_url or "").strip()
     resolution_value = _spec(extra, "resolution", resolution, DEFAULT_RESOLUTION)
     ratio_value = _spec(extra, "ratio", ratio, DEFAULT_RATIO)
     duration_value = _int_spec(extra, "duration", duration, DEFAULT_DURATION)
@@ -410,13 +443,14 @@ def submit_video(
         f"[VIDEO] 提交视频生成任务: model={CFG.video.model_name}, protocol={protocol}, "
         f"resolution={resolution_value}, ratio={ratio_value}, "
         f"duration={duration_value}, first_frame={bool(frame_url)}, "
-        f"references={len(images)}"
+        f"last_frame={bool(last_url)}, references={len(images)}"
     )
     if protocol == PROTOCOL_OPENAI:
         return _submit_openai(
             prompt.strip(),
             frame_url,
             images,
+            last_frame_url=last_url,
             resolution=resolution_value,
             ratio=ratio_value,
             duration=duration_value,
@@ -429,6 +463,7 @@ def submit_video(
         prompt.strip(),
         frame_url,
         images,
+        last_frame_url=last_url,
         extra=extra,
         resolution=resolution_value,
         ratio=ratio_value,
@@ -631,6 +666,7 @@ def generate_video(
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     *,
     first_frame_url: str | None = None,
+    last_frame_url: str | None = None,
     reference_image_urls: list[str] | None = None,
     first_frame_mode: str | None = None,
     negative_prompt: str | None = None,
@@ -644,6 +680,7 @@ def generate_video(
         ratio=ratio,
         duration=duration,
         first_frame_url=first_frame_url,
+        last_frame_url=last_frame_url,
         reference_image_urls=reference_image_urls,
         first_frame_mode=first_frame_mode,
         negative_prompt=negative_prompt,

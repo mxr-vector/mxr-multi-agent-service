@@ -1,26 +1,21 @@
 """
-剧本模块视频片段生成业务层：单章生成与章节串行衔接。
+剧本模块视频片段生成业务层：章节片段并发生成与集间衔接片段。
 
-- 单章生成：一次提交该章全部关键帧参考图，产出一个片段；开启衔接时自动
-  取上一集最近一条已完成片段的尾帧作为本章首帧。
-- 串行链：按集顺序逐章生成，第 N 章完成后抽取成片最后一帧，作为第 N+1
-  章首帧，保证集间画面连续；任一章失败/中止即终止整链，后续标记为取消。
-- 链首以本章第一个已出图关键帧作为画面锚点（聚合网关同时作为首帧，原生
-  协议则为参考图序列首图），参考图保留本章全部关键帧，避免改写编排提示词
-  中已生成的【图k】编号。
+- 章节生成：一次提交该章全部关键帧参考图，产出一个片段；各章相互独立、
+  按项目并发上限并行排队，不做上下集串行依赖。
+- 集间衔接：对相邻两集已完成片段，抽取上一集成片尾帧与下一集成片首帧，
+  以 first_frame + last_frame 生成一段过渡片段（kind=transition），供外部
+  剪辑插入两集之间，解决跨集画面跳变。
 - 关键帧本地图片压缩后转 base64 data URI 作为参考图/首帧（DashScope 原生
   协议 wan3.0 走 media、旧模型走 img_url；聚合网关协议走 content 数组的
-  first_frame / reference_image 角色）。DashScope 原生接口不允许首帧与
-  参考图并存（上游报 `first_frame cannot be combined with other media
-  types except last_frame`），该协议下按场景二选一：衔接章节优先首帧，
-  其余章节优先参考图；聚合网关支持混合时仍优先 mixed。提交被拒（400/413/
+  first_frame / reference_image 角色）。DashScope 原生接口不允许参考图与
+  首尾帧并存：章节生成优先参考图，衔接片段只带首尾帧；提交被拒（400/413/
   422）或任务因入参不兼容失败（InvalidParameter）时按图片形态逐级降级，
   不再静默回退纯文生，避免成片与关键帧人物完全不一致。
 - 任务生命周期：queued → generating → done / failed / cancelled。后台协程
-  异步轮询上游任务（等待期间可取消），完成后立即下载落盘，封面优先复用
-  本章首关键帧图片，失败再抽视频首帧。
-- 项目级并发上限 MAX_CONCURRENT_VIDEO_TASKS；串行链同一时刻只跑一章，
-  其他项目不受影响。
+  异步轮询上游任务（等待期间可取消），完成后立即下载落盘，章节片段封面
+  优先复用本章首关键帧，失败再抽视频首帧。
+- 项目级并发上限 MAX_CONCURRENT_VIDEO_TASKS；不同章节并行生成，互不阻塞。
 - 只产出可下载的单片段，整片由用户自行下载后外部组装。
 """
 
@@ -52,6 +47,7 @@ from model.video.factory import (
     cancel_remote_video,
     get_video_task,
     submit_video,
+    supports_last_frame,
     supports_mixed_media,
 )
 from service.story.project import ProjectService
@@ -62,21 +58,20 @@ from service.story.storage import (
 )
 from service.story.video import (
     COVER_SUBDIR,
-    FRAME_SUBDIR,
+    LINK_FRAME_SUBDIR,
+    LINK_KIND,
     VIDEO_EXTENSIONS,
     VIDEO_SUBDIR,
     extract_first_frame,
     extract_last_frame,
     probe_video_meta,
+    video_local_files,
 )
 from utils.env import ENV
 from utils.logger import logger
 
 # 项目级视频生成并发上限：视频合成单次成本高、耗时长，保持 queued 排队更稳
 MAX_CONCURRENT_VIDEO_TASKS = 3
-
-# 串行链一次最多章节数，避免误操作提交超长链
-MAX_CHAIN_CHAPTERS = 50
 
 # 上游任务轮询间隔与总等待上限（秒）：视频通常 1~5 分钟，留 30 分钟余量
 VIDEO_POLL_INTERVAL = 5.0
@@ -92,19 +87,17 @@ CHAPTER_CONTENT_MAX = 3000
 # 上游取消失败/超时不影响本地停止流程
 REMOTE_CANCEL_TIMEOUT = 5.0
 
-# 串行衔接提示：放在整章提示词最前，再统一截断，避免被尾部截掉
-CHAIN_LINK_NOTE = (
-    "衔接要求：本片段首帧为上一章片段的结尾画面，请从该画面无缝开始，"
-    "保持人物、服装、场景、光线与镜头方向一致，再自然推进本章剧情。"
+# 集间衔接片段默认提示词（帧文件目录与 kind 标记见 service/story/video.py）
+LINK_PROMPT_DEFAULT = (
+    "集间过渡片段：从上一集的结尾画面开始，自然过渡到下一集的开始画面，"
+    "保持人物、服装、场景、光线与镜头方向一致，画面连贯，避免跳切。"
 )
 
 # 运行期任务注册表：video_id_hex -> asyncio.Task；项目信号量按需创建
 _video_tasks: dict[str, asyncio.Task] = {}
 _project_semaphores: dict[str, asyncio.Semaphore] = {}
-# 单章/串行链启动互斥锁：串行化"校验 + 建行"窗口，避免两条任务同时落库
+# 建行互斥锁：串行化"校验 + 建行"窗口，避免批量并发提交时重复落库
 _project_task_locks: dict[str, asyncio.Lock] = {}
-# 串行链注册表：project_hex -> 链状态（结束后保留摘要，下次启动替换）
-_chains: dict[str, "_ChainState"] = {}
 
 
 @dataclass
@@ -114,42 +107,6 @@ class _ChapterInputs:
     reference_images: list[str]
     first_frame_file: str | None
     cover_image_file: str | None
-    first_frame_source: str
-    link_degraded: bool
-    prev_video_id: str | None
-
-
-@dataclass
-class _ChainEntry:
-    """串行链中一个章节的执行快照（不持有 ORM 对象）。"""
-
-    video_id: uuid.UUID
-    keyframe_id: uuid.UUID
-    script_id: uuid.UUID | None
-    base_prompt: str
-    chapter_no: int | None
-    title: str
-    params: dict
-    reference_images: list[str]
-    cover_image_file: str | None
-    first_keyframe_image: str | None
-
-
-@dataclass
-class _ChainState:
-    """串行链内存状态；running 覆盖"已登记但协程尚未启动"的窗口。"""
-
-    chain_id: str
-    project_id: uuid.UUID
-    chapters: list[dict]
-    task: asyncio.Task | None = None
-    cursor: int = 0
-    cancel_requested: bool = False
-    starting: bool = True
-
-    @property
-    def running(self) -> bool:
-        return self.starting or (self.task is not None and not self.task.done())
 
 
 def _project_semaphore(project_hex: str) -> asyncio.Semaphore:
@@ -162,7 +119,7 @@ def _project_semaphore(project_hex: str) -> asyncio.Semaphore:
 
 
 def _project_task_lock(project_hex: str) -> asyncio.Lock:
-    """获取项目级启动锁（懒创建），串行化单章/链的建行窗口。"""
+    """获取项目级建行锁（懒创建），串行化批量并发提交的建行窗口。"""
     lock = _project_task_locks.get(project_hex)
     if lock is None:
         lock = asyncio.Lock()
@@ -177,27 +134,6 @@ def cancel_video_task(video_id: uuid.UUID) -> bool:
         return False
     task.cancel()
     return True
-
-
-def cancel_chain(project_hex: str) -> bool:
-    """请求中止项目串行链；当前章节的 CancelledError 由链任务统一收尾。"""
-    state = _chains.get(project_hex)
-    if state is None or not state.running:
-        return False
-    state.cancel_requested = True
-    if state.task is not None and not state.task.done():
-        state.task.cancel()
-    return True
-
-
-def cancel_chain_for_video(video_id: uuid.UUID) -> bool:
-    """视频属于活跃串行链时中止整链（删除/单独停止链内章节）。"""
-    for state in list(_chains.values()):
-        if not state.running:
-            continue
-        if any(chapter["video_id"] == video_id.hex for chapter in state.chapters):
-            return cancel_chain(state.project_id.hex)
-    return False
 
 
 async def _cancel_remote_task(task_id: str | None) -> None:
@@ -220,11 +156,6 @@ async def _cancel_remote_task(task_id: str | None) -> None:
 def _truncate(text: str, limit: int) -> str:
     text = (text or "").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _with_chain_note(prompt: str) -> str:
-    """整章提示词前追加串行衔接说明，再统一截断到上限。"""
-    return _truncate(f"{CHAIN_LINK_NOTE}\n\n{prompt}", VIDEO_PROMPT_MAX_CHARS)
 
 
 def _keyframe_label(keyframe) -> str:
@@ -268,14 +199,13 @@ def _image_attempts(
     reference_urls: list[str],
     *,
     allow_text: bool,
-    prefer_first_frame: bool = True,
     allow_mixed: bool = True,
 ) -> list[tuple[str, str | None, list[str] | None]]:
     """按可用入参生成降级尝试序列（模式, 首帧, 参考图）。
 
-    混合入参仅在协议支持时作为首选（聚合网关）；DashScope 原生接口的首帧
-    不能与参考图并存，直接单图二选一。衔接章节优先保留上一章尾帧（断点续接
-    优先）；链首/无衔接章节的首帧就是本章关键帧，降级时优先保留参考图。
+    章节生成的首帧就是本章首关键帧（同时也在参考图里），因此优先保留全部
+    参考图，首帧单独提交仅作上游拒绝参考图时的降级形态。混合入参仅在协议
+    支持时作为首选（聚合网关）；DashScope 原生接口的参考图不能与首帧并存。
     allow_text 由调用方显式放行（业务层仅在未请求关键帧图片时传 True），
     已有图片入参时不追加纯文生，避免成片与关键帧人物不一致。
     """
@@ -283,12 +213,8 @@ def _image_attempts(
     if first_frame_url and reference_urls:
         if allow_mixed:
             attempts.append(("mixed", first_frame_url, reference_urls))
-        if prefer_first_frame:
-            attempts.append(("first_frame_only", first_frame_url, None))
-            attempts.append(("reference_only", None, reference_urls))
-        else:
-            attempts.append(("reference_only", None, reference_urls))
-            attempts.append(("first_frame_only", first_frame_url, None))
+        attempts.append(("reference_only", None, reference_urls))
+        attempts.append(("first_frame_only", first_frame_url, None))
     elif first_frame_url:
         attempts.append(("first_frame_only", first_frame_url, None))
     elif reference_urls:
@@ -298,6 +224,62 @@ def _image_attempts(
     if not attempts:
         raise RuntimeError("缺少可提交的视频图片入参")
     return attempts
+
+
+def _link_attempts(
+    first_frame_url: str,
+    last_frame_url: str,
+    *,
+    allow_last: bool,
+) -> list[tuple[str, str | None, str | None]]:
+    """集间衔接片段的尝试序列（模式, 首帧, 尾帧）。
+
+    尾帧不可用（旧 img_url 形态模型）时只提交首帧；尾帧提交被上游拒绝时
+    降级为首帧单图，保证至少从上一集结尾画面自然起幅。
+    """
+    if allow_last:
+        return [
+            ("first_last", first_frame_url, last_frame_url),
+            ("first_only", first_frame_url, None),
+        ]
+    return [("first_only", first_frame_url, None)]
+
+
+def _is_link_row(video: StoryVideo) -> bool:
+    """是否为集间衔接片段（generation_params.kind=transition）。"""
+    params = video.generation_params
+    return isinstance(params, dict) and params.get("kind") == LINK_KIND
+
+
+def _latest_done_episodes(rows: list[StoryVideo]) -> dict[int, StoryVideo]:
+    """每集最新一条已完成章节片段（排除衔接片段与非第N集分组）。"""
+    picked: dict[int, StoryVideo] = {}
+    for row in rows:
+        if _is_link_row(row) or row.status != "done" or not row.video_file:
+            continue
+        episode_no = row.episode_no or 0
+        if episode_no <= 0:
+            continue
+        current = picked.get(episode_no)
+        if current is None or row.created_at > current.created_at:
+            picked[episode_no] = row
+    return picked
+
+
+def _active_link_exists(
+    rows: list[StoryVideo], from_hex: str, to_hex: str
+) -> bool:
+    """同一对相邻集是否已有在途衔接任务，避免重复提交。"""
+    for row in rows:
+        if row.status not in RUNNING_STATUSES or not _is_link_row(row):
+            continue
+        params = row.generation_params or {}
+        if (
+            params.get("transition_from_video_id") == from_hex
+            and params.get("transition_to_video_id") == to_hex
+        ):
+            return True
+    return False
 
 
 def _option_str(extra: dict, key: str, default: str) -> str:
@@ -325,7 +307,7 @@ def _video_model_name() -> str:
 
 
 class VideoGenerationService:
-    """视频片段生成业务层：项目属主校验收口，单章生成/串行链/轮询/下载。"""
+    """视频片段生成业务层：章节片段并发生成、集间衔接、轮询与停止。"""
 
     def __init__(self) -> None:
         self._project_service = ProjectService()
@@ -351,6 +333,7 @@ class VideoGenerationService:
             "ratio": _option_str(extra, "ratio", DEFAULT_RATIO),
             "duration": _option_int(extra, "duration", DEFAULT_DURATION),
             "max_concurrent": MAX_CONCURRENT_VIDEO_TASKS,
+            "supports_last_frame": supports_last_frame(),
         }
 
     @staticmethod
@@ -369,20 +352,6 @@ class VideoGenerationService:
         )
         if await session.scalar(stmt) is not None:
             bad_except("本项目剧本生成进行中，请稍候")
-
-    async def _video_snapshot(self, video_id: uuid.UUID) -> dict | None:
-        """短会话读取视频执行快照，避免长事务持有连接。"""
-        async with get_session() as session:
-            video = await VideoRepository(session).get(video_id)
-            if video is None:
-                return None
-            params = video.generation_params or {}
-            return {
-                "id": video.id,
-                "status": video.status,
-                "video_file": video.video_file,
-                "params": dict(params) if isinstance(params, dict) else {},
-            }
 
     async def _merge_params(self, video_id: uuid.UUID, patch: dict) -> None:
         """读当前 generation_params 后合并写回（视频已删除时静默忽略）。"""
@@ -444,61 +413,22 @@ class VideoGenerationService:
             await session.commit()
             return bool(result.rowcount)
 
-    async def _ensure_tail_frame(self, snapshot: dict) -> str | None:
-        """获取视频成片尾帧相对路径；缺失时抽取并缓存到 generation_params。"""
-        tail_frame = snapshot["params"].get("tail_frame_file")
-        if tail_frame and resolve_upload_path(tail_frame).is_file():
-            return tail_frame
-        video_file = snapshot.get("video_file")
-        if not video_file:
-            return None
-        relative = f"{FRAME_SUBDIR}/{snapshot['id'].hex}.jpg"
-        ok = await asyncio.to_thread(
-            extract_last_frame,
-            resolve_upload_path(video_file),
-            resolve_upload_path(relative),
-        )
-        if not ok:
-            logger.warning(f"[STORY] 尾帧抽取失败，衔接降级 video={snapshot['id'].hex}")
-            return None
-        await self._merge_params(snapshot["id"], {"tail_frame_file": relative})
-        snapshot["params"]["tail_frame_file"] = relative
-        return relative
-
-    async def _build_inputs(
-        self,
+    @staticmethod
+    def _build_inputs(
         keyframe_infos: list[dict],
         *,
         use_images: bool,
-        link_previous: bool,
-        prev_snapshot: dict | None,
     ) -> _ChapterInputs:
-        """解析首帧/参考图/封面：优先上一章尾帧，其次本章首关键帧。"""
-        images = [item["image_file"] for item in keyframe_infos if item["image_file"]]
+        """解析参考图/首帧/封面：本章首关键帧既作首帧也保留在参考图序列。"""
         if not use_images:
-            return _ChapterInputs([], None, None, "none", False, None)
-
-        first_frame_file: str | None = None
-        first_frame_source = "own_first_keyframe"
-        link_degraded = False
-        prev_video_id = prev_snapshot["id"].hex if prev_snapshot else None
-        if link_previous and prev_snapshot is not None:
-            tail_frame = await self._ensure_tail_frame(prev_snapshot)
-            if tail_frame:
-                first_frame_file = tail_frame
-                first_frame_source = "prev_tail"
-            else:
-                link_degraded = True
-        if first_frame_file is None and images:
-            first_frame_file = images[0]
-        cover_image_file = images[0] if images else first_frame_file
+            return _ChapterInputs([], None, None)
+        images = [item["image_file"] for item in keyframe_infos if item["image_file"]]
+        if not images:
+            bad_except("本章没有可用的关键帧图片")
         return _ChapterInputs(
             reference_images=images,
-            first_frame_file=first_frame_file,
-            cover_image_file=cover_image_file,
-            first_frame_source=first_frame_source,
-            link_degraded=link_degraded,
-            prev_video_id=prev_video_id,
+            first_frame_file=images[0],
+            cover_image_file=images[0],
         )
 
     async def generate_chapter(
@@ -515,14 +445,10 @@ class VideoGenerationService:
         resolution: str | None = None,
         ratio: str | None = None,
         duration: int | None = None,
-        link_previous: bool = False,
     ) -> dict:
-        """生成单章片段；link_previous 开启时自动衔接上一集已完成片段尾帧。"""
+        """生成单章片段：一次提交该章全部关键帧参考图，与其它章节并行排队。"""
         if not ctx.user_id:
             bad_except("视频生成仅支持用户通道调用")
-        chain_state = _chains.get(project_id.hex)
-        if chain_state is not None and chain_state.running:
-            bad_except("本项目串行生成任务进行中，请稍候")
 
         base_prompt = _truncate(prompt or "", VIDEO_PROMPT_MAX_CHARS)
         if not base_prompt:
@@ -534,7 +460,6 @@ class VideoGenerationService:
             bad_except("本章没有可用的关键帧")
         episode_no = chapter_no if chapter_no is not None else 0
 
-        prev_snapshot: dict | None = None
         async with get_session() as session:
             await self._project_service._assert_owned(session, project_id, ctx)
             await self._assert_no_running_script(session, project_id)
@@ -564,21 +489,6 @@ class VideoGenerationService:
                             "请先在「关键帧」面板出图后再生成"
                         )
 
-            if use_images and link_previous and episode_no > 1:
-                prev_video = await video_repo.get_latest_done_before(
-                    project_id, episode_no
-                )
-                if prev_video is not None:
-                    prev_params = prev_video.generation_params or {}
-                    prev_snapshot = {
-                        "id": prev_video.id,
-                        "status": prev_video.status,
-                        "video_file": prev_video.video_file,
-                        "params": (
-                            dict(prev_params) if isinstance(prev_params, dict) else {}
-                        ),
-                    }
-
             keyframe_infos = [
                 {
                     "id": keyframe.id,
@@ -589,17 +499,11 @@ class VideoGenerationService:
                 for keyframe in keyframes
             ]
 
-        inputs = await self._build_inputs(
+        inputs = self._build_inputs(
             keyframe_infos,
             use_images=use_images,
-            link_previous=link_previous,
-            prev_snapshot=prev_snapshot,
         )
-        final_prompt = (
-            _with_chain_note(base_prompt)
-            if inputs.first_frame_source == "prev_tail"
-            else base_prompt
-        )
+        final_prompt = base_prompt
 
         final_title = (title or "").strip() or (
             f"第{chapter_no}集" if chapter_no is not None else "未匹配章节片段"
@@ -612,22 +516,15 @@ class VideoGenerationService:
             "keyframe_ids": [item["id"].hex for item in keyframe_infos],
             "reference_images": inputs.reference_images,
             "use_images": bool(use_images),
-            "first_frame_source": inputs.first_frame_source,
             "first_frame_file": inputs.first_frame_file,
-            "prev_video_id": inputs.prev_video_id,
-            "link_degraded": inputs.link_degraded,
             "resolution": resolution,
             "ratio": ratio,
             "duration": duration,
-            "chain_id": None,
         }
 
         async with _project_task_lock(project_id.hex):
             async with get_session() as session:
                 video_repo = VideoRepository(session)
-                chain_state = _chains.get(project_id.hex)
-                if chain_state is not None and chain_state.running:
-                    bad_except("本项目串行生成任务进行中，请稍候")
                 if await video_repo.has_active_for_episode(project_id, episode_no):
                     bad_except("本章片段正在生成中，请稍候")
                 video = await video_repo.create(
@@ -665,14 +562,12 @@ class VideoGenerationService:
                 reference_image_files=inputs.reference_images,
                 cover_image_file=inputs.cover_image_file,
                 send_references=bool(use_images),
-                prefer_first_frame=inputs.first_frame_source == "prev_tail",
             ),
         )
         logger.info(
             f"[STORY] 章节视频任务已创建 project={project_id.hex} "
             f"chapter={chapter_no} keyframes={len(keyframe_infos)} "
-            f"references={len(inputs.reference_images)} "
-            f"first_frame={inputs.first_frame_source}"
+            f"references={len(inputs.reference_images)}"
         )
         return data
 
@@ -698,12 +593,11 @@ class VideoGenerationService:
         reference_image_files: list[str] | None = None,
         cover_image_file: str | None = None,
         send_references: bool = True,
-        prefer_first_frame: bool = True,
     ) -> bool:
-        """后台执行一个片段：排队 → 提交（首帧或参考图）→ 轮询 → 下载 → 封面。
+        """后台执行一个片段：排队 → 提交（参考图或首帧）→ 轮询 → 下载 → 封面。
 
         成功返回 True；失败置 failed 返回 False；取消置 cancelled 后继续抛出
-        CancelledError，由串行链统一收尾。
+        CancelledError。
         """
         semaphore = _project_semaphore(project_id.hex)
         video_rel: str | None = None
@@ -731,58 +625,29 @@ class VideoGenerationService:
                             for file in reference_image_files
                         ]
 
-                attempts = _image_attempts(
-                    first_frame_url,
-                    reference_urls,
-                    allow_text=not send_references,
-                    prefer_first_frame=prefer_first_frame,
-                    allow_mixed=supports_mixed_media(),
+                attempts = [
+                    (
+                        mode,
+                        {
+                            "first_frame_url": frame_url,
+                            "reference_image_urls": image_urls,
+                        },
+                    )
+                    for mode, frame_url, image_urls in _image_attempts(
+                        first_frame_url,
+                        reference_urls,
+                        allow_text=not send_references,
+                        allow_mixed=supports_mixed_media(),
+                    )
+                ]
+                task, used_mode = await self._submit_with_fallback(
+                    video_id,
+                    prompt,
+                    params,
+                    attempts,
+                    negative_prompt=negative_prompt,
+                    task_label="视频生成",
                 )
-                task: dict | None = None
-                for index, (mode, frame_url, image_urls) in enumerate(attempts):
-                    has_next = index + 1 < len(attempts)
-                    try:
-                        task_id = await asyncio.to_thread(
-                            submit_video,
-                            prompt,
-                            params.get("resolution"),
-                            params.get("ratio"),
-                            params.get("duration"),
-                            first_frame_url=frame_url,
-                            reference_image_urls=image_urls,
-                            negative_prompt=negative_prompt,
-                        )
-                    except Exception as exc:
-                        if not has_next or not _image_fallback_allowed(exc):
-                            raise
-                        logger.warning(
-                            f"[STORY] 视频图片入参被拒绝，降级重试 video={video_id.hex} "
-                            f"{mode} -> {attempts[index + 1][0]}: {exc}"
-                        )
-                        continue
-
-                    used_mode = mode
-                    await self._merge_params(
-                        video_id,
-                        {"image_mode": mode, "image_fallback": index > 0},
-                    )
-                    await self._update_video(video_id, {"external_task_id": task_id})
-                    task = await self._wait_task(task_id)
-                    if task["task_status"] == "SUCCEEDED":
-                        break
-                    if has_next and _task_fallback_allowed(task):
-                        logger.warning(
-                            f"[STORY] 视频任务因入参不兼容失败，换图片形态重试 "
-                            f"video={video_id.hex} {mode} -> {attempts[index + 1][0]}: "
-                            f"code={task['code']} message={task['message']}"
-                        )
-                        continue
-                    raise RuntimeError(
-                        f"视频生成失败: status={task['task_status']}, "
-                        f"code={task['code']}, message={task['message']}"
-                    )
-                if task is None or task["task_status"] != "SUCCEEDED":
-                    raise RuntimeError("视频生成失败: 未能提交可用的生成任务")
                 video_url = task.get("video_url") or ""
                 if not video_url:
                     raise RuntimeError("视频生成成功但未返回视频地址")
@@ -844,6 +709,61 @@ class VideoGenerationService:
                 await asyncio.to_thread(unlink_quietly, cover_rel)
             return False
 
+    async def _submit_with_fallback(
+        self,
+        video_id: uuid.UUID,
+        prompt: str,
+        params: dict,
+        attempts: list[tuple[str, dict]],
+        *,
+        negative_prompt: str | None = None,
+        task_label: str,
+    ) -> tuple[dict, str]:
+        """按图片入参形态逐级降级提交并等待任务，返回 (成功任务, 实际形态)。
+
+        提交被拒（400/413/422）或任务阶段 InvalidParameter 时才换下一种图片形态；
+        鉴权、网络、内容审核等与入参无关的失败直接抛出，避免掩盖真实故障。
+        """
+        for index, (mode, image_kwargs) in enumerate(attempts):
+            has_next = index + 1 < len(attempts)
+            try:
+                task_id = await asyncio.to_thread(
+                    submit_video,
+                    prompt,
+                    params.get("resolution"),
+                    params.get("ratio"),
+                    params.get("duration"),
+                    negative_prompt=negative_prompt,
+                    **image_kwargs,
+                )
+            except Exception as exc:
+                if not has_next or not _image_fallback_allowed(exc):
+                    raise
+                logger.warning(
+                    f"[STORY] {task_label}图片入参被拒绝，降级重试 "
+                    f"video={video_id.hex} {mode} -> {attempts[index + 1][0]}: {exc}"
+                )
+                continue
+            await self._merge_params(
+                video_id, {"image_mode": mode, "image_fallback": index > 0}
+            )
+            await self._update_video(video_id, {"external_task_id": task_id})
+            task = await self._wait_task(task_id)
+            if task["task_status"] == "SUCCEEDED":
+                return task, mode
+            if has_next and _task_fallback_allowed(task):
+                logger.warning(
+                    f"[STORY] {task_label}任务因入参不兼容失败，换图片形态重试 "
+                    f"video={video_id.hex} {mode} -> {attempts[index + 1][0]}: "
+                    f"code={task['code']} message={task['message']}"
+                )
+                continue
+            raise RuntimeError(
+                f"{task_label}失败: status={task['task_status']}, "
+                f"code={task['code']}, message={task['message']}"
+            )
+        raise RuntimeError(f"{task_label}失败: 未能提交可用的生成任务")
+
     async def _wait_task(self, task_id: str) -> dict:
         """异步轮询上游任务直到终态；sleep 期间可被 stop 取消。"""
         loop = asyncio.get_running_loop()
@@ -894,10 +814,8 @@ class VideoGenerationService:
         cover_image_file: str | None,
         video_rel: str,
     ) -> str | None:
-        """封面优先复用本章首关键帧（显式传入），缺失时抽取视频首帧。
-
-        不可直接使用链式首帧：那是上一章成片尾帧，会把封面误导为上一章画面。
-        """
+        """封面优先复用显式传入的图片（章节首关键帧 / 衔接片段首帧），
+        缺失时抽取视频首帧。"""
         if cover_image_file:
             target: Path | None = None
             try:
@@ -935,412 +853,321 @@ class VideoGenerationService:
             target.unlink(missing_ok=True)
         return relative if ok else None
 
-    # —— 串行链 ——
+    # —— 关联集：相邻两集首尾帧衔接片段 ——
 
-    async def start_chain(
-        self,
-        ctx,
-        project_id: uuid.UUID,
-        chapters: list[dict],
-        *,
-        use_images: bool = True,
-        resolution: str | None = None,
-        ratio: str | None = None,
-        duration: int | None = None,
-    ) -> dict:
-        """按集顺序创建串行链：预建全部章节行，后台逐章执行并串接尾帧。"""
-        if not ctx.user_id:
-            bad_except("视频生成仅支持用户通道调用")
-        if not use_images:
-            bad_except("串行衔接需要关键帧图片，请开启「关键帧作参考图」")
-        if not chapters:
-            bad_except("请至少选择一个章节")
-        if len(chapters) > MAX_CHAIN_CHAPTERS:
-            bad_except(f"一次最多串行 {MAX_CHAIN_CHAPTERS} 个章节")
+    @staticmethod
+    def _link_view(video: StoryVideo) -> dict:
+        """衔接片段视图：在视频字段上附加衔接对信息。"""
+        data = video.to_dict()
+        params = video.generation_params or {}
+        data["from_video_id"] = params.get("transition_from_video_id")
+        data["to_video_id"] = params.get("transition_to_video_id")
+        data["from_episode_no"] = params.get("from_episode_no")
+        data["to_episode_no"] = params.get("to_episode_no")
+        return data
 
-        existing = _chains.get(project_id.hex)
-        if existing is not None and existing.running:
-            bad_except("本项目已有串行生成任务在执行，请稍候")
-
-        model_name = _video_model_name()
-        ordered = sorted(
-            chapters,
-            key=lambda item: (
-                item.get("chapter_no") is None,
-                item.get("chapter_no") or 0,
-            ),
-        )
-        seen_chapter_nos: set[int] = set()
-        all_ids: list[uuid.UUID] = []
-        for item in ordered:
-            chapter_no = item.get("chapter_no")
-            if chapter_no is not None:
-                if chapter_no in seen_chapter_nos:
-                    bad_except(f"第{chapter_no}集重复选择")
-                seen_chapter_nos.add(chapter_no)
-            ids = list(dict.fromkeys(item.get("keyframe_ids") or []))
-            if not ids:
-                bad_except(f"章节「{item.get('title') or '未命名'}」没有可用关键帧")
-            item["keyframe_ids"] = ids
-            all_ids.extend(ids)
-
-        chain_id = uuid7().hex
-        state = _ChainState(chain_id=chain_id, project_id=project_id, chapters=[])
-        _chains[project_id.hex] = state
-        try:
-            keyframe_snapshots: dict[uuid.UUID, dict] = {}
-            async with get_session() as session:
-                await self._project_service._assert_owned(session, project_id, ctx)
-                await self._assert_no_running_script(session, project_id)
-                video_repo = VideoRepository(session)
-                if await video_repo.has_active_for_project(project_id):
-                    bad_except("本项目已有视频生成任务在执行，请稍候")
-
-                unique_ids = list(dict.fromkeys(all_ids))
-                by_id = await KeyframeRepository(session).get_many(unique_ids)
-                if len(by_id) != len(unique_ids):
-                    bad_except("部分关键帧不存在")
-                for item in ordered:
-                    title = item.get("title") or "未命名"
-                    for keyframe_id in item["keyframe_ids"]:
-                        keyframe = by_id.get(keyframe_id)
-                        if keyframe is None or keyframe.project_id != project_id:
-                            bad_except("部分关键帧不存在或不属于本项目")
-                        if keyframe.status == StoryKeyframeStatus.ARCHIVED.value:
-                            bad_except("存在已归档关键帧，无法生成视频")
-                        if (
-                            not keyframe.image_file
-                            or not resolve_upload_path(keyframe.image_file).is_file()
-                        ):
-                            bad_except(f"章节「{title}」存在缺失图片的关键帧，请先出图")
-                for keyframe_id, keyframe in by_id.items():
-                    keyframe_snapshots[keyframe_id] = {
-                        "id": keyframe.id,
-                        "script_id": keyframe.script_id,
-                        "image_file": keyframe.image_file,
-                    }
-
-            entries: list[_ChainEntry] = []
-            total = len(ordered)
-            prev_video_id: uuid.UUID | None = None
-            for index, item in enumerate(ordered):
-                chapter_no = item.get("chapter_no")
-                title = (item.get("title") or "").strip() or (
-                    f"第{chapter_no}集" if chapter_no is not None else "未匹配章节片段"
-                )
-                base_prompt = _truncate(
-                    item.get("prompt") or "", VIDEO_PROMPT_MAX_CHARS
-                )
-                if not base_prompt:
-                    bad_except(f"章节「{title}」的视频提示词为空")
-                snapshots = [
-                    keyframe_snapshots[keyframe_id]
-                    for keyframe_id in item["keyframe_ids"]
-                ]
-                images = [
-                    snapshot["image_file"]
-                    for snapshot in snapshots
-                    if snapshot["image_file"]
-                ]
-                video_id = uuid7()
-                params = {
-                    "chapter_no": chapter_no,
-                    "chapter_title": title,
-                    "chapter_content": _truncate(
-                        item.get("chapter_content") or "",
-                        CHAPTER_CONTENT_MAX,
-                    )
-                    or None,
-                    "keyframe_ids": [snapshot["id"].hex for snapshot in snapshots],
-                    "reference_images": images,
-                    "use_images": True,
-                    "first_frame_source": (
-                        "own_first_keyframe" if index == 0 else "prev_tail"
-                    ),
-                    "first_frame_file": None,
-                    "prev_video_id": (prev_video_id.hex if prev_video_id else None),
-                    "link_degraded": False,
-                    "resolution": resolution,
-                    "ratio": ratio,
-                    "duration": duration,
-                    "chain_id": chain_id,
-                    "chain_index": index,
-                    "chain_total": total,
-                }
-                entries.append(
-                    _ChainEntry(
-                        video_id=video_id,
-                        keyframe_id=snapshots[0]["id"],
-                        script_id=snapshots[0]["script_id"],
-                        base_prompt=base_prompt,
-                        chapter_no=chapter_no,
-                        title=title,
-                        params=params,
-                        reference_images=images,
-                        cover_image_file=images[0] if images else None,
-                        first_keyframe_image=images[0] if images else None,
-                    )
-                )
-                prev_video_id = video_id
-
-            created: list[dict] = []
-            async with _project_task_lock(project_id.hex):
-                async with get_session() as session:
-                    video_repo = VideoRepository(session)
-                    # 锁内复检：单章任务可能在本链校验与建行之间完成落库
-                    if await video_repo.has_active_for_project(project_id):
-                        bad_except("本项目已有视频生成任务在执行，请稍候")
-                    for entry in entries:
-                        await video_repo.create(
-                            video_id=entry.video_id,
-                            project_id=project_id,
-                            keyframe_id=entry.keyframe_id,
-                            script_id=entry.script_id,
-                            source="generated",
-                            title=entry.title,
-                            episode_no=(
-                                entry.chapter_no if entry.chapter_no is not None else 0
-                            ),
-                            status="queued",
-                            provider="video",
-                            model=model_name,
-                            prompt=entry.base_prompt,
-                            generation_params=entry.params,
-                            target_platform="AI 生成",
-                        )
-                        created.append(
-                            {
-                                "video_id": entry.video_id.hex,
-                                "chapter_no": entry.chapter_no,
-                                "title": entry.title,
-                            }
-                        )
-                    project = await ProjectRepository(session).get(project_id)
-                    await ProjectRepository(session).recount_assets(project)
-                    await session.commit()
-
-            state.chapters = created
-            try:
-                state.task = asyncio.create_task(self._run_chain(state, entries))
-                state.starting = False
-                state.task.add_done_callback(
-                    lambda done, st=state, ents=entries: self._handle_chain_done(
-                        done, st, ents
-                    )
-                )
-            except BaseException:
-                # 任务未能启动时把已提交的 queued 行收尾，避免孤儿队列
-                await self._cancel_remaining(entries, "串行链启动失败")
-                raise
-        except BaseException:
-            if _chains.get(project_id.hex) is state:
-                _chains.pop(project_id.hex, None)
-            raise
-
-        logger.info(
-            f"[STORY] 串行链已创建 project={project_id.hex} chain={chain_id} "
-            f"chapters={len(entries)}"
-        )
-        return {
-            "chain_id": chain_id,
-            "total": len(entries),
-            "chapters": created,
-        }
-
-    async def _run_chain(self, state: _ChainState, entries: list[_ChainEntry]) -> None:
-        """逐章串行执行：上一章成片尾帧作为下一章首帧。"""
-        current_video_hex: str | None = None
-        prev_snapshot: dict | None = None
-        try:
-            state.starting = False
-            for index, entry in enumerate(entries):
-                if state.cancel_requested:
-                    raise asyncio.CancelledError
-                state.cursor = index
-                snapshot = await self._video_snapshot(entry.video_id)
-                if snapshot is None or snapshot["status"] == "cancelled":
-                    await self._cancel_remaining(entries[index:], "串行链已终止")
-                    break
-
-                if index == 0:
-                    first_frame_file = entry.first_keyframe_image
-                    first_frame_source = "own_first_keyframe"
-                    link_degraded = False
-                else:
-                    first_frame_file = None
-                    first_frame_source = "prev_tail"
-                    link_degraded = False
-                    if prev_snapshot is not None:
-                        first_frame_file = await self._ensure_tail_frame(prev_snapshot)
-                    if first_frame_file is None:
-                        first_frame_file = entry.first_keyframe_image
-                        first_frame_source = "own_first_keyframe"
-                        link_degraded = True
-                        logger.warning(
-                            f"[STORY] 上一章尾帧不可用，降级用本章首关键帧 "
-                            f"video={entry.video_id.hex}"
-                        )
-
-                prompt = (
-                    _with_chain_note(entry.base_prompt)
-                    if first_frame_source == "prev_tail"
-                    else entry.base_prompt
-                )
-                await self._merge_params(
-                    entry.video_id,
-                    {
-                        "first_frame_source": first_frame_source,
-                        "first_frame_file": first_frame_file,
-                        "link_degraded": link_degraded,
-                    },
-                )
-                await self._update_video(entry.video_id, {"prompt": prompt})
-
-                current_video_hex = entry.video_id.hex
-                _video_tasks[current_video_hex] = asyncio.current_task()
-                ok = await self._execute_video(
-                    video_id=entry.video_id,
-                    project_id=state.project_id,
-                    keyframe_id=entry.keyframe_id,
-                    prompt=prompt,
-                    negative_prompt=None,
-                    params=entry.params,
-                    first_frame_file=first_frame_file,
-                    reference_image_files=entry.reference_images,
-                    cover_image_file=entry.cover_image_file,
-                    send_references=True,
-                    prefer_first_frame=first_frame_source == "prev_tail",
-                )
-                _video_tasks.pop(current_video_hex, None)
-                current_video_hex = None
-                if not ok:
-                    await self._cancel_remaining(
-                        entries[index + 1 :],
-                        "前序章节生成失败，串行链已终止",
-                    )
-                    break
-                prev_snapshot = await self._video_snapshot(entry.video_id)
-                state.cursor = index + 1
-        except asyncio.CancelledError:
-            await self._cancel_remaining(entries[state.cursor :], "串行链已中止")
-            logger.warning(
-                f"[STORY] 串行链被中止 project={state.project_id.hex} "
-                f"chain={state.chain_id}"
-            )
-            raise
-        except Exception as exc:
-            # 后台链不允许漏出未处理异常；收尾剩余章节后正常结束
-            logger.error(
-                f"[STORY] 串行链异常终止 project={state.project_id.hex} "
-                f"chain={state.chain_id}: {exc}"
-            )
-            try:
-                await self._cancel_remaining(entries[state.cursor :], "串行链异常终止")
-            except Exception as cancel_exc:
-                logger.error(f"[STORY] 串行链收尾失败: {cancel_exc}")
-        finally:
-            if current_video_hex:
-                _video_tasks.pop(current_video_hex, None)
-            state.starting = False
-            state.task = None
-            logger.info(
-                f"[STORY] 串行链结束 project={state.project_id.hex} "
-                f"chain={state.chain_id}"
-            )
-
-    def _handle_chain_done(
-        self,
-        task: asyncio.Task,
-        state: _ChainState,
-        entries: list[_ChainEntry],
-    ) -> None:
-        """协程未启动即被取消时 finally 不会执行，这里补一次剩余章节收尾。"""
-        if task.cancelled():
-            try:
-                asyncio.get_running_loop().create_task(
-                    self._cancel_remaining(entries, "串行链已中止")
-                )
-            except RuntimeError:
-                pass
-        if _chains.get(state.project_id.hex) is state:
-            state.starting = False
-            if state.task is task:
-                state.task = None
-
-    async def _cancel_remaining(self, entries: list[_ChainEntry], message: str) -> None:
-        """批量把链内剩余在途章节置为 cancelled。"""
-        ids = [entry.video_id for entry in entries]
-        if not ids:
-            return
-        async with get_session() as session:
-            await VideoRepository(session).cancel_running(ids, message)
-            await session.commit()
-
-    async def chain_status(self, ctx, project_id: uuid.UUID) -> dict:
-        """串行链实时状态：章节状态以数据库为准，前后端轮询共用。"""
+    async def list_links(self, ctx, project_id: uuid.UUID) -> dict:
+        """关联集视图：每集最新一条已完成片段 + 全部集间衔接片段。"""
         if not ctx.user_id:
             bad_except("视频操作仅支持用户通道调用")
         async with get_session() as session:
             await self._project_service._assert_owned(session, project_id, ctx)
-            state = _chains.get(project_id.hex)
-            if state is None:
-                return {"running": False, "total": 0, "chapters": []}
-            status_map: dict[str, str] = {}
-            ids = [uuid.UUID(chapter["video_id"]) for chapter in state.chapters]
-            if ids:
-                rows = await session.execute(
-                    select(StoryVideo.id, StoryVideo.status).where(
-                        StoryVideo.id.in_(ids)
-                    )
-                )
-                status_map = {row[0].hex: row[1] for row in rows.all()}
+            rows = await VideoRepository(session).list_generated(project_id)
 
-        chapters = [
-            {**chapter, "status": status_map.get(chapter["video_id"], "unknown")}
-            for chapter in state.chapters
+        episodes = _latest_done_episodes(rows)
+        # 只展示引用仍存在的章节片段的衔接（历史删除残留不再暴露）
+        episode_ids = {
+            row.id.hex for row in rows if not _is_link_row(row)
+        }
+        links = [
+            row
+            for row in rows
+            if _is_link_row(row)
+            and (row.generation_params or {}).get("transition_from_video_id")
+            in episode_ids
+            and (row.generation_params or {}).get("transition_to_video_id")
+            in episode_ids
         ]
-        terminal = {"done", "failed", "cancelled"}
-        finished = sum(1 for item in chapters if item["status"] in terminal)
-        current = next(
-            (item for item in chapters if item["status"] == "generating"),
-            None,
-        )
-        if current is None:
-            current = next(
-                (item for item in chapters if item["status"] == "queued"),
-                None,
-            )
-        current_chapter_no = (
-            current["chapter_no"] if state.running and current else None
-        )
         return {
-            "running": state.running,
-            "chain_id": state.chain_id,
-            "total": len(chapters),
-            "finished": finished,
-            "success": sum(1 for item in chapters if item["status"] == "done"),
-            "failed": sum(1 for item in chapters if item["status"] == "failed"),
-            "cancelled": sum(1 for item in chapters if item["status"] == "cancelled"),
-            "cursor": state.cursor,
-            "current_chapter_no": current_chapter_no,
-            "chapters": chapters,
+            "episodes": [
+                video.to_dict()
+                for _, video in sorted(episodes.items(), key=lambda item: item[0])
+            ],
+            "links": [self._link_view(video) for video in links],
         }
 
-    async def stop(self, ctx, video_id: uuid.UUID) -> bool:
-        """中止在途生成/合成任务（内存任务取消 + 上游 cancel + 状态终态化）。
+    async def create_link(
+        self,
+        ctx,
+        project_id: uuid.UUID,
+        *,
+        from_video_id: uuid.UUID,
+        to_video_id: uuid.UUID,
+        prompt: str | None = None,
+        resolution: str | None = None,
+        ratio: str | None = None,
+        duration: int | None = None,
+    ) -> dict:
+        """生成集间衔接片段：上一集成片尾帧作首帧、下一集成片首帧作尾帧。"""
+        if not ctx.user_id:
+            bad_except("视频操作仅支持用户通道调用")
+        if from_video_id == to_video_id:
+            bad_except("请选择相邻两集的片段")
+        model_name = _video_model_name()
+        final_prompt = _truncate(
+            (prompt or "").strip() or LINK_PROMPT_DEFAULT,
+            VIDEO_PROMPT_MAX_CHARS,
+        )
 
-        视频属于串行链时，停止当前章即终止整链（后续衔接已失去可靠首帧）。
-        """
+        async with get_session() as session:
+            await self._project_service._assert_owned(session, project_id, ctx)
+            await self._assert_no_running_script(session, project_id)
+            video_repo = VideoRepository(session)
+            from_video = await video_repo.get(from_video_id)
+            to_video = await video_repo.get(to_video_id)
+            for video in (from_video, to_video):
+                if video is None or video.project_id != project_id:
+                    bad_except("选择的片段不存在或不属于本项目")
+                if _is_link_row(video):
+                    bad_except("衔接片段不能再次作为衔接输入")
+                if (
+                    video.source != "generated"
+                    or video.status != "done"
+                    or not video.video_file
+                ):
+                    bad_except("请先完成相邻两集片段的生成")
+            from_episode = from_video.episode_no or 0
+            to_episode = to_video.episode_no or 0
+            if from_episode <= 0 or to_episode <= from_episode:
+                bad_except("衔接方向应为上一集 → 下一集")
+            rows = await video_repo.list_generated(project_id)
+            done_episodes = sorted(_latest_done_episodes(rows))
+            if (
+                from_episode not in done_episodes
+                or to_episode not in done_episodes
+                or done_episodes.index(to_episode)
+                != done_episodes.index(from_episode) + 1
+            ):
+                bad_except("仅支持相邻两集片段生成衔接")
+            if _active_link_exists(rows, from_video_id.hex, to_video_id.hex):
+                bad_except("该衔接片段正在生成中，请稍候")
+            from_file = from_video.video_file
+            to_file = to_video.video_file
+
+        link_id = uuid7()
+        first_rel = f"{LINK_FRAME_SUBDIR}/{link_id.hex}-first.jpg"
+        last_rel = f"{LINK_FRAME_SUBDIR}/{link_id.hex}-last.jpg"
+        first_path = resolve_upload_path(first_rel)
+        last_path = resolve_upload_path(last_rel)
+        first_path.parent.mkdir(parents=True, exist_ok=True)
+        ok_first = await asyncio.to_thread(
+            extract_last_frame, resolve_upload_path(from_file), first_path
+        )
+        ok_last = await asyncio.to_thread(
+            extract_first_frame, resolve_upload_path(to_file), last_path
+        )
+        if not (ok_first and ok_last):
+            first_path.unlink(missing_ok=True)
+            last_path.unlink(missing_ok=True)
+            bad_except(
+                "抽取上一集尾帧或下一集首帧失败，请确认片段可解析且 ffmpeg 可用"
+            )
+
+        title = f"第{from_episode}→{to_episode}集衔接"
+        params = {
+            "kind": LINK_KIND,
+            "transition_from_video_id": from_video_id.hex,
+            "transition_to_video_id": to_video_id.hex,
+            "from_episode_no": from_episode,
+            "to_episode_no": to_episode,
+            "first_frame_file": first_rel,
+            "last_frame_file": last_rel,
+            "resolution": resolution,
+            "ratio": ratio,
+            "duration": duration,
+        }
+        stale_files: list[str] = []
+        try:
+            async with _project_task_lock(project_id.hex):
+                async with get_session() as session:
+                    video_repo = VideoRepository(session)
+                    rows = await video_repo.list_generated(project_id)
+                    if _active_link_exists(rows, from_video_id.hex, to_video_id.hex):
+                        bad_except("该衔接片段正在生成中，请稍候")
+                    # 同一衔接位重新生成时替换旧版本，避免不可见的残留行与文件
+                    for row in rows:
+                        if not _is_link_row(row):
+                            continue
+                        row_params = row.generation_params or {}
+                        if (
+                            row_params.get("transition_from_video_id")
+                            != from_video_id.hex
+                            or row_params.get("transition_to_video_id")
+                            != to_video_id.hex
+                        ):
+                            continue
+                        stale_files.extend(video_local_files(row))
+                        await video_repo.delete(row)
+                    video = await video_repo.create(
+                        video_id=link_id,
+                        project_id=project_id,
+                        source="generated",
+                        title=title,
+                        episode_no=from_episode,
+                        status="queued",
+                        provider="video",
+                        model=model_name,
+                        prompt=final_prompt,
+                        generation_params=params,
+                        target_platform="AI 生成",
+                    )
+                    project = await ProjectRepository(session).get(project_id)
+                    await ProjectRepository(session).recount_assets(project)
+                    await session.commit()
+                    data = self._link_view(video)
+        except BaseException:
+            first_path.unlink(missing_ok=True)
+            last_path.unlink(missing_ok=True)
+            raise
+
+        if stale_files:
+            await asyncio.to_thread(
+                lambda: [unlink_quietly(path) for path in stale_files]
+            )
+
+        self._spawn_video_task(
+            link_id,
+            self._execute_link(
+                video_id=link_id,
+                project_id=project_id,
+                prompt=final_prompt,
+                params=params,
+                first_frame_file=first_rel,
+                last_frame_file=last_rel,
+            ),
+        )
+        logger.info(
+            f"[STORY] 集间衔接任务已创建 project={project_id.hex} "
+            f"episode={from_episode}->{to_episode} video={link_id.hex}"
+        )
+        return data
+
+    async def _execute_link(
+        self,
+        video_id: uuid.UUID,
+        project_id: uuid.UUID,
+        prompt: str,
+        params: dict,
+        first_frame_file: str,
+        last_frame_file: str,
+    ) -> bool:
+        """后台执行衔接片段：提交首尾帧 → 轮询 → 下载 → 封面。"""
+        semaphore = _project_semaphore(project_id.hex)
+        video_rel: str | None = None
+        cover_rel: str | None = None
+        task_id: str | None = None
+        used_mode = "first_last"
+        try:
+            async with semaphore:
+                if not await self._mark_generating(video_id):
+                    logger.info(
+                        f"[STORY] 衔接任务已被取消或删除，跳过执行 video={video_id.hex}"
+                    )
+                    return False
+
+                first_uri = await asyncio.to_thread(
+                    image_to_reference_data_uri, first_frame_file
+                )
+                last_uri = await asyncio.to_thread(
+                    image_to_reference_data_uri, last_frame_file
+                )
+                attempts = [
+                    (
+                        mode,
+                        {"first_frame_url": frame_url, "last_frame_url": last_url},
+                    )
+                    for mode, frame_url, last_url in _link_attempts(
+                        first_uri,
+                        last_uri,
+                        allow_last=supports_last_frame(),
+                    )
+                ]
+                task, used_mode = await self._submit_with_fallback(
+                    video_id,
+                    prompt,
+                    params,
+                    attempts,
+                    task_label="衔接片段生成",
+                )
+                video_url = task.get("video_url") or ""
+                if not video_url:
+                    raise RuntimeError("衔接片段生成成功但未返回视频地址")
+
+                video_rel, file_size = await self._download(video_id, video_url)
+                meta = await asyncio.to_thread(
+                    probe_video_meta, resolve_upload_path(video_rel)
+                )
+                cover_rel = await self._make_cover(
+                    video_id, first_frame_file, video_rel
+                )
+                finished = await self._finish_video(
+                    video_id,
+                    {
+                        "status": "done",
+                        "video_file": video_rel,
+                        "cover_file": cover_rel,
+                        "file_size": file_size,
+                        "error_message": None,
+                        **meta,
+                    },
+                )
+                if not finished:
+                    logger.warning(
+                        f"[STORY] 衔接片段已完成但已被中止/删除，丢弃结果 "
+                        f"video={video_id.hex}"
+                    )
+                    await asyncio.to_thread(unlink_quietly, video_rel)
+                    if cover_rel:
+                        await asyncio.to_thread(unlink_quietly, cover_rel)
+                    return False
+                logger.info(
+                    f"[STORY] 集间衔接片段完成 video={video_id.hex} "
+                    f"file={video_rel} image_mode={used_mode}"
+                )
+                return True
+        except asyncio.CancelledError:
+            logger.warning(f"[STORY] 衔接片段生成被取消 video={video_id.hex}")
+            await _cancel_remote_task(task_id)
+            await self._update_video(
+                video_id,
+                {"status": "cancelled", "error_message": "用户主动中止生成"},
+            )
+            if video_rel:
+                await asyncio.to_thread(unlink_quietly, video_rel)
+            if cover_rel:
+                await asyncio.to_thread(unlink_quietly, cover_rel)
+            raise
+        except Exception as exc:
+            logger.error(f"[STORY] 衔接片段生成失败 video={video_id.hex}: {exc}")
+            await self._finish_video(
+                video_id,
+                {"status": "failed", "error_message": str(exc)[:500]},
+                statuses=("queued", "generating"),
+            )
+            if video_rel:
+                await asyncio.to_thread(unlink_quietly, video_rel)
+            if cover_rel:
+                await asyncio.to_thread(unlink_quietly, cover_rel)
+            return False
+
+    async def stop(self, ctx, video_id: uuid.UUID) -> bool:
+        """中止在途生成/合成任务（内存任务取消 + 上游 cancel + 状态终态化）。"""
         if not ctx.user_id:
             bad_except("视频操作仅支持用户通道调用")
         cancelled = False
         remote_task_id: str | None = None
-        chain_id: str | None = None
         async with get_session() as session:
             video = await self._assert_video_owned(session, video_id, ctx)
-            params = video.generation_params or {}
-            if isinstance(params, dict):
-                chain_id = params.get("chain_id")
             task = _video_tasks.get(video_id.hex)
             if task and not task.done():
                 task.cancel()
@@ -1363,20 +1190,16 @@ class VideoGenerationService:
                 cancelled = True
             await session.commit()
         await _cancel_remote_task(remote_task_id)
-        if cancelled and chain_id:
-            cancel_chain_for_video(video_id)
         return cancelled
 
     async def stop_all(self, ctx, project_id: uuid.UUID) -> int:
-        """中止项目下全部在途视频生成/合成任务（含串行链）。"""
+        """中止项目下全部在途视频生成/合成任务。"""
         if not ctx.user_id:
             bad_except("视频操作仅支持用户通道调用")
         stopped = 0
         remote_task_ids: list[str] = []
         async with get_session() as session:
             await self._project_service._assert_owned(session, project_id, ctx)
-            # 属主校验通过后再取消内存链，避免越权取消他人项目
-            cancel_chain(project_id.hex)
             stmt = select(StoryVideo).where(
                 StoryVideo.project_id == project_id,
                 StoryVideo.status.in_(RUNNING_STATUSES),

@@ -134,48 +134,30 @@ export interface StoryChapterVideoGeneratePayload {
   resolution?: string;
   ratio?: string;
   duration?: number;
-  /** 是否自动取上一集已完成片段的尾帧作首帧（默认 false，优先关键帧参考图） */
-  link_previous?: boolean;
 }
 
-/** 串行链中的单个章节提交项 */
-export interface StoryVideoChainChapterPayload {
-  chapter_no?: number | null;
-  title?: string;
-  prompt: string;
-  keyframe_ids: string[];
-  chapter_content?: string | null;
+/** 集间衔接片段：视频字段 + 衔接对信息（from 为上一集，to 为下一集） */
+export interface StoryVideoLinkVO extends StoryVideoVO {
+  from_video_id: string | null;
+  to_video_id: string | null;
+  from_episode_no: number | null;
+  to_episode_no: number | null;
 }
 
-/** 串行链生成请求体：按集顺序逐章生成，下一章首帧取上一章成片尾帧 */
-export interface StoryChapterVideoChainPayload {
-  chapters: StoryVideoChainChapterPayload[];
-  use_images?: boolean;
+/** 关联集视图：每集最新已完成片段 + 全部衔接片段 */
+export interface StoryVideoLinks {
+  episodes: StoryVideoVO[];
+  links: StoryVideoLinkVO[];
+}
+
+/** 生成集间衔接片段请求体：上一集成片尾帧作首帧、下一集成片首帧作尾帧 */
+export interface StoryVideoLinkCreatePayload {
+  from_video_id: string;
+  to_video_id: string;
+  prompt?: string;
   resolution?: string;
   ratio?: string;
   duration?: number;
-}
-
-/** 串行链中单章实时状态 */
-export interface StoryVideoChainChapterState {
-  video_id: string;
-  chapter_no: number | null;
-  title: string;
-  status: StoryVideoStatus | "unknown";
-}
-
-/** 串行链实时状态（章节状态以数据库为准） */
-export interface StoryVideoChainStatus {
-  running: boolean;
-  chain_id?: string;
-  total: number;
-  finished?: number;
-  success?: number;
-  failed?: number;
-  cancelled?: number;
-  cursor?: number;
-  current_chapter_no?: number | null;
-  chapters: StoryVideoChainChapterState[];
 }
 
 /** 生成面板公共配置（后端 CFG.video.extra 兜底值，不含敏感凭证） */
@@ -185,6 +167,8 @@ export interface StoryVideoGenerationOptions {
   ratio: string;
   duration: number;
   max_concurrent: number;
+  /** 当前模型/协议是否支持尾帧入参（集间衔接片段的尾帧） */
+  supports_last_frame?: boolean;
 }
 
 // ============================================================
@@ -247,33 +231,17 @@ export const videoApi = {
       payload
     );
   },
-  /** 串行生成章节视频：逐章执行，上一章成片尾帧作为下一章首帧 */
-  generateChain(projectId: string, payload: StoryChapterVideoChainPayload) {
-    return request.post<
-      {
-        chain_id: string;
-        total: number;
-        chapters: Array<{
-          video_id: string;
-          chapter_no: number | null;
-          title: string;
-        }>;
-      },
-      ApiResult<{
-        chain_id: string;
-        total: number;
-        chapters: Array<{
-          video_id: string;
-          chapter_no: number | null;
-          title: string;
-        }>;
-      }>
-    >(STORY_PROJECT_URL.generateVideoChain(projectId), payload);
+  /** 关联集视图：每集最新已完成片段 + 集间衔接片段 */
+  links(projectId: string) {
+    return request.get<StoryVideoLinks, ApiResult<StoryVideoLinks>>(
+      STORY_PROJECT_URL.videoLinks(projectId)
+    );
   },
-  /** 串行链实时状态 */
-  chainStatus(projectId: string) {
-    return request.get<StoryVideoChainStatus, ApiResult<StoryVideoChainStatus>>(
-      STORY_PROJECT_URL.videoChainStatus(projectId)
+  /** 生成集间衔接片段：上一集成片尾帧作首帧、下一集成片首帧作尾帧 */
+  createLink(projectId: string, payload: StoryVideoLinkCreatePayload) {
+    return request.post<StoryVideoLinkVO, ApiResult<StoryVideoLinkVO>>(
+      STORY_PROJECT_URL.videoLinks(projectId),
+      payload
     );
   },
   /** 中止在途视频生成 */

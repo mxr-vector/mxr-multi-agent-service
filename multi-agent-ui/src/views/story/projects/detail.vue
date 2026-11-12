@@ -16,6 +16,7 @@ import KeyframePanel from "./components/KeyframePanel.vue";
 import VideoGenPanel from "./components/VideoGenPanel.vue";
 import CastingPanel from "./components/CastingPanel.vue";
 import VideoPanel from "./components/VideoPanel.vue";
+import LinkPanel from "./components/LinkPanel.vue";
 import ExportPanel from "./components/ExportPanel.vue";
 import AiDrawer from "./components/ai/AiDrawer.vue";
 
@@ -30,6 +31,7 @@ const TAB_KEYS = [
   "keyframe",
   "video-gen",
   "video",
+  "video-link",
   "export",
   "session",
 ] as const;
@@ -156,6 +158,13 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
               <el-tab-pane label="视频成品" name="video">
                 <VideoPanel
                   v-if="activeTab === 'video'"
+                  :project-id="projectId"
+                  @changed="loadProject"
+                />
+              </el-tab-pane>
+              <el-tab-pane label="关联集" name="video-link">
+                <LinkPanel
+                  v-if="activeTab === 'video-link'"
                   :project-id="projectId"
                   @changed="loadProject"
                 />
