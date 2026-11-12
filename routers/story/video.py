@@ -66,8 +66,8 @@ class ChapterVideoGenerateRequest(BaseModel):
     resolution: Optional[str] = None
     ratio: Optional[str] = None
     duration: Optional[int] = Field(default=None, ge=2, le=30)
-    # 开启后自动取上一集最近一条已完成片段的尾帧作首帧
-    link_previous: bool = True
+    # 开启后自动取上一集最近一条已完成片段的尾帧作首帧（默认关闭，优先关键帧参考图）
+    link_previous: bool = False
 
 
 class ChapterVideoChainItem(BaseModel):

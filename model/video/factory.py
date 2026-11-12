@@ -8,12 +8,13 @@ extra.video_protocol 显式覆盖（"dashscope" | "openai" | "auto"）：
   `{base_address}/services/aigc/video-generation/video-synthesis`，任务查询走
   `/tasks/{task_id}`。适用于 dashscope.aliyuncs.com 与 MaaS / Token Plan 端点；
   接口地址填 OpenAI 兼容基地址（`.../compatible-mode/v1`）时会自动归一为
-  原生接口所在的 `/api/v1`。
+  原生接口所在的 `/api/v1`。该协议的 first_frame 不能与 reference_image
+  同时下发（仅可与 last_frame 组合），业务层须二选一。
 - openai：聚合网关（如 tokenrhythm.studio）的 OpenAI 风格视频接口
   `POST {base}/videos/generations`、`GET {base}/videos/{task_id}`，请求体为
   `content` 数组（text / image_url + first_frame|reference_image 角色），
   创建返回 202 + 任务 id，轮询成功后从 video_url / result.url 取成片。
-  首帧与参考图可同时携带（章节串行衔接），上游拒绝时由业务层降级。
+  该协议首帧与参考图可同时携带（章节串行衔接），上游拒绝时由业务层降级。
 
 判定规则：接口地址主机属于阿里云 DashScope / MaaS 时走 dashscope，其余
 （第三方聚合网关、自建兼容端点）走 openai；无法从域名判断时在 extra 配
@@ -25,9 +26,9 @@ video 角色行，写时刷新）。可调规格（resolution/ratio/duration）�
 管理」改后免重启生效。wan3.0 文档未暴露 negative_prompt，默认不透传；
 如上游确认支持，可在 extra 配 `"supports_negative_prompt": true`。
 
-业务代码通过 submit_video() / get_video_task() / wait_video_task() /
-generate_video() 使用，无需关心协议与端点拼接。同步阻塞，异步调用方请用
-asyncio.to_thread 包裹（与仓库内其他同步 IO 的约定一致）。
+业务代码通过 supports_mixed_media() / submit_video() / get_video_task() /
+wait_video_task() / generate_video() 使用，无需关心协议与端点拼接。同步阻塞，
+异步调用方请用 asyncio.to_thread 包裹（与仓库内其他同步 IO 的约定一致）。
 """
 
 import time
@@ -219,6 +220,17 @@ def _first_frame_mode(extra: dict, override: str | None) -> str:
     return "media" if ("wan3" in model or "2.7" in model) else "img_url"
 
 
+def supports_mixed_media() -> bool:
+    """当前协议是否支持 first_frame 与 reference_image 同时下发。
+
+    DashScope 原生接口不允许首帧与参考图并存（异步任务返回
+    `InvalidParameter: first_frame cannot be combined with other media types
+    except last_frame`）；聚合网关的 content 数组按 role 区分，可同时携带。
+    业务层据此决定首个图片入参形态，避免提交必然失败的任务。
+    """
+    return _protocol(CFG.video.extra or {}) == PROTOCOL_OPENAI
+
+
 def _normalize_images(
     first_frame_url: str | None, reference_image_urls: list[str] | None
 ) -> tuple[str, list[str]]:
@@ -323,6 +335,11 @@ def _submit_dashscope(
     if supports_negative:
         optional["negative_prompt"] = (negative_prompt or "").strip() or None
 
+    if images and frame_url:
+        raise ValueError(
+            "DashScope 视频接口不支持首帧与参考图同时下发，请在调用前二选一"
+        )
+
     if images or frame_url:
         if _first_frame_mode(extra, first_frame_mode) == "media":
             media: list[dict] = []
@@ -375,9 +392,11 @@ def submit_video(
     """提交视频合成任务，返回上游 task id（不等待完成）。
 
     参考图：单图可作首帧；多图（章节级一次生成）作为 reference_image 序列
-    传入，由提示词按【图1】【图2】顺序引用。first_frame_url 与
-    reference_image_urls 可同时传入（上一章尾帧 + 本章关键帧的串行衔接），
-    协议按 CFG.video.api_url 自动判定，见模块 docstring。
+    传入，由提示词按【图1】【图2】顺序引用。聚合网关协议可同时传入
+    first_frame_url 与 reference_image_urls（上一章尾帧 + 本章关键帧的串行
+    衔接）；DashScope 原生协议两者互斥，须由业务层先二选一
+    （supports_mixed_media() 可判定当前协议能力）。协议按 CFG.video.api_url
+    自动判定，见模块 docstring。
     """
     if not prompt or not prompt.strip():
         raise ValueError("视频生成提示词不能为空")

@@ -5,13 +5,17 @@
   取上一集最近一条已完成片段的尾帧作为本章首帧。
 - 串行链：按集顺序逐章生成，第 N 章完成后抽取成片最后一帧，作为第 N+1
   章首帧，保证集间画面连续；任一章失败/中止即终止整链，后续标记为取消。
-- 链首使用本章第一个关键帧作首帧，参考图保留本章全部关键帧（含复用为首
-  帧的那张），避免改写编排提示词中已生成的【图k】编号。
+- 链首以本章第一个已出图关键帧作为画面锚点（聚合网关同时作为首帧，原生
+  协议则为参考图序列首图），参考图保留本章全部关键帧，避免改写编排提示词
+  中已生成的【图k】编号。
 - 关键帧本地图片压缩后转 base64 data URI 作为参考图/首帧（DashScope 原生
   协议 wan3.0 走 media、旧模型走 img_url；聚合网关协议走 content 数组的
-  first_frame / reference_image 角色）；首帧与参考图可同时下发，上游拒绝
-  时按 mixed → 单图保底 → 纯文生阶梯降级（衔接章节优先保留首帧，链首优先
-  保留参考图；串行链不回退纯文生，避免画面断层）。
+  first_frame / reference_image 角色）。DashScope 原生接口不允许首帧与
+  参考图并存（上游报 `first_frame cannot be combined with other media
+  types except last_frame`），该协议下按场景二选一：衔接章节优先首帧，
+  其余章节优先参考图；聚合网关支持混合时仍优先 mixed。提交被拒（400/413/
+  422）或任务因入参不兼容失败（InvalidParameter）时按图片形态逐级降级，
+  不再静默回退纯文生，避免成片与关键帧人物完全不一致。
 - 任务生命周期：queued → generating → done / failed / cancelled。后台协程
   异步轮询上游任务（等待期间可取消），完成后立即下载落盘，封面优先复用
   本章首关键帧图片，失败再抽视频首帧。
@@ -48,6 +52,7 @@ from model.video.factory import (
     cancel_remote_video,
     get_video_task,
     submit_video,
+    supports_mixed_media,
 )
 from service.story.project import ProjectService
 from service.story.storage import (
@@ -247,21 +252,37 @@ def _image_fallback_allowed(exc: Exception) -> bool:
     return status in (400, 413, 422)
 
 
+def _task_fallback_allowed(task: dict) -> bool:
+    """任务失败属于入参形态不兼容时，换首帧/参考图组合重试。
+
+    DashScope 把 media 组合校验放在异步任务阶段（首帧与参考图并存），换一种
+    单图形态即可成功；内容审核、超时等与入参无关，不重复提交。
+    """
+    code = str(task.get("code") or "")
+    message = str(task.get("message") or "")
+    return code.startswith("InvalidParameter") or "InvalidParameter" in message
+
+
 def _image_attempts(
     first_frame_url: str | None,
     reference_urls: list[str],
     *,
     allow_text: bool,
     prefer_first_frame: bool = True,
+    allow_mixed: bool = True,
 ) -> list[tuple[str, str | None, list[str] | None]]:
     """按可用入参生成降级尝试序列（模式, 首帧, 参考图）。
 
-    衔接章节优先保留上一章尾帧（断点续接优先）；链首/无衔接章节的首帧就是
-    本章关键帧，降级时优先保留参考图。串行链关闭纯文生兜底。
+    混合入参仅在协议支持时作为首选（聚合网关）；DashScope 原生接口的首帧
+    不能与参考图并存，直接单图二选一。衔接章节优先保留上一章尾帧（断点续接
+    优先）；链首/无衔接章节的首帧就是本章关键帧，降级时优先保留参考图。
+    allow_text 由调用方显式放行（业务层仅在未请求关键帧图片时传 True），
+    已有图片入参时不追加纯文生，避免成片与关键帧人物不一致。
     """
     attempts: list[tuple[str, str | None, list[str] | None]] = []
     if first_frame_url and reference_urls:
-        attempts.append(("mixed", first_frame_url, reference_urls))
+        if allow_mixed:
+            attempts.append(("mixed", first_frame_url, reference_urls))
         if prefer_first_frame:
             attempts.append(("first_frame_only", first_frame_url, None))
             attempts.append(("reference_only", None, reference_urls))
@@ -494,7 +515,7 @@ class VideoGenerationService:
         resolution: str | None = None,
         ratio: str | None = None,
         duration: int | None = None,
-        link_previous: bool = True,
+        link_previous: bool = False,
     ) -> dict:
         """生成单章片段；link_previous 开启时自动衔接上一集已完成片段尾帧。"""
         if not ctx.user_id:
@@ -644,7 +665,6 @@ class VideoGenerationService:
                 reference_image_files=inputs.reference_images,
                 cover_image_file=inputs.cover_image_file,
                 send_references=bool(use_images),
-                chain_mode=False,
                 prefer_first_frame=inputs.first_frame_source == "prev_tail",
             ),
         )
@@ -678,10 +698,9 @@ class VideoGenerationService:
         reference_image_files: list[str] | None = None,
         cover_image_file: str | None = None,
         send_references: bool = True,
-        chain_mode: bool = False,
         prefer_first_frame: bool = True,
     ) -> bool:
-        """后台执行一个片段：排队 → 提交（首帧+多参考图）→ 轮询 → 下载 → 封面。
+        """后台执行一个片段：排队 → 提交（首帧或参考图）→ 轮询 → 下载 → 封面。
 
         成功返回 True；失败置 failed 返回 False；取消置 cancelled 后继续抛出
         CancelledError，由串行链统一收尾。
@@ -715,10 +734,13 @@ class VideoGenerationService:
                 attempts = _image_attempts(
                     first_frame_url,
                     reference_urls,
-                    allow_text=not chain_mode,
+                    allow_text=not send_references,
                     prefer_first_frame=prefer_first_frame,
+                    allow_mixed=supports_mixed_media(),
                 )
+                task: dict | None = None
                 for index, (mode, frame_url, image_urls) in enumerate(attempts):
+                    has_next = index + 1 < len(attempts)
                     try:
                         task_id = await asyncio.to_thread(
                             submit_video,
@@ -730,57 +752,37 @@ class VideoGenerationService:
                             reference_image_urls=image_urls,
                             negative_prompt=negative_prompt,
                         )
-                        used_mode = mode
-                        await self._merge_params(
-                            video_id,
-                            {
-                                "image_mode": mode,
-                                "image_fallback": index > 0,
-                            },
-                        )
-                        break
                     except Exception as exc:
-                        if index == len(attempts) - 1 or not _image_fallback_allowed(
-                            exc
-                        ):
+                        if not has_next or not _image_fallback_allowed(exc):
                             raise
                         logger.warning(
                             f"[STORY] 视频图片入参被拒绝，降级重试 video={video_id.hex} "
                             f"{mode} -> {attempts[index + 1][0]}: {exc}"
                         )
+                        continue
 
-                await self._update_video(video_id, {"external_task_id": task_id})
-                task = await self._wait_task(task_id)
-                if (
-                    task["task_status"] != "SUCCEEDED"
-                    and (first_frame_url or reference_urls)
-                    and not chain_mode
-                ):
-                    # 单章模式保留一次文生兜底；串行链直接失败，避免画面断层
-                    logger.warning(
-                        f"[STORY] 参考图视频任务失败，回退文生视频重试 video={video_id.hex}: "
-                        f"status={task['task_status']} code={task['code']} message={task['message']}"
-                    )
-                    task_id = await asyncio.to_thread(
-                        submit_video,
-                        prompt,
-                        params.get("resolution"),
-                        params.get("ratio"),
-                        params.get("duration"),
-                        negative_prompt=negative_prompt,
-                    )
-                    used_mode = "text_only"
-                    await self._update_video(video_id, {"external_task_id": task_id})
+                    used_mode = mode
                     await self._merge_params(
                         video_id,
-                        {"image_mode": "text_only", "image_fallback": True},
+                        {"image_mode": mode, "image_fallback": index > 0},
                     )
+                    await self._update_video(video_id, {"external_task_id": task_id})
                     task = await self._wait_task(task_id)
-                if task["task_status"] != "SUCCEEDED":
+                    if task["task_status"] == "SUCCEEDED":
+                        break
+                    if has_next and _task_fallback_allowed(task):
+                        logger.warning(
+                            f"[STORY] 视频任务因入参不兼容失败，换图片形态重试 "
+                            f"video={video_id.hex} {mode} -> {attempts[index + 1][0]}: "
+                            f"code={task['code']} message={task['message']}"
+                        )
+                        continue
                     raise RuntimeError(
                         f"视频生成失败: status={task['task_status']}, "
                         f"code={task['code']}, message={task['message']}"
                     )
+                if task is None or task["task_status"] != "SUCCEEDED":
+                    raise RuntimeError("视频生成失败: 未能提交可用的生成任务")
                 video_url = task.get("video_url") or ""
                 if not video_url:
                     raise RuntimeError("视频生成成功但未返回视频地址")
@@ -1207,7 +1209,6 @@ class VideoGenerationService:
                     reference_image_files=entry.reference_images,
                     cover_image_file=entry.cover_image_file,
                     send_references=True,
-                    chain_mode=True,
                     prefer_first_frame=first_frame_source == "prev_tail",
                 )
                 _video_tasks.pop(current_video_hex, None)

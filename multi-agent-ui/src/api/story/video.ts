@@ -134,7 +134,7 @@ export interface StoryChapterVideoGeneratePayload {
   resolution?: string;
   ratio?: string;
   duration?: number;
-  /** 是否自动取上一集已完成片段的尾帧作首帧 */
+  /** 是否自动取上一集已完成片段的尾帧作首帧（默认 false，优先关键帧参考图） */
   link_previous?: boolean;
 }
 

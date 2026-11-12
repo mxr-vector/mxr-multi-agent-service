@@ -66,14 +66,30 @@ const promptDrafts = reactive<Record<string, string>>({});
 const titleDrafts = reactive<Record<string, string>>({});
 const generatingChapter = reactive<Record<string, boolean>>({});
 const stoppingVideo = reactive<Record<string, boolean>>({});
+// 剧本预览默认展示；提示词编辑默认收起，按需展开
+const promptExpanded = reactive<Record<string, boolean>>({});
 
 // —— 生成规格（缺省取模型管理 video 角色 extra，改配置后下次打开生效） ——
 const resolution = ref("480P");
 const ratio = ref("adaptive");
 const duration = ref(5);
 const useImages = ref(true);
-// 单章生成时自动衔接上一集已完成片段尾帧
-const chainFromPrev = ref(true);
+// 单章生成时自动衔接上一集已完成片段尾帧（默认关闭：优先按本章关键帧参考图生成）
+const chainFromPrev = ref(false);
+
+function confirmChainFromPrev(): Promise<boolean> | boolean {
+  // 仅开启时提示；关闭直接生效
+  if (chainFromPrev.value) return true;
+  return ElMessageBox.confirm(
+    "开启后，本章片段将优先取上一集已完成片段的尾帧作为首帧，保证集间画面衔接。\n" +
+      "若当前视频接口不支持「首帧 + 参考图」同时下发，提交时优先只带上一集尾帧，" +
+      "关键帧参考图仅在尾帧入参被拒时兜底，人物形象可能以上一集成片为准。\n\n确定开启吗？",
+    "开启单章衔接上一集尾帧",
+    { confirmButtonText: "开启衔接", cancelButtonText: "取消", type: "warning" }
+  )
+    .then(() => true)
+    .catch(() => false);
+}
 const modelName = ref("");
 const maxConcurrent = ref(3);
 
@@ -335,6 +351,11 @@ function resetPrompt(chapter: StoryVideoPlanChapter) {
   promptDrafts[chapterKey(chapter)] = chapter.prompt;
 }
 
+function togglePrompt(chapter: StoryVideoPlanChapter) {
+  const key = chapterKey(chapter);
+  promptExpanded[key] = !promptExpanded[key];
+}
+
 async function generateChapter(chapter: StoryVideoPlanChapter) {
   const key = chapterKey(chapter);
   if (isActive(latestChapterVideo(chapter))) {
@@ -358,7 +379,8 @@ async function generateChapter(chapter: StoryVideoPlanChapter) {
   const linkEpisode = previousDoneEpisode(chapter);
   const linkHint =
     willLinkChapter(chapter) && linkEpisode != null
-      ? `\n\n将自动取第${linkEpisode}集成片尾帧作为首帧，保证与第${linkEpisode}集画面衔接。`
+      ? `\n\n将自动取第${linkEpisode}集成片尾帧作为首帧，保证与第${linkEpisode}集画面衔接；` +
+        "若上游不支持首帧与参考图同时下发，将优先使用尾帧。"
       : "";
   try {
     await ElMessageBox.confirm(
@@ -637,6 +659,7 @@ function goExport() {
         <el-switch v-model="useImages" active-text="关键帧作参考图" />
         <el-switch
           v-model="chainFromPrev"
+          :before-change="confirmChainFromPrev"
           :disabled="!useImages || chainRunning"
           active-text="单章衔接上一集尾帧"
         />
@@ -760,7 +783,7 @@ function goExport() {
             </div>
           </header>
 
-          <!-- 章节剧本：关键帧图片落在对应剧本位置 -->
+          <!-- 章节剧本预览：关键帧图片落在对应剧本位置 -->
           <div v-if="chapter.blocks.length" class="chapter-script">
             <template v-for="(block, blockIndex) in chapter.blocks" :key="blockIndex">
               <div v-if="block.type === 'text'" class="script-text">{{ block.text }}</div>
@@ -789,6 +812,13 @@ function goExport() {
                 }}
               </span>
               <div class="chapter-prompt-actions">
+                <el-button size="small" link type="primary" @click="togglePrompt(chapter)">
+                  {{ promptExpanded[chapterKey(chapter)] ? "收起提示词" : "编辑提示词" }}
+                </el-button>
+              </div>
+            </div>
+            <div v-show="promptExpanded[chapterKey(chapter)]" class="chapter-prompt-body">
+              <div class="chapter-prompt-toolbar">
                 <el-input
                   v-model="titleDrafts[chapterKey(chapter)]"
                   size="small"
@@ -799,13 +829,13 @@ function goExport() {
                   恢复自动提示词
                 </el-button>
               </div>
+              <el-input
+                v-model="promptDrafts[chapterKey(chapter)]"
+                type="textarea"
+                :autosize="{ minRows: 4 }"
+                placeholder="整章视频提示词"
+              />
             </div>
-            <el-input
-              v-model="promptDrafts[chapterKey(chapter)]"
-              type="textarea"
-              :autosize="{ minRows: 4, maxRows: 12 }"
-              placeholder="整章视频提示词"
-            />
             <div v-if="latestChapterVideo(chapter)?.error_message" class="chapter-error">
               {{ latestChapterVideo(chapter)?.error_message }}
             </div>
@@ -1098,6 +1128,13 @@ function goExport() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.chapter-prompt-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 .chapter-title-input {
   width: 200px;
