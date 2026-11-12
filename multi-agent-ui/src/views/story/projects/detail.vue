@@ -8,12 +8,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft, ChatDotRound } from "@element-plus/icons-vue";
-import {
-  projectApi,
-  storyFileUrl,
-  type StoryProjectDetailVO,
-  type StoryProjectPayload,
-} from "@/api/story";
+import { projectApi, type StoryProjectDetailVO, type StoryProjectPayload } from "@/api/story";
 import ProjectFormDialog from "./ProjectFormDialog.vue";
 import OverviewPanel from "./components/OverviewPanel.vue";
 import ScriptPanel from "./components/ScriptPanel.vue";
@@ -107,17 +102,6 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
           <div class="workspace-main">
             <div class="workspace-head">
               <el-button :icon="ArrowLeft" text @click="goBack">返回</el-button>
-              <div class="head-cover">
-                <el-image
-                  v-if="project.cover_image"
-                  :src="storyFileUrl(project.cover_image)"
-                  :preview-src-list="[storyFileUrl(project.cover_image)]"
-                  fit="cover"
-                  class="cover-image"
-                  preview-teleported
-                />
-                <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
-              </div>
               <div class="head-main">
                 <div class="head-title">
                   {{ project.title }}
@@ -272,28 +256,6 @@ async function handleEditSubmit(payload: StoryProjectPayload) {
   border: 1px solid #e5e9f2;
   border-radius: 10px;
   background: #fff;
-}
-.head-cover {
-  width: 120px;
-  height: 80px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #eef1f8;
-  flex-shrink: 0;
-}
-.cover-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-.cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  color: #aab4c5;
 }
 .head-main {
   flex: 1;

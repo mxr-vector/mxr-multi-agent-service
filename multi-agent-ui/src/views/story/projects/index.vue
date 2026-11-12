@@ -5,12 +5,7 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import {
-  projectApi,
-  storyFileUrl,
-  type StoryProjectVO,
-  type StoryProjectPayload,
-} from "@/api/story";
+import { projectApi, type StoryProjectVO, type StoryProjectPayload } from "@/api/story";
 import { confirmDanger } from "@/utils/confirm";
 import { useDebouncedKeyword } from "@/composables/useDebouncedKeyword";
 import { formatDateTime } from "@/utils/format";
@@ -124,20 +119,11 @@ async function handleDelete(project: StoryProjectVO) {
             class="project-card"
             @click="openWorkspace(project)"
           >
-            <div class="card-cover">
-              <el-image
-                v-if="project.cover_image"
-                :src="storyFileUrl(project.cover_image)"
-                fit="cover"
-                class="cover-image"
-              />
-              <div v-else class="cover-placeholder">{{ project.title.slice(0, 1) }}</div>
-              <el-tag v-if="project.status === 'archived'" class="cover-badge" size="small">
-                已归档
-              </el-tag>
-            </div>
             <div class="card-body">
-              <div class="card-title">{{ project.title }}</div>
+              <div class="card-title">
+                <span class="title-text">{{ project.title }}</span>
+                <el-tag v-if="project.status === 'archived'" size="small">已归档</el-tag>
+              </div>
               <div class="card-desc">{{ project.description || "暂无故事设定" }}</div>
               <div class="card-stats">
                 <span>剧本 {{ project.script_count }}</span>
@@ -231,36 +217,21 @@ async function handleDelete(project: StoryProjectVO) {
   border-color: #526ae2;
   box-shadow: 0 4px 14px rgba(82, 106, 226, 0.12);
 }
-.card-cover {
-  position: relative;
-  height: 120px;
-  background: #eef1f8;
-}
-.cover-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-.cover-placeholder {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  color: #aab4c5;
-}
-.cover-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-}
 .card-body {
-  padding: 10px 12px 12px;
+  padding: 12px 14px 14px;
 }
 .card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 15px;
   font-weight: 600;
   color: #1f2d3d;
+}
+.title-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .card-desc {
   margin-top: 4px;
