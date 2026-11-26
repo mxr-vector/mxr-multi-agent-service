@@ -12,7 +12,7 @@ Story 系统是面向短剧、漫剧（动态漫/动画漫剧）、商业广告�
 2. **AI 模型配置**（前端「模型管理 / 参数管理」页维护，免重启热更新）：
    - **文本生成模型（Chat / Rewrite）**：如 `Qwen4-flash`、`Qwen3.8-flash`、`DeepSeek4.1-flash`、`gpt-6.1-terra` 等，需支持 Tool Calling / Function Call，用于驱动技能文档阅读与双轨结构化剧本输出；
    - **图像生成模型（Image）**：如 `gpt-image2.5`、`gpt-image-2.0` OpenAI 兼容接口，需支持高分辨率出图与参考图输入（图生图/多模态控制），用于角色/景物立绘与关键帧生成；
-   - **多模态理解模型（Visual，可选）**：如 `Qwen4-flash`、`Qwen3.8-flash`、`DeepSeek4.1-flash`、`gpt-6.1-terra`，支持用户上传剧情参考图、分镜手稿或人设原案的视觉解析；
+   - **视觉能力（可选，复用对话模型）**：在「模型管理 → 对话模型」开启「视觉」开关后，对话模型可解析用户上传的剧情参考图、分镜手稿或人设原案；未开启时图片被忽略并给出提示（不再单独配置多模态角色）；
    - **视频生成模型（Video）**：站内按章节出片依赖该角色配置——DashScope/MaaS 主机走原生视频合成协议，聚合网关（如 `https://tokenrhythm.studio/v1`）走 `POST {base}/videos/generations` JSON 协议；`extra.resolution` / `extra.ratio` 提供生成面板默认档位，选项由字典 `video_resolution` / `video_ratio` 驱动。
 3. **FFmpeg（可选但建议安装）**
    - 用于视频成品首帧封面抽取与「关联集」衔接片段的首尾帧抽取；缺失时封面降级为手动上传，衔接片段降级为仅首帧提交，不阻断主流程。

@@ -11,6 +11,8 @@ const dictStore = useDictStore();
 dictStore.ensureLoaded();
 // 上下文窗口预设档位（字典 context_window，值为 token 数字符串）
 const contextWindowOptions = computed(() => dictStore.getOptions("context_window"));
+// 最大输出 token 档位（字典 model_max_output，chat/rewrite 落 extra.max_output）
+const modelMaxOutputOptions = computed(() => dictStore.getOptions("model_max_output"));
 // 嵌入模型协议档位（字典 embedding_provider，重排序模型 provider 复用该协议集）
 const providerOptions = computed(() => dictStore.getOptions("embedding_provider"));
 // 图像模型生图规格档位（字典 image_size / image_quality，值即 sys_model_config.extra 的
@@ -49,6 +51,9 @@ const form = reactive({
   max_retries: null as number | null,
   // 字典下拉存储值为字符串（token 数），提交前转数字
   context_window: "" as string,
+  // chat/rewrite 能力键（落 extra）：视觉开关 + 最大输出档位（字典字符串）
+  vision: false,
+  max_output: "" as string,
   // 图像角色可调生图规格（落 extra）：字典下拉存储值为字符串
   image_size: "",
   image_quality: "",
@@ -140,25 +145,29 @@ const rules: FormRules = {
   api_url: [{ required: true, message: "请输入接口地址", trigger: "blur" }],
 };
 
-// chat/visual/image/video 显示超时；chat/visual/image 显示重试（视频为异步任务，重试由轮询逻辑处理）；
+// chat/image/video 显示超时；chat/image 显示重试（视频为异步任务，重试由轮询逻辑处理）；
 // 仅 rerank 显示 provider；仅 chat 显示上下文窗口；
+// chat/rewrite 显示能力键（视觉开关 + 最大输出，落 extra）；
 // 仅 image 显示可调生图规格（size/quality，落 extra；输出侧后端写死，不入配置）；
 // 仅 video 显示可调合成规格（resolution/ratio/duration，落 extra）
 const showTimeout = computed(() =>
-  ["chat", "visual", "image", "video"].includes(editing.value?.role ?? "")
+  ["chat", "image", "video"].includes(editing.value?.role ?? "")
 );
 const showMaxRetries = computed(() =>
-  ["chat", "visual", "image"].includes(editing.value?.role ?? "")
+  ["chat", "image"].includes(editing.value?.role ?? "")
 );
 const showProvider = computed(() => editing.value?.role === "rerank");
 const showContextWindow = computed(() => editing.value?.role === "chat");
+const showModelCapability = computed(() =>
+  ["chat", "rewrite"].includes(editing.value?.role ?? "")
+);
 const showImageSpec = computed(() => editing.value?.role === "image");
 const showVideoSpec = computed(() => editing.value?.role === "video");
 
-/** 取 extra 中的字符串型规格值（非字符串/缺失视为未配置，下拉回落占位） */
+/** 取 extra 中的字符串/数字型规格值（其它类型或缺失视为未配置，下拉回落占位） */
 function extraText(extra: Record<string, unknown>, key: string): string {
   const raw = extra[key];
-  return typeof raw === "string" ? raw : "";
+  return typeof raw === "string" ? raw : typeof raw === "number" ? String(raw) : "";
 }
 
 /** 取 extra 中的数字型规格值（兼容手工写入的数字字符串），非法返回 null */
@@ -202,6 +211,20 @@ function buildVideoExtra(): Record<string, unknown> {
   return extra;
 }
 
+/**
+ * chat/rewrite 角色：把视觉开关与最大输出打包为 extra。
+ *
+ * 与 image/video 规格同理浅合并保留未知键；最大输出空值视为“未配置”直接删键，
+ * 让后端回落缺省档位。vision 显式写布尔，便于卡片展示开关状态。
+ */
+function buildModelCapabilityExtra(): Record<string, unknown> {
+  const extra: Record<string, unknown> = { ...(editing.value?.extra ?? {}) };
+  extra.vision = form.vision;
+  if (form.max_output) extra.max_output = form.max_output;
+  else delete extra["max_output"];
+  return extra;
+}
+
 function openEdit(config: ModelConfig) {
   editing.value = config;
   dialogTestResult.value = null;
@@ -217,6 +240,10 @@ function openEdit(config: ModelConfig) {
     timeout: config.timeout,
     max_retries: config.max_retries,
     context_window: config.context_window != null ? String(config.context_window) : "",
+    // 能力键兼容手工写入的字符串布尔；最大输出未配置时默认选中字典第一项
+    vision: extra.vision === true || extra.vision === "true",
+    max_output:
+      extraText(extra, "max_output") || modelMaxOutputOptions.value[0]?.value || "",
     image_size: extraText(extra, "size"),
     image_quality: extraText(extra, "quality"),
     video_resolution: extraText(extra, "resolution"),
@@ -250,12 +277,14 @@ async function submit() {
           ? Number(form.context_window)
           : null
         : undefined,
-      // 角色规格仅 image / video 提交（合并进 extra，保留未知键）；其余角色不触碰 extra
+      // 角色规格仅 image / video / chat / rewrite 提交（合并进 extra，保留未知键）；其余角色不触碰 extra
       extra: showImageSpec.value
         ? buildImageExtra()
         : showVideoSpec.value
           ? buildVideoExtra()
-          : undefined,
+          : showModelCapability.value
+            ? buildModelCapabilityExtra()
+            : undefined,
       remark: form.remark || null,
     });
     // 后端在保存成功后触发配置快照刷新，refreshed 透出是否热更新生效
@@ -279,7 +308,7 @@ onMounted(loadConfigs);
     <header class="model-cfg-page__head">
       <h2 class="model-cfg-page__title">模型配置</h2>
       <p class="model-cfg-page__subtitle">
-        对话 / 改写 / 多模态 / 重排序 / 图像 / 视频模型的运行参数，保存后免重启、自下一请求生效。
+        对话 / 改写 / 重排序 / 图像 / 视频模型的运行参数，保存后免重启、自下一请求生效。
       </p>
     </header>
 
@@ -397,6 +426,23 @@ onMounted(loadConfigs);
             />
           </el-select>
         </el-form-item>
+        <!-- chat/rewrite 能力键：视觉开关 + 最大输出（落 extra，后端决定多模态与输出上限） -->
+        <el-form-item v-if="showModelCapability" label="视觉">
+          <div class="field-inline">
+            <el-switch v-model="form.vision" />
+            <span class="field-hint">开启后允许向该模型发送图片（剧本 / 绘图多模态输入）</span>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="showModelCapability" label="最大输出">
+          <el-select v-model="form.max_output" placeholder="选择最大输出 token" clearable>
+            <el-option
+              v-for="item in modelMaxOutputOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
         <!-- 图像模型可调生图规格：落 extra，后端归一为 images/generations 入参 -->
         <template v-if="showImageSpec">
           <el-form-item label="生图尺寸">
@@ -496,6 +542,18 @@ onMounted(loadConfigs);
 
 .model-select {
   flex: 1;
+}
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: #8a94a6;
+  line-height: 1.4;
 }
 
 .field-status-tip {

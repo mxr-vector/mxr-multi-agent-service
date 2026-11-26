@@ -23,7 +23,7 @@ docker.io/qdrant/qdrant
    - 显存至少 16G（CUDA/ROCm 均可）
 4. 初始化数据库：依次执行 `database/sql/` 下三个脚本（见 5.1）
 5. 配置分两处：postgres/qdrant/embedding 等部署级配置在 `env/.env.development`；
-   chat/rewrite/rerank/visual 模型与 RAG 运行参数在数据库，启动后于前端「模型管理 / 参数管理」页维护（免重启热更新）
+   chat/rewrite/rerank/image/video 模型与 RAG 运行参数在数据库，启动后于前端「模型管理 / 参数管理」页维护（免重启热更新）
 
 > **BM25 稀疏通道**：主路径为 jieba 中英双语分词编码器（`model/sparse/bm25.py`，中文 jieba + 英文小写化切词，混合文本自动分流），纯本地实现，**无需下载任何模型**；
 > 旧 fastembed `Qdrant/bm25` 降级为 legacy（`legacy_*` 函数），仅供迁移回滚（`utils/migrate_sparse.py`）与对照评测。
@@ -81,7 +81,7 @@ PostgreSQL 作为关系型知识库持久化维护，也便于经过向量块命
 ### 3.4 权限与配置
 
 - **数据权限**：知识库可见性 `private / department / public` + 用户部门 data_scope，服务端强制收口（不可见与不存在同文案，不泄露存在性）
-- **配置双轨**：`EMBEDDING_*` 保留在 env（换模型即毁向量库，部署级钉死）；模型角色（chat/rewrite/visual/rerank/image/video，角色集合由字典 model_types 决定）在 `sys.sys_model_config`，经配置快照 `CFG` 读取，写后热更新（校验失败保留旧快照 last-known-good）
+- **配置双轨**：`EMBEDDING_*` 保留在 env（换模型即毁向量库，部署级钉死）；模型角色（chat/rewrite/rerank/image/video，角色集合由字典 model_types 决定）在 `sys.sys_model_config`，经配置快照 `CFG` 读取，写后热更新（校验失败保留旧快照 last-known-good）
 
 ## 4. 基准测试
 
@@ -189,13 +189,14 @@ psql -U postgres -d multi_agent_db -f database/sql/base_seed.sql       # 种子�
 ### 5.4 配置模型与运行参数
 
 启动后访问前端（登录账号见 `database/sql/base_seed.sql` 种子用户），在「系统管理 → 模型管理」页
-配置各角色模型（api_url / api_key / 超时 / 重试 / 上下文窗口）：
+配置各角色模型（api_url / api_key / 超时 / 重试 / 上下文窗口 / 视觉开关 / 最大输出）：
 
-- `chat`：对话与最终答案生成
+- `chat`：对话与最终答案生成；「视觉」开关开启后允许剧本 / 绘图向该模型发送图片（不再单独配置多模态模型）
 - `rewrite`：检索工具内反思自纠错的查询改写（结果不足时改写重检索）
 - `rerank`：检索结果精排
-- `visual`：多模态（RAG 用不到，Draw 系统使用）
 - `image`：生图模型（RAG 用不到，Story 系统使用）
+
+对话 / 改写压缩模型还可配置「最大输出」档位（字典 `model_max_output`，存 `extra.max_output`；未配置时默认取字典第一项）。可用输入预算 = `context_window − max_output`；会话内容（系统提示 + 历史 + 本轮问题）占比超过 80% 时，较早历史由改写压缩模型生成摘要（最近原文保留），摘要随图状态持续注入，被压缩消息移出 checkpoint，业务表历史仍完整保留。
 
 「系统管理 → 参数管理」页配置 RAG 运行参数（默认值见种子，修改即时生效）：
 
@@ -209,7 +210,6 @@ psql -U postgres -d multi_agent_db -f database/sql/base_seed.sql       # 种子�
 | `RAG_MULTIHOP_MERGE_POOL` | 30 | 逐跳候选汇入合并池的文档数上限，统一对原问题重排后截取 top-k |
 | `CHAT_CHECKPOINT_TTL_DAYS` | 7 | checkpoint 保留天数（超期后台任务清理） |
 | `CHAT_HISTORY_MAX_MESSAGES` | 20 | 无 checkpoint 历史时回落业务表读取的历史消息条数上限 |
-| `CHAT_MAX_OUTPUT_TOKENS` | 8192 | 对话模型请求输出上限（参与输入预算计算） |
 
 ![model_config.png](./assets/images/model_config.png)
 

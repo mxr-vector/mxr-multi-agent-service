@@ -4,8 +4,7 @@ Image 图像生成模型 client 工厂。
 统一封装指向 OpenAI 兼容图像生成端点（images/generations）的 client 构造逻辑，
 业务代码通过 build_image_client() 获取模型实例、generate_image() 直接生成；
 模型名与端点由配置快照 CFG.image 决定（来源 sys_model_config 的 image 角色行，
-写时刷新），与 chat/visual/rerank 模型各司其职（对齐 model/visual/factory.py
-的工厂约定）。
+写时刷新），与 chat/rerank 模型各司其职（对齐 model/chat/factory.py 的工厂约定）。
 
 生图规格中只有 size/quality 属运行期可调项，存于 image 角色行的 extra（JSONB），经配置
 快照透传后在此归一为请求入参——调用方只传 prompt/n 与需要覆盖的规格，缺省一律取

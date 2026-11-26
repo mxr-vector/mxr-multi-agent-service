@@ -87,10 +87,10 @@ CREATE TABLE sys.sys_model_config (
     api_url      TEXT NOT NULL,                 -- 接口地址(OpenAI 兼容 base_url 或 DashScope/MaaS 基地址)
     api_key      TEXT NOT NULL,                 -- 凭证, 落盘明文, 响应掩码
     provider     VARCHAR(50),                   -- provider 标识, 目前仅 rerank 使用
-    timeout      INT,                           -- 单请求超时(秒), 目前 chat/visual/image/video 使用
-    max_retries  INT,                           -- 失败重试次数, 目前 chat/visual/image 使用
-    context_window INT NOT NULL DEFAULT 200000, -- 上下文窗口(token), 目前 chat 使用
-    extra        JSONB,                         -- 角色特有参数兜底(image: size/quality; video: resolution/ratio/duration)
+    timeout      INT,                           -- 单请求超时(秒), 目前 chat/image/video 使用
+    max_retries  INT,                           -- 失败重试次数, 目前 chat/image 使用
+    context_window INT NOT NULL DEFAULT 200000, -- 上下文窗口(token), 目前 chat 使用(可用输入预算 = 窗口 - extra.max_output)
+    extra        JSONB,                         -- 角色特有参数兜底(chat/rewrite: vision/max_output; image: size/quality; video: resolution/ratio/duration)
     is_builtin   BOOLEAN NOT NULL DEFAULT TRUE, -- 内置行删除保护
     remark       TEXT,
 

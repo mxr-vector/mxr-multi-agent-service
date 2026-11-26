@@ -39,19 +39,20 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from agent.constants.enums.story import StoryNode
+from agent.context_compression import (
+    needs_compression,
+    recent_budget,
+    summarize_history,
+)
 from agent.prompts.story import CONTINUATION_BLOCK, HISTORY_EMPTY, SCRIPT_SYSTEM_PROMPT
 from agent.skills.loader import get_style, read_skill_file, readable_file_hint
 from agent.tools.story_skill_tools import SKILL_READ_TOOL_NAME, build_skill_read_tool
 from core.config_snapshot import CFG
 from exception.bad_except import bad_except
 from model.chat.factory import build_chat_model
-from model.visual.factory import build_visual_model
 from service.story.storage import image_to_data_uri
 from utils.logger import logger
 from utils.token_count import count_messages_tokens, count_tokens
-
-# 输入预算安全边际（覆盖估算偏差，对齐 chat_graph）
-_INPUT_BUDGET_SAFETY_MARGIN = 0.10
 # 历史文本行级固定开销（行分隔/角色标记）
 _LINE_FIXED_TOKENS = 2
 # 技能工具循环轮数上限（SKILL.md 必读 + references 按需，留余量；超限强制收尾）
@@ -63,8 +64,8 @@ _SKILL_READ_CORRECTION_LIMIT = 1
 # 预算守卫对工具结果的截断下限（低于该长度不再截断，保持文档可读性）
 _TOOL_RESULT_MIN_KEEP = 2000
 # 生成模型的输出预算覆盖：当前生成模型强制深度思考（reasoning token 与正文
-# 共享 max_tokens 上限），完整剧本 + 角色卡 JSON 需要远大于全局默认（8192）
-# 的空间——实锤：思考耗尽全局预算时最终轮正文为空
+# 共享 max_tokens 上限），完整剧本 + 角色卡 JSON 需要远大于 chat 角色默认
+# 输出档位（8192）的空间——实锤：思考耗尽输出预算时最终轮正文为空
 _STORY_MAX_OUTPUT_TOKENS = 32768
 # 生成链路停顿超时覆盖（秒）：提交工具结果后的创作轮携带大上下文（技能文档
 # 全文），强制深度思考下首个 chunk 延迟可超全局 chat.timeout（60s）——实锤：
@@ -74,6 +75,26 @@ _STORY_STALL_TIMEOUT = 300
 # 空响应重试上限（深度思考耗尽预算/网关瞬态空流的兜底；重试后仍空走失败
 # 路径，不落库空产物）
 _EMPTY_OUTPUT_RETRY_LIMIT = 1
+
+
+def _split_lines_for_compression(
+    lines: list[str], keep_budget: int, model_name: str
+) -> tuple[list[str], list[str]]:
+    """从新到旧保留最近行至 keep_budget，返回 (较早待摘要, 最近保留)。"""
+    if keep_budget <= 0 or not lines:
+        return list(lines), []
+    acc = 0
+    keep_count = 0
+    for line in reversed(lines):
+        cost = count_tokens(model_name, line) + _LINE_FIXED_TOKENS
+        if acc + cost > keep_budget:
+            break
+        acc += cost
+        keep_count += 1
+    if keep_count == 0:
+        return list(lines), []
+    split = len(lines) - keep_count
+    return list(lines[:split]), list(lines[split:])
 
 
 def _trim_history_lines(lines: list[str], budget: int, model_name: str) -> str:
@@ -99,22 +120,10 @@ def _build_story_model(
     stream_chunk_timeout: float = float(_STORY_STALL_TIMEOUT),
     temperature: float = 0.7,
 ):
-    """故事对话模型：默认采用多模态模型（基于 OpenAI 兼容接口）。
+    """故事对话模型：统一使用 chat 角色（图片输入由 CFG.chat.vision 门控）。
 
-    优先使用配置快照中的 visual 多模态模型角色（支持文本与图片多模态输入）；
-    若 visual 角色未定义或缺少配置，平滑回退至 chat 对话模型角色。
+    剧本链路保留故事专用输出预算（32K，思考 token 与正文共享）与停顿超时覆盖。
     """
-    try:
-        if hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name:
-            return build_visual_model(
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=timeout,
-                stream_chunk_timeout=stream_chunk_timeout,
-            )
-    except Exception as exc:
-        logger.warning(f"[STORY] 加载 visual 多模态模型失败，回退至 chat 模型: {exc}")
-
     return build_chat_model(
         temperature=temperature,
         max_tokens=max_tokens,
@@ -124,11 +133,9 @@ def _build_story_model(
 
 
 def _input_budget(context_window: int | None = None) -> int:
-    """输入预算 = context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。"""
-    window = context_window or getattr(CFG.chat, "context_window", 200000)
-    return (
-        window - CFG.chat_max_output_tokens - int(window * _INPUT_BUDGET_SAFETY_MARGIN)
-    )
+    """可用输入预算 = context_window − 故事输出预算（vLLM 按输入+max_tokens 校验）。"""
+    window = context_window or CFG.chat.context_window
+    return max(0, window - _STORY_MAX_OUTPUT_TOKENS)
 
 
 def _ensure_within_budget(messages: list, budget: int, model_name: str) -> None:
@@ -282,11 +289,8 @@ class StoryGraph:
         history_lines = state.get("history_lines") or []
         images = state.get("images") or []
         continuation_prefix = state.get("continuation_prefix") or ""
-        model_role = (
-            CFG.visual
-            if (hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name)
-            else CFG.chat
-        )
+        # 生成模型统一使用 chat 角色；是否接受图片输入见 CFG.chat.vision
+        model_role = CFG.chat
         model_name = model_role.model_name
         answer_parts: list[str] = []
         # 技能调用审计：custom 事件增量外发（失败路径服务层也能拿到已读清单）
@@ -311,18 +315,22 @@ class StoryGraph:
                 }
             )
 
-        # 解析多模态图片
+        # 解析多模态图片（视觉关闭时不读取文件；上游会拒绝多模态入参，正文创作继续）
         image_uris: list[str] = []
-        for img in images:
-            if not img:
-                continue
-            try:
-                if img.startswith(("data:", "http://", "https://")):
-                    image_uris.append(img)
-                else:
-                    image_uris.append(image_to_data_uri(img))
-            except Exception as exc:
-                logger.warning(f"[STORY] 图片转 data URI 失败 {img}: {exc}")
+        if images and not CFG.chat.vision:
+            logger.warning("[STORY] chat 模型未启用视觉，忽略参考图片")
+            _emit({"type": "think", "text": "当前对话模型未启用视觉，参考图片已忽略"})
+        elif images:
+            for img in images:
+                if not img:
+                    continue
+                try:
+                    if img.startswith(("data:", "http://", "https://")):
+                        image_uris.append(img)
+                    else:
+                        image_uris.append(image_to_data_uri(img))
+                except Exception as exc:
+                    logger.warning(f"[STORY] 图片转 data URI 失败 {img}: {exc}")
 
         image_hint = ""
         if image_uris:
@@ -376,9 +384,27 @@ class StoryGraph:
                 idea_block=idea,
             ),
         ) + count_tokens(model_name, continuation_block + image_hint)
-        history_block = _trim_history_lines(
-            history_lines, budget - fixed_cost, model_name
-        ) or (HISTORY_EMPTY if not history_lines else "")
+        history_block = ""
+        history_cost = count_tokens(model_name, "\n".join(history_lines))
+        if needs_compression(fixed_cost + history_cost, budget):
+            older, recent = _split_lines_for_compression(
+                history_lines, recent_budget(budget), model_name
+            )
+            if older:
+                _emit({"type": "think", "text": "历史对话较长，正在压缩总结..."})
+                try:
+                    summary = await summarize_history(older)
+                except Exception:
+                    logger.exception("[STORY] 历史压缩总结失败，回退按预算裁剪")
+                else:
+                    recent_text = "\n".join(recent)
+                    history_block = f"【较早对话摘要】\n{summary}" + (
+                        f"\n\n{recent_text}" if recent_text else ""
+                    )
+        if not history_block:
+            history_block = _trim_history_lines(
+                history_lines, budget - fixed_cost, model_name
+            ) or (HISTORY_EMPTY if not history_lines else "")
         system_prompt = (
             SCRIPT_SYSTEM_PROMPT.format(
                 style_name=style.name,
@@ -402,7 +428,7 @@ class StoryGraph:
             SystemMessage(content=system_prompt),
             user_message,
         ]
-        # 对话模型默认采用多模态模型（基于 OpenAI 兼容接口）
+        # 生成模型统一为 chat 角色（图片输入已按 CFG.chat.vision 门控）
         model = _build_story_model().bind_tools(
             [build_skill_read_tool(style.skill_dir)]
         )

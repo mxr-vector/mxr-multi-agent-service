@@ -38,7 +38,7 @@ from database.draw.diagram import (
 from agent.constants.enums.chat import SessionStatus
 from database.postgre_client import get_session
 from exception.bad_except import bad_except
-from model.visual.factory import build_visual_model
+from model.chat.factory import build_chat_model
 from utils.env import ENV
 from core.config_snapshot import CFG
 from utils.logger import logger
@@ -274,7 +274,10 @@ class DrawCompletionService:
         if not ctx.user_id:
             bad_except("绘图问答仅支持用户通道调用")
 
-        # 图片引用在进流前完成校验（含 data URI 预构造，早失败）
+        # 图片引用在进流前完成校验（含 data URI 预构造，早失败）；
+        # 上传图片依赖 chat 角色的视觉能力，未开启时直接拒绝而非静默丢弃
+        if image_file and not CFG.chat.vision:
+            bad_except("当前对话模型未启用视觉，无法识别上传图片，请在模型管理中开启视觉开关")
         image_data_uri = _image_to_data_uri(image_file) if image_file else None
 
         # 会话解析：缺省自动创建（标题取首问截断）；显式传入须为本人未删会话
@@ -425,7 +428,8 @@ class DrawCompletionService:
             queue.put_nowait(sse_frame(event_id, event, data))
 
         try:
-            model = build_visual_model()
+            # 低温度保持图表结构稳定（对齐原 visual 工厂的 0.2 缺省）
+            model = build_chat_model(temperature=0.2)
             messages = self._build_messages(question, image_data_uri, base_mermaid)
             # 首帧回传 session_id（自动建会话场景前端由此拿到会话 id）
             _put(SseEvent.THINK, {"text": "正在生成图表...", "session_id": session_hex})
@@ -453,7 +457,7 @@ class DrawCompletionService:
             answer = "".join(answer_parts)
             mermaid_source = extract_mermaid(answer)
             metrics = {
-                "model": CFG.visual.model_name,
+                "model": CFG.chat.model_name,
                 "duration_ms": round((time.monotonic() - started_at) * 1000),
             }
             version_id = await self._finalize(

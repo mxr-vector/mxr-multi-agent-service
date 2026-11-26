@@ -163,11 +163,11 @@ class DictDataRepository:
         return list(items), total
 
     async def list_by_type(self, dict_type: str, status: str = "") -> list[DictData]:
-        """按类型键取全量字典项（sort_order 升序），status 非空时按状态精确过滤。"""
+        """按类型键取全量字典项（sort_order 升序，同级按创建顺序），status 非空时按状态精确过滤。"""
         stmt = (
             select(DictData)
             .where(DictData.dict_type == dict_type)
-            .order_by(DictData.sort_order)
+            .order_by(DictData.sort_order, DictData.created_at, DictData.id)
         )
         if status:
             stmt = stmt.where(DictData.status == status)
@@ -175,8 +175,10 @@ class DictDataRepository:
         return list(result.scalars().all())
 
     async def list_all(self, status: str = "") -> list[DictData]:
-        """全量查询字典数据（按 dict_type, sort_order 升序），status 非空时按状态过滤。"""
-        stmt = select(DictData).order_by(DictData.dict_type, DictData.sort_order)
+        """全量查询字典数据（按 dict_type, sort_order, 创建顺序升序），status 非空时按状态过滤。"""
+        stmt = select(DictData).order_by(
+            DictData.dict_type, DictData.sort_order, DictData.created_at, DictData.id
+        )
         if status:
             stmt = stmt.where(DictData.status == status)
         result = await self.session.execute(stmt)

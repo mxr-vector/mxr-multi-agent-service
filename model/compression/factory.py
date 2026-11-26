@@ -17,7 +17,7 @@ from core.config_snapshot import CFG
 
 @cache
 def _build_compression_model(
-    model_name: str, api_url: str, api_key: str, temperature: float
+    model_name: str, api_url: str, api_key: str, temperature: float, max_tokens: int
 ) -> ChatOpenAI:
     """按配置指纹构造 rewrite/compression model 实例（指纹相同即复用）。"""
     return ChatOpenAI(
@@ -25,6 +25,8 @@ def _build_compression_model(
         base_url=api_url,
         api_key=api_key,
         temperature=temperature,
+        # 输出上限取自 rewrite 角色的 extra.max_output（摘要/改写都为短输出）
+        max_tokens=max_tokens,
         # 反思/重写是检索链路内部调用，只取完整结果：显式禁流式，
         # 保证 token 事件永不进入 langgraph messages 通道外泄进答案帧
         # （此前仅靠 ainvoke 默认非流式这一隐式行为，配置漂移即漏）
@@ -43,4 +45,5 @@ def build_compression_model(temperature: float = 0) -> ChatOpenAI:
         api_url=rewrite.api_url,
         api_key=rewrite.api_key,
         temperature=temperature,
+        max_tokens=rewrite.max_output_tokens,
     )

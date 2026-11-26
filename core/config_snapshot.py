@@ -30,6 +30,8 @@ from utils.logger import logger
 # 字典项的 value 即 sys_model_config.role，新增模型类型只需维护字典与配置行，
 # 无需改代码（对齐前端 ModelCard 的 model_types 消费约定）
 MODEL_TYPES_DICT_KEY = "model_types"
+# 模型最大输出档位字典（sort_order 升序第一项即未配置时的缺省档位）
+MODEL_MAX_OUTPUT_DICT_KEY = "model_max_output"
 # 正整数标量运行参数键（sys_config.key），全部为必需正整数
 INT_SCALAR_KEYS = (
     "RAG_CANDIDATE_POOL_SIZE",
@@ -40,7 +42,6 @@ INT_SCALAR_KEYS = (
     "RAG_MULTIHOP_MERGE_POOL",
     "CHAT_CHECKPOINT_TTL_DAYS",
     "CHAT_HISTORY_MAX_MESSAGES",
-    "CHAT_MAX_OUTPUT_TOKENS",
 )
 # 自托管 drawio embed 实例地址（http(s) URL，前端 iframe 加载与 postMessage origin 校验用）
 DRAWIO_EMBED_URL_KEY = "DRAWIO_EMBED_URL"
@@ -66,11 +67,40 @@ def scalar_value_type(key: str) -> str:
     return "text"
 
 
-# chat/visual 角色的超时/重试缺省值（NULL 时回落，保持迁移前 ENV 行为）
+# chat 角色的超时/重试缺省值（NULL 时回落，保持迁移前 ENV 行为）
 DEFAULT_TIMEOUT = 60
 DEFAULT_MAX_RETRIES = 2
 # 上下文窗口(token)缺省值（NULL 时回落，目前 chat 使用）
 DEFAULT_CONTEXT_WINDOW = 200000
+# 角色能力键（存于 sys_model_config.extra，由前端「模型管理」维护）：
+# vision=是否支持图片输入（chat/rewrite），max_output=单次请求最大输出 token（字典 model_max_output 档位）
+VISION_EXTRA_KEY = "vision"
+MAX_OUTPUT_EXTRA_KEY = "max_output"
+# 最大输出 token 最后兜底值：仅当字典 model_max_output 缺失/非法时使用；
+# 正常缺省为字典第一项（sort_order 升序）
+DEFAULT_MAX_OUTPUT_TOKENS = 8192
+
+
+def _coerce_vision(raw) -> bool:
+    """extra.vision 归一为布尔（兼容手工写入的 "true"/"1" 字符串）。"""
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return bool(raw)
+
+
+def _coerce_max_output(raw, default: int) -> int:
+    """extra.max_output 归一为正整数（兼容字典值字符串），非法/缺失回落 default。"""
+    if isinstance(raw, bool):
+        return default
+    value = raw if isinstance(raw, int) else None
+    if value is None and isinstance(raw, str):
+        try:
+            value = int(raw.strip())
+        except ValueError:
+            value = None
+    return value if value is not None and value > 0 else default
 
 
 @dataclass(frozen=True)
@@ -90,6 +120,14 @@ class ModelRoleConfig:
     # 以保持“新增模型类型只维护字典与配置行、无需改本模块”的动态角色约定；
     # 非对象 JSON（数组/标量）或 NULL 一律归一为空 dict，消费方免判空。
     extra: dict
+    # 单次请求最大输出 token：extra.max_output 已配置优先，否则取字典
+    # model_max_output 第一项（快照加载时解析，热更新自动生效）
+    max_output_tokens: int
+
+    @property
+    def vision(self) -> bool:
+        """是否支持图片输入（extra.vision，缺省关闭）。"""
+        return _coerce_vision(self.extra.get(VISION_EXTRA_KEY))
 
 
 @dataclass(frozen=True)
@@ -110,11 +148,12 @@ class ConfigSnapshot:
     rag_multihop_merge_pool: int
     chat_checkpoint_ttl_days: int
     chat_history_max_messages: int
-    chat_max_output_tokens: int
     drawio_embed_url: str
 
 
-def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
+def _coerce_role(
+    role: str, row, errors: list[str], default_max_output: int
+) -> ModelRoleConfig | None:
     """把一行模型配置转为快照对象，缺失/非法项追加到 errors 并返回 None。"""
     if row is None:
         errors.append(f"缺少模型配置角色行: role={role}")
@@ -126,10 +165,12 @@ def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
             errors.append(f"模型配置 role={role} 的必填字段为空: {field}")
     timeout = row.timeout
     max_retries = row.max_retries
-    if role in ("chat", "visual"):
-        # chat/visual 的超时与重试为必需数值，NULL 时回落缺省，保持迁移前行为
+    if role == "chat":
+        # chat 的超时与重试为必需数值，NULL 时回落缺省，保持迁移前行为
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         max_retries = max_retries if max_retries is not None else DEFAULT_MAX_RETRIES
+    # extra 允许缺失/为空：仅在角色工厂需要特有参数时才配置
+    extra = dict(row.extra) if isinstance(getattr(row, "extra", None), dict) else {}
     return ModelRoleConfig(
         role=role,
         model_name=(row.model_name or "").strip(),
@@ -143,8 +184,10 @@ def _coerce_role(role: str, row, errors: list[str]) -> ModelRoleConfig | None:
             if row.context_window is not None
             else DEFAULT_CONTEXT_WINDOW
         ),
-        # extra 允许缺失/为空：仅在角色工厂需要特有参数时才配置
-        extra=dict(row.extra) if isinstance(getattr(row, "extra", None), dict) else {},
+        extra=extra,
+        max_output_tokens=_coerce_max_output(
+            extra.get(MAX_OUTPUT_EXTRA_KEY), default_max_output
+        ),
     )
 
 
@@ -198,6 +241,36 @@ async def _load_model_roles() -> tuple[str, ...]:
     return roles
 
 
+async def _load_default_max_output() -> int:
+    """读取字典 model_max_output 第一项（sort_order 升序）作为未配置时的缺省档位。
+
+    字典缺失/首项非法时回落 DEFAULT_MAX_OUTPUT_TOKENS 并告警（不阻断启动，
+    存量库未执行迁移时仍可运行）。
+    """
+    from service.system.dict import DictDataService
+
+    rows = await DictDataService().list_by_type(
+        MODEL_MAX_OUTPUT_DICT_KEY, status=RecordStatus.ACTIVE
+    )
+    if rows:
+        try:
+            value = int(str(rows[0].get("value") or "").strip())
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            return value
+        logger.warning(
+            f"[CFG] 字典 {MODEL_MAX_OUTPUT_DICT_KEY} 首项非法: {rows[0].get('value')!r}，"
+            f"最大输出缺省回落 {DEFAULT_MAX_OUTPUT_TOKENS}"
+        )
+    else:
+        logger.warning(
+            f"[CFG] 字典 {MODEL_MAX_OUTPUT_DICT_KEY} 无可用项，"
+            f"最大输出缺省回落 {DEFAULT_MAX_OUTPUT_TOKENS}"
+        )
+    return DEFAULT_MAX_OUTPUT_TOKENS
+
+
 async def _build_snapshot() -> ConfigSnapshot:
     """从数据库全量加载并校验，返回不可变快照；任一必需项缺失/非法则抛 ValueError。"""
     errors: list[str] = []
@@ -208,10 +281,12 @@ async def _build_snapshot() -> ConfigSnapshot:
         scalar_raw = await ConfigRepository(session).get_by_keys(SCALAR_KEYS)
     # 字典数据经 DictDataService 查询（service 内部自管会话）
     model_roles = await _load_model_roles()
+    default_max_output = await _load_default_max_output()
 
     by_role = {row.role: row for row in model_rows}
     roles = {
-        role: _coerce_role(role, by_role.get(role), errors) for role in model_roles
+        role: _coerce_role(role, by_role.get(role), errors, default_max_output)
+        for role in model_roles
     }
     scalars = {
         key: _coerce_positive_int(
@@ -237,7 +312,6 @@ async def _build_snapshot() -> ConfigSnapshot:
         rag_multihop_merge_pool=scalars["RAG_MULTIHOP_MERGE_POOL"],
         chat_checkpoint_ttl_days=scalars["CHAT_CHECKPOINT_TTL_DAYS"],
         chat_history_max_messages=scalars["CHAT_HISTORY_MAX_MESSAGES"],
-        chat_max_output_tokens=scalars["CHAT_MAX_OUTPUT_TOKENS"],
         drawio_embed_url=drawio_embed_url,
     )
 
@@ -360,10 +434,6 @@ class _ConfigManager:
     @property
     def chat_history_max_messages(self) -> int:
         return self._current.chat_history_max_messages
-
-    @property
-    def chat_max_output_tokens(self) -> int:
-        return self._current.chat_max_output_tokens
 
     @property
     def drawio_embed_url(self) -> str:

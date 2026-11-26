@@ -29,16 +29,20 @@ TBD - created by archiving change add-draw-diagram. Update Purpose after archive
 - **WHEN** 用户上传的文件类型不在图片白名单内或超出大小限制
 - **THEN** 系统拒绝上传并按统一响应格式返回明确错误信息
 
-### Requirement: VISUAL 多模态模型调用
-系统 SHALL 通过独立的 `VISUAL_MODEL_NAME` / `VISUAL_API_URL` / `VISUAL_API_KEY` 环境变量组（`ENV_CONFIG` property 模式，缺失即启动失败）配置多模态模型，并经 `langchain_openai.ChatOpenAI` 以 OpenAI 兼容多模态消息（text + image_url）调用。图片 MUST 以 base64 data URI 形式进入 image_url。
+### Requirement: 多模态图片输入（chat 角色）
+系统 SHALL 通过 chat 模型角色（`sys_model_config` 的 chat 行）以 OpenAI 兼容多模态消息（text + image_url）调用，不再使用独立的 visual 角色。仅当 chat 角色 `extra.vision` 开启时接受图片输入；未开启时 MUST 以统一错误响应拒绝上传图片。图片 MUST 以 base64 data URI 形式进入 image_url。
 
 #### Scenario: 多模态消息构造
-- **WHEN** 生成请求包含图片
-- **THEN** 系统将图片读取为 base64 data URI，与文本一同构造多模态消息发送至 VISUAL 端点
+- **WHEN** chat 角色已开启视觉且生成请求包含图片
+- **THEN** 系统将图片读取为 base64 data URI，与文本一同构造多模态消息发送至 chat 端点
 
-#### Scenario: VISUAL 服务不可达
-- **WHEN** VISUAL 端点连接失败或超时
-- **THEN** 系统按既有异常处理规范返回统一错误响应，错误信息明确指示 VISUAL 服务不可达，不影响其他模块
+#### Scenario: 视觉未开启拒绝图片
+- **WHEN** chat 角色 `extra.vision` 为关闭且请求包含图片
+- **THEN** 系统返回统一错误响应，提示在模型管理中开启视觉开关
+
+#### Scenario: chat 服务不可达
+- **WHEN** chat 端点连接失败或超时
+- **THEN** 系统按既有异常处理规范返回统一错误响应，错误信息明确指示模型服务不可达，不影响其他模块
 
 ### Requirement: Mermaid 输出约定
 系统提示词 SHALL 约束模型仅输出 Mermaid 代码块（限定受支持图型：flowchart、sequenceDiagram、classDiagram、stateDiagram、erDiagram 等）；后端 MUST 从模型回复中提取 Mermaid 代码块并做基础校验（代码块存在、图型声明合法），提取结果作为 AI 图表版本的 `mermaid_source` 落库。

@@ -304,12 +304,8 @@ class StoryGenerationService:
                                 message_at=now,
                             )
 
-                # 对话模型默认优先采用多模态模型角色
-                model_name = (
-                    CFG.visual.model_name
-                    if (hasattr(CFG, "visual") and CFG.visual and CFG.visual.model_name)
-                    else CFG.chat.model_name
-                )
+                # 生成模型统一使用 chat 角色（多模态输入由 CFG.chat.vision 门控）
+                model_name = CFG.chat.model_name
                 gen_task = await task_repo.create(
                     task_id=uuid7(),
                     project_id=project.id,

@@ -43,6 +43,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from agent.constants.enums.chat import ChatNode, ChatRole
+from agent.context_compression import (
+    available_input_tokens,
+    needs_compression,
+    recent_budget,
+    summarize_history,
+)
 from agent.prompts.chat import AGENT_PROMPT, AGENT_TOOLS_GUIDANCE
 from agent.tools.rag_tools import (
     TOOL_IMPLS,
@@ -58,8 +64,6 @@ from utils.logger import logger
 from utils.env import ENV
 from utils.token_count import count_messages_tokens, count_tokens
 
-# 输入预算安全边际：context_window 的固定比例（覆盖 tiktoken 估算偏差）
-_INPUT_BUDGET_SAFETY_MARGIN = 0.10
 # 历史文本行级固定开销（行分隔符/角色标记）
 _LINE_FIXED_TOKENS = 2
 
@@ -110,6 +114,8 @@ class ChatState(MessagesState):
     # 最终答案与结构化来源
     answer: str
     sources: List[dict]
+    # 较早历史压缩摘要（跨轮持久化；历史超阈值时增量更新，随系统提示注入）
+    history_summary: str
 
 
 class ChatGraph:
@@ -253,13 +259,31 @@ class ChatGraph:
     # ---------- 输入预算守卫 ----------
     @staticmethod
     def _input_budget() -> int:
-        """输入预算 = context_window − 输出预留 − 安全边际（vLLM 按输入+max_tokens 校验）。"""
-        context_window = CFG.chat.context_window
-        return (
-            context_window
-            - CFG.chat_max_output_tokens
-            - int(context_window * _INPUT_BUDGET_SAFETY_MARGIN)
-        )
+        """可用输入预算 = context_window − 最大输出（vLLM 按输入+max_tokens 校验）。"""
+        return available_input_tokens(CFG.chat)
+
+    @staticmethod
+    def _split_messages_for_compression(
+        messages: List[BaseMessage], keep_budget: int, model_name: str
+    ) -> Tuple[List[BaseMessage], List[BaseMessage]]:
+        """从新到旧保留最近消息至 keep_budget，返回 (较早待摘要, 最近保留)。
+
+        keep_budget ≤ 0 时全部归入待摘要（压缩后仅由摘要承载旧历史）。
+        """
+        if keep_budget <= 0:
+            return list(messages), []
+        acc = 0
+        keep_count = 0
+        for message in reversed(messages):
+            cost = _message_token_cost(model_name, message)
+            if acc + cost > keep_budget:
+                break
+            acc += cost
+            keep_count += 1
+        if keep_count == 0:
+            return list(messages), []
+        split = len(messages) - keep_count
+        return list(messages[:split]), list(messages[split:])
 
     @staticmethod
     def _trim_messages_to_budget(
@@ -358,52 +382,109 @@ class ChatGraph:
         return tools
 
     async def _prepare_messages(
-        self, state: ChatState, config: RunnableConfig
-    ) -> Tuple[List[BaseMessage], List[str], int, str]:
-        """组装本轮 messages（系统提示 + 历史 + 问题）。
+        self, state: ChatState, config: RunnableConfig, writer=None
+    ) -> Tuple[List[BaseMessage], List[str], int, str, str]:
+        """组装本轮 messages（系统提示 + 摘要/历史 + 问题）。
 
-        返回 (msgs, remove_ids, budget, model_name)：历史按 token 预算从最旧裁剪，
-        remove_ids 随节点返回同步进 checkpoint；checkpoint 无历史时回落业务表。
+        返回 (msgs, remove_ids, budget, model_name, history_summary)：
+        - 会话内容（固定开销 + 摘要 + 全部历史）超过可用预算 80% 时，较早历史
+          交 rewrite 角色压缩为摘要，最近原文保留；被压缩消息 id 进 remove_ids，
+          随节点返回经 RemoveMessage 同步移出 checkpoint，摘要写入图状态；
+        - 压缩失败 / 未触发时按 token 预算从最旧裁剪（原有兜底）；
+        - checkpoint 无历史时回落业务表；摘要无论是否新生成都注入系统提示。
         """
         question = state["question"]
         model_name = CFG.chat.model_name
         kb_hint = ", ".join(state.get("kb_ids") or []) or "（未指定，检索返回空）"
         # 分层工具指引与工具集开关联动：关闭开关时提示词同步回退（行为不变）
         guidance = AGENT_TOOLS_GUIDANCE if ENV.agent_tools_enabled else ""
-        # 输入预算：固定开销（系统提示模板 + 本轮问题）先扣除，余量为历史预算；
-        # 系统提示与本轮问题永不裁剪（循环级兑底见 _ensure_within_budget）
+        # 可用输入预算 = context_window − max_output；系统提示与本轮问题永不裁剪
         budget = self._input_budget()
+        summary = (state.get("history_summary") or "").strip()
         fixed_cost = count_tokens(
             model_name,
             AGENT_PROMPT.format(history="", knowledge_base_ids=kb_hint) + guidance,
         ) + count_tokens(model_name, question)
-        history_budget = budget - fixed_cost
         remove_ids: List[str] = []
         # messages 末尾是本轮刚追加的 HumanMessage，历史取其之前的部分；
         # checkpoint 无历史（新会话 / TTL 已清理 / 存量会话）：回落业务表
         history_messages = state["messages"][:-1]
+        history = ""
         if history_messages:
-            kept, remove_ids = self._trim_messages_to_budget(
-                history_messages, history_budget, model_name
+            total_cost = (
+                fixed_cost
+                + count_tokens(model_name, summary)
+                + _messages_tokens_cached(model_name, history_messages)
             )
-            history = self._format_history(kept, CFG.chat_history_max_messages)
+            compressed = False
+            if needs_compression(total_cost, budget):
+                older, recent = self._split_messages_for_compression(
+                    history_messages, recent_budget(budget), model_name
+                )
+                if older:
+                    if writer is not None:
+                        writer(
+                            {
+                                "type": "think",
+                                "text": "对话历史较长，正在压缩总结...",
+                            }
+                        )
+                    try:
+                        summary = await summarize_history(
+                            self._format_history(older, len(older)).splitlines(),
+                            summary,
+                        )
+                    except Exception:
+                        logger.exception("[CHAT] 历史压缩总结失败，回退按预算裁剪")
+                    else:
+                        remove_ids = [
+                            m.id for m in older if getattr(m, "id", None)
+                        ]
+                        history = self._format_history(
+                            recent, CFG.chat_history_max_messages
+                        )
+                        compressed = True
+                        logger.info(
+                            f"[CHAT] 历史压缩：{len(older)} 条旧消息浓缩为摘要"
+                        )
+            if not compressed:
+                history_budget = (
+                    budget - fixed_cost - count_tokens(model_name, summary)
+                )
+                kept, remove_ids = self._trim_messages_to_budget(
+                    history_messages, history_budget, model_name
+                )
+                history = self._format_history(
+                    kept, CFG.chat_history_max_messages
+                )
+        elif summary:
+            # checkpoint 消息已全部压缩为摘要：摘要覆盖旧历史，回落业务表会重复注入
+            history = ""
         else:
             thread_id = (config.get("configurable") or {}).get("thread_id")
             history = await self._load_fallback_history(
                 thread_id,
                 CFG.chat_history_max_messages,
-                history_budget,
+                budget - fixed_cost - count_tokens(model_name, summary),
                 model_name,
                 question=question,
             )
+        history_block = history
+        if summary:
+            history_block = (
+                f"【较早对话摘要】\n{summary}"
+                + (f"\n\n{history}" if history else "")
+            )
         msgs: List[BaseMessage] = [
             SystemMessage(
-                content=AGENT_PROMPT.format(history=history, knowledge_base_ids=kb_hint)
+                content=AGENT_PROMPT.format(
+                    history=history_block, knowledge_base_ids=kb_hint
+                )
                 + guidance
             ),
             HumanMessage(content=question),
         ]
-        return msgs, remove_ids, budget, model_name
+        return msgs, remove_ids, budget, model_name, summary
 
     async def _execute_tool(
         self,
@@ -544,14 +625,16 @@ class ChatGraph:
         ToolMessage 内容按全局编号 [n] 重建——与 sources.index 严格对应，
         模型引用角标即来源索引。工具中间消息只存节点局部，不回写 state
         messages，保持 checkpointer 历史干净（仅追加最终 AIMessage）。
-        输入预算守卫：历史按 token 预算从最旧裁剪，裁剪结果经 RemoveMessage
-        同步进 checkpoint（消息窗口有界，业务表完整历史不受影响）；工具结果
-        在每次模型调用前兜底截断；系统提示与本轮问题永不裁剪。
+        输入预算守卫：会话内容占可用预算（context_window − max_output）超过 80%
+        时，旧历史交 rewrite 角色压缩为摘要、最近原文保留；被压缩消息经
+        RemoveMessage 同步移出 checkpoint（消息窗口有界，业务表完整历史不受
+        影响），摘要随状态跨轮持久化；压缩失败或未触发时按预算从最旧裁剪；
+        工具结果在每次模型调用前兜底截断；系统提示与本轮问题永不裁剪。
         检索进度经 stream_mode="custom"（get_stream_writer）外发 think 事件。
         """
         writer = self._safe_stream_writer()
-        msgs, remove_ids, budget, model_name = await self._prepare_messages(
-            state, config
+        msgs, remove_ids, budget, model_name, history_summary = (
+            await self._prepare_messages(state, config, writer)
         )
         reasoning_effort = state.get("reasoning_effort")
         model = build_chat_model(reasoning_effort=reasoning_effort).bind_tools(
@@ -640,6 +723,7 @@ class ChatGraph:
             "answer": self._answer_text(response),
             "sources": self._build_sources(all_docs),
             "metrics": metrics,
+            "history_summary": history_summary,
         }
 
     @staticmethod

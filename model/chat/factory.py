@@ -43,7 +43,7 @@ def _build_chat_model(
         api_key=api_key,
         temperature=temperature,
         reasoning_effort=reasoning_effort,
-        # 输出上限（max_tokens）由配置快照决定（CHAT_MAX_OUTPUT_TOKENS），
+        # 输出上限（max_tokens）由 chat 角色的 extra.max_output 决定，
         # 以 OpenAI 兼容的 max_tokens 入参下发；context_window 仅作输入预算计算。
         max_tokens=max_tokens,
         # 单请求超时（秒）与失败重试次数，均由配置快照决定（缺省 60s / 2 次）。
@@ -66,8 +66,8 @@ def build_chat_model(
     reasoning_effort 为 None 或 'off' 时重置为 None（不下发该参数）关闭思考；
     其余取值（low/medium/high 等）透传给模型开启对应思考强度。
     思考模式与否均支持工具调用（tool_choice / function_calling）。
-    max_tokens 缺省用全局配置 CHAT_MAX_OUTPUT_TOKENS；强制深度思考的模型
-    （thinking token 与正文共享输出预算）等场景可显式覆盖放大。
+    max_tokens 缺省用 chat 角色的 extra.max_output（字典 model_max_output 档位）；
+    强制深度思考的模型（thinking token 与正文共享输出预算）等场景可显式覆盖放大。
     timeout 缺省用全局配置 chat.timeout；长上下文生成（强制深度思考下首个
     chunk 延迟可超全局读超时）等场景可显式覆盖放大。
     stream_chunk_timeout 覆盖 SDK 的 chunk 间隔超时（缺省 env/120s，显式值
@@ -85,7 +85,7 @@ def build_chat_model(
         api_key=chat.api_key,
         temperature=temperature,
         reasoning_effort=effort,
-        max_tokens=max_tokens or CFG.chat_max_output_tokens,
+        max_tokens=max_tokens or chat.max_output_tokens,
         timeout=timeout or chat.timeout,
         stream_chunk_timeout=stream_chunk_timeout,
         max_retries=chat.max_retries,

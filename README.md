@@ -143,7 +143,7 @@ uv run python infer.py
 
 - 服务监听 `http://server_host:8000`（由 `env/.env.development` 的 `SERVER_HOST` / `SERVER_PORT` 控制），接口文档 `/docs`
 - 除 `/docs`、`/static`、`/public*` 等白名单路径外，所有请求需携带 `Authorization: Bearer <API_SECRET_KEY>`
-- 模型配置（chat/rewrite/rerank/visual）与 RAG 运行参数在数据库维护，前端「系统管理」页热更新，详见 [RAG.md 5.4](readme/RAG.md)
+- 模型配置（chat/rewrite/rerank/image/video）与 RAG 运行参数在数据库维护，前端「系统管理」页热更新，详见 [RAG.md 5.4](readme/RAG.md)
 
 ## 4.2 前端启动
 

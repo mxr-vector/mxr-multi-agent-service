@@ -6,7 +6,7 @@ tiktoken token 估算器（chat 输入预算守卫用）。
 - count_messages_tokens(model_name, messages)：按消息列表估算总 token
   （文本 content 计 token，多模态 content 列表仅计 text 部分，消息级固定开销计入）；
 - Encoding 对象按模型名 lru_cache 缓存，避免重复加载；未知模型名回落
-  cl100k_base 保守估算（估算偏差由输入预算的安全边际兜底）。
+  cl100k_base 保守估算（只多不少，避免低估导致上游超限）。
 
 对齐项目惯例：业务代码统一经本模块估算 token，不直接 import tiktoken。
 """

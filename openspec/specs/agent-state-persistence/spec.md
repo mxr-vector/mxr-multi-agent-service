@@ -42,10 +42,14 @@ checkpoint 数据 SHALL 按 TTL 清理：保留天数由
 - **THEN** 该 thread 的 checkpoint 数据被删除，业务表会话与消息完整保留
 
 ### Requirement: checkpoint messages 保持有界窗口
-每轮问答结束后，该 thread checkpoint 中的 messages SHALL 只保留输入预算窗口内的最近消息：被预算裁剪器裁掉的旧消息 MUST 经消息删除机制从 checkpoint 中移除，checkpoint 不承载完整历史。`rag.chat_messages` 业务表 SHALL 仍为完整历史的事实源，MUST NOT 受 checkpoint 裁剪影响；checkpoint 无历史时的回落读取（TTL 清理/存量会话）行为保持不变。
+每轮问答结束后，该 thread checkpoint 中的 messages SHALL 保持有界：会话内容占可用输入预算超过 80% 时，较早消息 SHALL 先经 rewrite 角色压缩为摘要（摘要存于图状态 `history_summary` 并随系统提示注入），随后被压缩消息 MUST 经消息删除机制从 checkpoint 移除；未触发压缩或压缩失败时，被预算裁剪器裁掉的旧消息同样 MUST 移除。checkpoint 不承载完整历史，`rag.chat_messages` 业务表 SHALL 仍为完整历史的事实源，MUST NOT 受 checkpoint 压缩/裁剪影响；checkpoint 无历史时的回落读取（TTL 清理/存量会话）行为保持不变。
+
+#### Scenario: 压缩后 checkpoint 有界
+- **WHEN** 长会话多轮问答的会话内容超过可用输入预算 80%
+- **THEN** 较早消息先浓缩为摘要（摘要跨轮保留），源消息从 checkpoint 移除，体积保持有界
 
 #### Scenario: 裁剪后 checkpoint 有界
-- **WHEN** 长会话多轮问答持续超过输入预算窗口
+- **WHEN** 长会话多轮问答持续超过输入预算窗口且未完成压缩
 - **THEN** checkpoint 中 messages 仅保留最近窗口内的消息，体积保持有界
 
 #### Scenario: 业务表不受裁剪影响

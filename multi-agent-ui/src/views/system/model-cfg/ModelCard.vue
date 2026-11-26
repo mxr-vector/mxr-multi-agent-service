@@ -65,12 +65,17 @@ const roleLabel = computed(() => dictStore.getLabel("model_types", props.config.
 const isImage = computed(() => props.config.role === "image");
 /** 是否为视频模型（仅该角色展示合成规格参数） */
 const isVideo = computed(() => props.config.role === "video");
+/** chat/rewrite：展示能力键（视觉开关 / 最大输出） */
+const isModelCapability = computed(() =>
+  ["chat", "rewrite"].includes(props.config.role)
+);
 
 const roleExtra = computed(() => (props.config.extra ?? {}) as Record<string, unknown>);
 
-/** 取 extra 中的字符串型规格值，非字符串/空白视为未配置 */
+/** 取 extra 中的字符串/数字型规格值，其它类型/空白视为未配置 */
 function extraText(key: string): string {
   const raw = roleExtra.value[key];
+  if (typeof raw === "number") return String(raw);
   return typeof raw === "string" && raw.trim() ? raw.trim() : "";
 }
 
@@ -82,6 +87,20 @@ function extraDictLabel(dictType: string, key: string): string {
 
 const imageSizeLabel = computed(() => extraDictLabel("image_size", "size"));
 const imageQualityLabel = computed(() => extraDictLabel("image_quality", "quality"));
+
+/** 视觉开关展示（兼容手工写入的字符串布尔） */
+const visionLabel = computed(() => {
+  const raw = roleExtra.value["vision"];
+  return raw === true || raw === "true" ? "开启" : "关闭";
+});
+
+/** 最大输出展示：命中字典取 label；未配置时按约定显示字典第一项（缺省档位） */
+const maxOutputLabel = computed(() => {
+  const value = extraText("max_output");
+  if (value) return dictStore.getLabel("model_max_output", value);
+  const first = dictStore.getOptions("model_max_output")[0];
+  return first ? first.label : "默认";
+});
 
 /** 超时/重试展示：视频为异步任务，timeout 仅作用于提交请求，重试由轮询逻辑处理 */
 const timeoutLabel = computed(() => {
@@ -137,6 +156,17 @@ const videoDurationLabel = computed(() => {
         <dt>上下文窗口</dt>
         <dd>{{ contextWindowLabel }}</dd>
       </div>
+      <!-- chat/rewrite 能力键：视觉开关 + 最大输出（extra），决定多模态输入与输出上限 -->
+      <template v-if="isModelCapability">
+        <div class="model-card__row">
+          <dt>视觉</dt>
+          <dd>{{ visionLabel }}</dd>
+        </div>
+        <div class="model-card__row">
+          <dt>最大输出</dt>
+          <dd>{{ maxOutputLabel }}</dd>
+        </div>
+      </template>
       <!-- 图像模型：可调生图规格（extra）；输出侧后端写死 webp + 压缩率 80，不入配置也不展示 -->
       <template v-if="isImage">
         <div class="model-card__row">
