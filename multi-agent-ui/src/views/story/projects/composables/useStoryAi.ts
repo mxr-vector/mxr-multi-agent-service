@@ -154,6 +154,14 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     return res.data;
   }
 
+  /** 重命名会话（名称由首条需求自动摘要，手动修改后不再被覆盖） */
+  async function renameSession(id: string, title: string) {
+    const res = await storyAiApi.renameSession(id, title);
+    const target = sessions.value.find((s) => s.id === id);
+    if (target && res.data) target.title = res.data.title;
+    return res.data;
+  }
+
   async function removeSession(id: string) {
     cancelRewrite();
     await storyAiApi.removeSession(id);
@@ -323,6 +331,10 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
       async () => {
         finishStream();
         await loadMessages(true);
+        // 首条需求会异步生成会话名，结束后补拉一次让自动标题即时回显
+        if (!activeSession.value?.title) {
+          await loadSessions();
+        }
         onProjectChanged?.();
       }
     );
@@ -491,6 +503,7 @@ export function useStoryAi(projectId: Ref<string>, project: Ref<{ style_key: str
     loadSessions,
     switchSession,
     createSession,
+    renameSession,
     removeSession,
     // 消息
     messages,

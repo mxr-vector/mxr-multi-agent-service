@@ -51,6 +51,7 @@ from service.story.contract import CARDS_BEGIN, CARDS_END, split_dual_track
 from service.story.session import (
     StorySessionService,
     cancel_generation,
+    generate_session_title,
     register_generation,
     release_session,
     reserve_session,
@@ -144,6 +145,8 @@ class StoryGenerationService:
             params_snapshot = None
 
         session_hex = session_id.hex
+        # 首轮创作需求作为自动会话名的摘要来源（提交后旁路生成，本标记跨事务传出）
+        title_idea: str | None = None
         # 会话级互斥（内存注册表）：先原子占位，防"校验→注册"间 await 窗口
         # 被并发请求穿透（TOCTOU）；后续任一步失败都须归还占位
         reserve_session(session_hex)
@@ -169,6 +172,9 @@ class StoryGenerationService:
                     )
                     history_lines = self._history_lines(recent)
                     user_seq = await message_repo.next_sequence(session_id)
+                    # 会话尚无标题时，用首条创作需求摘要生成会话名
+                    if user_seq == 0 and not story_session.title:
+                        title_idea = idea
                     await message_repo.create(
                         message_id=uuid7(),
                         session_id=session_id,
@@ -319,6 +325,17 @@ class StoryGenerationService:
                     model=model_name,
                 )
                 await session.commit()
+
+            if title_idea is not None:
+                # 标题生成属旁路任务：失败不得影响已提交的生成任务与消息行
+                try:
+                    spawn_side_task(
+                        generate_session_title(session_id, title_idea), tag="STORY"
+                    )
+                except Exception:
+                    logger.exception(
+                        f"[STORY] 创建会话名生成任务失败 session={session_hex}"
+                    )
 
             queue: asyncio.Queue[str | None] = asyncio.Queue()
             task = asyncio.create_task(

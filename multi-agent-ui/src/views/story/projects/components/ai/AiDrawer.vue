@@ -121,26 +121,38 @@ async function handleSwitchSession(id: string) {
   scrollToBottom(true);
 }
 
-/** 会话标题输入（可取消） */
-async function promptSessionTitle(): Promise<string | null> {
-  try {
-    const { value } = await ElMessageBox.prompt("会话标题（可空）", "新建生成会话", {
-      confirmButtonText: "创建",
-      cancelButtonText: "取消",
-      inputPlaceholder: "如：剧本初稿",
-    });
-    return value?.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
+/** 新建会话：名称由首条创作需求自动摘要（≤10 字），可随时重命名 */
 async function handleCreateSession() {
-  const name = await promptSessionTitle();
-  const res = await ai.createSession(name ?? undefined);
+  const res = await ai.createSession();
   if (res) {
     scrollToBottom(true);
   }
+}
+
+/** 重命名当前会话 */
+async function handleRenameSession() {
+  const session = ai.activeSession.value;
+  if (!session) return;
+  let title: string;
+  try {
+    const { value } = await ElMessageBox.prompt("会话名称", "重命名会话", {
+      confirmButtonText: "保存",
+      cancelButtonText: "取消",
+      inputValue: session.title ?? "",
+      inputPlaceholder: "如：雨夜来客",
+      inputValidator: (v: string) => {
+        const name = v?.trim() ?? "";
+        if (!name) return "名称不能为空";
+        if (name.length > 30) return "名称不能超过 30 个字";
+        return true;
+      },
+    });
+    title = value.trim();
+  } catch {
+    return;
+  }
+  await ai.renameSession(session.id, title);
+  ElMessage.success("会话名称已修改");
 }
 
 async function handleRemoveSession() {
@@ -564,6 +576,9 @@ defineExpose({
         </el-option>
       </el-select>
       <el-button size="small" @click="handleCreateSession">新建</el-button>
+      <el-button size="small" :disabled="!ai.activeSession.value" @click="handleRenameSession">
+        重命名
+      </el-button>
       <el-button size="small" :disabled="!ai.activeSession.value" @click="handleRemoveSession">
         删除
       </el-button>

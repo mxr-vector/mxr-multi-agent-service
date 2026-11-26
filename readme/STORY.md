@@ -108,7 +108,7 @@ flowchart LR
 ### 步骤一：输入创作需求，生成标准化剧本与卡片
 
 1. **新建/进入剧本项目**：在「项目管理」中新建或打开已有项目，进入项目工作区。
-2. **唤出 AI 创作抽屉**：点击工作区右侧的 AI 故事生成抽屉；支持新建对话会话或切换历史创作会话，右上角按钮可折叠/展开抽屉。
+2. **唤出 AI 创作抽屉**：点击工作区右侧的 AI 故事生成抽屉；支持新建对话会话或切换历史创作会话，会话名称默认由首条创作需求自动摘要（≤10 字），并可通过「重命名」随时修改；右上角按钮可折叠/展开抽屉。
 3. **设置制作参数**：
    - **风格预设**：选择视频风格——`通用短剧`、`上美影动画`、`手绘日记`、`纯景意境`，不同风格自动激活对应的专业编剧技能与分镜提示词配方（纯景意境为无剧情/无人物风光漫游，Tab 相应变为「分镜 / 景物立绘」）；
    - **画幅比例**：按风格提供 `16:9` 横屏电影感、`9:16` 竖屏短剧、`4:3` 传统画幅或 `3:4` 竖版等选项（推荐默认 `16:9`）；
@@ -356,7 +356,7 @@ flowchart LR
 | | `PUT` | `/story/scripts/{script_id}/current` | 切换当前活跃剧本版本 |
 | **生成会话** | `POST` / `GET` | `/story/projects/{project_id}/sessions` | 新建会话 / 查询项目会话列表 |
 | | `GET` | `/story/projects/{project_id}/sessions/latest` | 获取项目最近会话 |
-| | `GET` / `DELETE` | `/story/sessions/{session_id}` | 会话详情 / 删除会话 |
+| | `GET` / `PUT` / `DELETE` | `/story/sessions/{session_id}` | 会话详情 / 重命名 / 删除会话 |
 | | `GET` | `/story/sessions/{session_id}/messages` | 会话消息与产物卡片列表 |
 | | `GET` | `/story/projects/{project_id}/generation-tasks` | 项目生成任务列表 |
 | | `GET` | `/story/generation-tasks/{task_id}` | 生成任务详情与状态 |

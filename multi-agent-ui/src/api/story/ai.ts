@@ -17,7 +17,7 @@ export const STORY_AI_URL = {
   sessions: (projectId: string) => `/story/projects/${projectId}/sessions`,
   /** 最近活跃会话（抽屉默认打开目标） */
   latestSession: (projectId: string) => `/story/projects/${projectId}/sessions/latest`,
-  /** 会话详情 / 删除 */
+  /** 会话详情 / 重命名 / 删除 */
   sessionById: (sessionId: string) => `/story/sessions/${sessionId}`,
   /** 会话消息历史 */
   sessionMessages: (sessionId: string) => `/story/sessions/${sessionId}/messages`,
@@ -237,6 +237,14 @@ export const storyAiApi = {
     return request.post<StorySessionVO, ApiResult<StorySessionVO>>(
       STORY_AI_URL.sessions(projectId),
       { title, type }
+    );
+  },
+
+  /** 重命名会话（手动命名后不再被自动摘要覆盖） */
+  renameSession(sessionId: string, title: string) {
+    return request.put<StorySessionVO, ApiResult<StorySessionVO>>(
+      STORY_AI_URL.sessionById(sessionId),
+      { title }
     );
   },
 

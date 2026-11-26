@@ -27,6 +27,12 @@ class SessionCreateRequest(BaseModel):
     type: str = "general"  # 'general'/'script'/'character'/'character_art'/'keyframe'
 
 
+class SessionRenameRequest(BaseModel):
+    """重命名会话请求体。"""
+
+    title: str
+
+
 @router.post("/projects/{project_id}/sessions")
 async def create_session(
     project_id: uuid.UUID = Path(...),
@@ -64,6 +70,16 @@ async def session_detail(
 ):
     """会话详情（仅属主可见）。"""
     return R.success(data=await _session_service.detail(ctx, session_id))
+
+
+@router.put("/sessions/{session_id}")
+async def rename_session(
+    session_id: uuid.UUID = Path(...),
+    payload: SessionRenameRequest = Body(...),
+    ctx: UserContext = Depends(get_user_context),
+):
+    """重命名会话（手动命名后不再被自动摘要覆盖）。"""
+    return R.success(data=await _session_service.rename(ctx, session_id, payload.title))
 
 
 @router.get("/sessions/{session_id}/messages")

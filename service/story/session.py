@@ -16,8 +16,10 @@ import uuid
 
 from uuid_utils.compat import uuid7
 
+from agent.constants.enums.chat import ChatRole
 from agent.constants.enums.story import StorySessionType
 from agent.constants.enums.story import StoryProjectStatus
+from agent.prompts.story import SESSION_TITLE_PROMPT
 from database.postgre_client import get_session
 from database.story.project import KeyframeRepository, ProjectRepository
 from database.story.session import (
@@ -37,6 +39,13 @@ from utils.user_context import UserContext
 # utils/stream_runtime.GenerationTaskRegistry；本模块保留同名函数出口，
 # 供 generation / art 两侧按既有签名调用）
 _generation_registry = GenerationTaskRegistry("上一条生成尚未完成，请稍候或先停止生成")
+
+# 会话名摘要生成超时（秒），超时回落首条需求截断
+_TITLE_TIMEOUT_SECONDS = 10
+# 会话名压缩上限（字数，压缩对话模型输出硬截断）
+_TITLE_MAX_CHARS = 10
+# 手动重命名的长度上限
+_RENAME_MAX_CHARS = 30
 
 
 def reserve_session(session_id_hex: str) -> None:
@@ -91,6 +100,49 @@ async def reset_stale_generating_messages() -> int:
             f"{video_count} 个中断的视频生成任务已置为 failed"
         )
     return total
+
+
+def _normalize_title(text: str) -> str:
+    """收口会话名：合并空白、去包裹引号并截断到 10 字内（尾部标点一并去掉）。"""
+    cleaned = " ".join((text or "").strip().split())
+    cleaned = cleaned.strip('"\'“”‘’《》「」')
+    return cleaned[:_TITLE_MAX_CHARS].strip().rstrip("，。、；：！？…,.;:!?~")
+
+
+async def generate_session_title(session_id: uuid.UUID, idea: str) -> None:
+    """首条创作需求异步生成会话名：压缩模型摘要（≤10 字），失败/超时回落截断。
+
+    旁路任务：仅在会话标题仍为空时回填，不覆盖用户手动重命名。
+    """
+    title = _normalize_title(idea)
+    try:
+        from model.compression.factory import build_compression_model
+
+        response = await asyncio.wait_for(
+            build_compression_model().ainvoke(
+                [
+                    {
+                        "role": ChatRole.USER.value,
+                        "content": SESSION_TITLE_PROMPT.format(idea=idea),
+                    }
+                ]
+            ),
+            timeout=_TITLE_TIMEOUT_SECONDS,
+        )
+        generated = _normalize_title(response.content or "")
+        if generated:
+            title = generated
+    except Exception as exc:
+        logger.warning(f"[STORY] 会话名摘要生成失败，回落截断 {session_id.hex}: {exc}")
+    if not title:
+        return
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        row = await repo.get(session_id)
+        if row is None or row.title:
+            return
+        await repo.update_fields(row, {"title": title})
+        await session.commit()
 
 
 def _assert_user_channel(ctx: UserContext) -> None:
@@ -162,6 +214,20 @@ class StorySessionService:
                 type=session_type,
             )
             await self._sync_session_count(session, project_id)
+            await session.commit()
+            return row.to_dict()
+
+    async def rename(self, ctx: UserContext, session_id: uuid.UUID, title: str) -> dict:
+        """重命名会话（手动命名即最终标题，自动摘要不再覆盖）。"""
+        _assert_user_channel(ctx)
+        cleaned = (title or "").strip()
+        if not cleaned:
+            bad_except("会话名称不能为空")
+        if len(cleaned) > _RENAME_MAX_CHARS:
+            bad_except(f"会话名称不能超过 {_RENAME_MAX_CHARS} 个字")
+        async with get_session() as session:
+            row, _ = await self._assert_session_owned(session, session_id, ctx)
+            await SessionRepository(session).update_fields(row, {"title": cleaned})
             await session.commit()
             return row.to_dict()
 
